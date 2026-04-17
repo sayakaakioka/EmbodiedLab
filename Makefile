@@ -7,17 +7,17 @@ PYTHON := $(shell command -v python3 2>/dev/null || command -v python)
 LAST_RESPONSE_FILE := .last_submit_response.json
 LAST_SUBMISSION_ID_FILE := .last_submission_id
 
-setup: setup_api setup_trainer
+setup: 
 	test -d .venv || $(PYTHON) -m venv .venv
 	.venv/bin/python -m pip install --upgrade pip
 
-setup_api:
+setup_api: setup
 	.venv/bin/python -m pip install -r requirements-api.txt
 
-setup_trainer:
+setup_trainer: setup
 	.venv/bin/python -m pip install -r requirements-job.txt
 
-test:
+test: setup_api setup_trainer
 	.venv/bin/python -m pip install -r requirements-dev.txt
 	.venv/bin/python -m pytest tests
 
