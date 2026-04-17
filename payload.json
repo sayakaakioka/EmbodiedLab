@@ -1,0 +1,23 @@
+{
+  "environment": {
+    "size": [6, 4],
+    "obstacles": [],
+    "goal": { "x": 5, "y": 3 },
+    "robot_start": { "x": 0, "y": 0 }
+  },
+  "robot": {
+    "type": "simple"
+  },
+  "training": {
+    "algorithm": "ppo",
+    "timesteps": 5000,
+    "seed": 42,
+    "max_steps": 50,
+    "n_steps": 32,
+    "batch_size": 32,
+    "gamma": 0.99,
+    "learning_rate": 0.0003,
+    "ent_coef": 0.0,
+    "eval_episodes": 20
+  }
+}
