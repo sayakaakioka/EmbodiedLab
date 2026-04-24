@@ -1,117 +1,130 @@
+"""Trainer orchestration for Firestore updates, model training, and event publishing."""
+
 from __future__ import annotations
 
-import os
-import tempfile
 import traceback
+from collections.abc import Callable
+from typing import Any
 
-from embodiedlab.result_models import ResultStatus
-from embodiedlab.training.training_config import TrainingConfig
-from embodiedlab.training.training_converter import convert_submission_to_spec
-from trainer.config import TrainerConfig
-from trainer.progress import (
-	completed_progress,
-	failed_progress,
-	running_progress,
-	starting_progress,
+from embodiedlab.repositories import ResultUpdateWriter, SubmissionReader
+from embodiedlab.result_models import (
+    ResultStatus,
+    completed_progress,
+    failed_progress,
+    running_progress,
+    starting_progress,
 )
-from trainer.repositories import create_firestore_client, fetch_submission, get_result_ref
-from trainer.results import update_result
+from embodiedlab.training.runner import run_gridworld_training
+from trainer.artifacts import upload_model_to_gcs
+from trainer.config import TrainerConfig
+from trainer.logging_utils import log_trainer_event
+from trainer.pubsub import publish_training_event
+from trainer.repositories import (
+    FirestoreResultRepository,
+    FirestoreSubmissionRepository,
+    create_firestore_client,
+)
+from trainer.training_service import (
+    TrainModel,
+    UploadModel,
+    execute_training_run,
+    parse_training_submission,
+)
+from trainer.transitions import TrainerResultTransitions
+
+CreateDb = Callable[[str], Any]
+CreateSubmissionRepository = Callable[[Any], SubmissionReader]
+CreateResultRepository = Callable[[Any], ResultUpdateWriter]
+PublishEvent = Callable[..., None]
 
 
-def get_default_train_model():
-	from embodiedlab.training.runner import run_gridworld_training
-
-	return run_gridworld_training
-
-
-def get_default_upload_model():
-	from trainer.artifacts import upload_model_to_gcs
-
-	return upload_model_to_gcs
-
-
-def run_training_job(
-	config: TrainerConfig,
-	*,
-	create_db=create_firestore_client,
-	fetch_submission_by_id=fetch_submission,
-	train_model=None,
-	upload_model=None,
+def run_training_job(  # noqa: PLR0913
+    config: TrainerConfig,
+    *,
+    create_db: CreateDb = create_firestore_client,
+    create_submission_repository: CreateSubmissionRepository = (
+        FirestoreSubmissionRepository
+    ),
+    create_result_repository: CreateResultRepository = FirestoreResultRepository,
+    train_model: TrainModel = run_gridworld_training,
+    upload_model: UploadModel = upload_model_to_gcs,
+    publish_event: PublishEvent = publish_training_event,
 ) -> None:
-	submission_id = config.submission_id
+    """Execute the trainer job for a single submission."""
+    submission_id = config.submission_id
+    db = create_db(config.db_id)
+    submission_repository = create_submission_repository(db)
+    result_repository = create_result_repository(db)
+    transitions = TrainerResultTransitions(
+        config=config,
+        submission_id=submission_id,
+        result_repository=result_repository,
+        publish_event=publish_event,
+    )
 
-	db = create_db(config.db_id)
-	result_ref = get_result_ref(db, submission_id)
+    log_trainer_event("trainer_job_started", submission_id=submission_id)
 
-	print(f"trainer_job started: submission_id={submission_id}")
+    submission = submission_repository.fetch(submission_id)
+    if submission is None:
+        transitions.write(
+            status=ResultStatus.FAILED,
+            progress=failed_progress("Submission not found"),
+            error="Submission not found",
+        )
+        log_trainer_event(
+            "submission_not_found",
+            submission_id=submission_id,
+        )
+        return
 
-	submission = fetch_submission_by_id(db, submission_id)
-	if submission is None:
-		update_result(
-			result_ref,
-			status=ResultStatus.FAILED,
-			progress=failed_progress("Submission not found"),
-			error="Submission not found",
-		)
-		print(f"submission not found: submission_id={submission_id}")
-		return
+    total_steps = 0
 
-	total_steps = 0
+    try:
+        inputs = parse_training_submission(submission)
+        total_steps = inputs.training.timesteps
 
-	try:
-		training = TrainingConfig.model_validate(submission["training"])
-		total_steps = training.timesteps
-		update_result(
-			result_ref,
-			status=ResultStatus.STARTING,
-			progress=starting_progress(total_steps),
-		)
+        transitions.write(
+            status=ResultStatus.STARTING,
+            progress=starting_progress(total_steps),
+        )
 
-		spec = convert_submission_to_spec(submission)
-		train_model = train_model or get_default_train_model()
-		upload_model = upload_model or get_default_upload_model()
+        transitions.write(
+            status=ResultStatus.RUNNING,
+            progress=running_progress(total_steps),
+        )
 
-		update_result(
-			result_ref,
-			status=ResultStatus.RUNNING,
-			progress=running_progress(total_steps),
-		)
+        execution = execute_training_run(
+            inputs=inputs,
+            model_bucket=config.model_bucket,
+            submission_id=submission_id,
+            train_model=train_model,
+            upload_model=upload_model,
+        )
 
-		with tempfile.TemporaryDirectory() as tmpdir:
-			model_base_path = os.path.join(tmpdir, "policy")
+        transitions.write(
+            status=ResultStatus.COMPLETED,
+            progress=completed_progress(total_steps),
+            summary=execution.summary,
+            artifacts=execution.artifacts,
+        )
 
-			summary = train_model(
-				spec=spec,
-				training=training,
-				model_output_path=model_base_path,
-			)
+        log_trainer_event(
+            "trainer_job_completed",
+            submission_id=submission_id,
+            total_steps=total_steps,
+        )
 
-			artifacts = upload_model(
-				local_model_base_path=model_base_path,
-				bucket_name=config.model_bucket,
-				submission_id=submission_id,
-			)
-
-		update_result(
-			result_ref,
-			status=ResultStatus.COMPLETED,
-			progress=completed_progress(total_steps),
-			summary=summary,
-			error=None,
-			artifacts=artifacts,
-		)
-
-		print(f"trainer_job completed: submission_id={submission_id}")
-
-	except Exception:
-		tb = traceback.format_exc()
-
-		update_result(
-			result_ref,
-			status=ResultStatus.FAILED,
-			progress=failed_progress("Training failed", total_steps=total_steps),
-			error=tb,
-		)
-
-		print(tb)
-		raise
+    except Exception:
+        error_message = traceback.format_exc()
+        transitions.write(
+            status=ResultStatus.FAILED,
+            progress=failed_progress("Training failed", total_steps=total_steps),
+            error=error_message,
+        )
+        log_trainer_event(
+            "trainer_job_failed",
+            submission_id=submission_id,
+            total_steps=total_steps,
+            error=error_message,
+        )
+        raise

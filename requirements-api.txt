@@ -1,5 +1,0 @@
-fastapi
-uvicorn
-pydantic
-google-cloud-firestore
-google-cloud-run

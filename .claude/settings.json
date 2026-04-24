@@ -1,0 +1,35 @@
+{
+    "hooks": {
+        "PreToolUse": [{
+            "matcher": "Bash",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "jq -r 'if .tool_input.command | test(\"rm -rf|dd if=|:(){ :|:& };:|git push\") then {\"decision\": \"block\", \"reason\": \"Cannot execute unsafe command. Please use another way.\"} else empty end'"
+                },
+                {
+                    "type": "command",
+                    "command": "jq -r 'if .tool_input.command | test(\"(^|[;|&] )git (add|stage).+[.](env|pem|key|p12|pfx)|(^|[;|&] )git (add|stage).+(service_account|credential)\") then {\"decision\": \"block\", \"reason\": \"Blocked: attempting to stage a sensitive file (.env, certificate, or credential). This file must not be committed to the repository.\"} else empty end'"
+                }
+            ]
+        }],
+
+        "PostToolUse": [{
+            "matcher": "Write|Edit|MultiEdit",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": "jq -r '.tool_input.file_path | select(endswith(\".py\"))' | xargs -r .venv/bin/python -m py_compile"
+                },
+                {
+                    "type": "command",
+                    "command": "jq -r '.tool_input.file_path | select(endswith(\".py\"))' | xargs -r .venv/bin/ruff check"
+                },
+                {
+                    "type": "command",
+                    "command": "jq -r '.tool_input.file_path | select(endswith(\".md\"))' | xargs -r npx markdownlint-cli2 --fix"
+                }
+            ]
+        }]
+    }
+}
