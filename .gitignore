@@ -45,6 +45,9 @@ htmlcov/
 # Node
 node_modules/
 
+# uv
+.uv-cache/
+
 # application data
 .last_submission_id
 .last_submit_response.json
