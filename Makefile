@@ -72,6 +72,7 @@ show_env: check_deps
 
 gcp_auth: check_deps
 	$(GCLOUD) auth login
+	$(GCLOUD) config set project $(PROJECT_ID)
 
 gcp_bootstrap: check_deps \
 	enable_services \

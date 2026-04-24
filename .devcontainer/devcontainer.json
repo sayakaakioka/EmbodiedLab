@@ -17,16 +17,24 @@
         "python.defaultInterpreterPath": "/workspaces/EmbodiedLab/.venv/bin/python",
         "python.terminal.activateEnvironment": false,
         "editor.formatOnSave": true,
-        "files.trimTrailingWhitespace": true
+        "files.trimTrailingWhitespace": true,
+        "github.copilot.enable": {
+          "*": false
+        },
+        "chat.disableAIFeatures": true
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
         "tamasfe.even-better-toml",
-        "DavidAnson.vscode-markdownlint"
+        "DavidAnson.vscode-markdownlint",
+        "openai.codex"
       ]
     }
+  },
+  "containerEnv": {
+    "UV_CACHE_DIR": "/workspaces/EmbodiedLab/.uv-cache"
   },
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "remoteUser": "root"

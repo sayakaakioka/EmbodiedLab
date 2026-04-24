@@ -4,5 +4,9 @@
   "python.analysis.extraPaths": [
     "${workspaceFolder}/server"
   ],
-  "makefile.configureOnOpen": false
+  "makefile.configureOnOpen": false,
+  "github.copilot.enable": {
+    "*": false
+  },
+  "chat.disableAIFeatures": true
 }
