@@ -60,7 +60,7 @@ def run_gridworld_training(
     model_output_path: str | None = None,
 ) -> dict:
     """Train a PPO policy on the given spec, evaluate it, and optionally save it."""
-    if training.algorithm is not TrainingAlgorithm.PPO:
+    if training.algorithm != TrainingAlgorithm.PPO:
         msg = f"Unsupported algorithm: {training.algorithm}"
         raise ValueError(msg)
 

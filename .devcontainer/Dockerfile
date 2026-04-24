@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     gnupg \
+    jq \
     make \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
