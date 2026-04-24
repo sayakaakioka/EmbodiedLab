@@ -1,0 +1,26 @@
+{
+  "name": "embodiedlab",
+  "version": "1.0.0",
+  "description": "EmbodiedLab is an experimental platform for embodied AI research. The current prototype accepts grid-world training requests through a Cloud Run API, starts a Cloud Run Job to train a reinforcement learning policy, stores model artifacts in GCS, and streams status updates to clients over WebSockets.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sayakaakioka/EmbodiedLab.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sayakaakioka/EmbodiedLab/issues"
+  },
+  "homepage": "https://github.com/sayakaakioka/EmbodiedLab#readme",
+  "devDependencies": {
+    "markdownlint-cli2": "^0.22.1"
+  }
+}

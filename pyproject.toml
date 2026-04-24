@@ -1,0 +1,112 @@
+[project]
+name = "embodiedlab"
+version = "0.1.0"
+description = "EmbodiedLab platform"
+requires-python = ">=3.13"
+
+# devcontainer/CI
+[dependency-groups]
+embodiedlab = [
+    "pydantic",
+]
+server = [
+    "fastapi",
+    "uvicorn[standard]",
+    "google-cloud-firestore",
+    "google-cloud-run",
+]
+trainer = [
+    "gymnasium",
+    "numpy",
+    "torch",
+    "stable-baselines3",
+    "google-cloud-pubsub",
+    "google-cloud-firestore",
+    "google-cloud-storage",
+]
+notification = [
+    "fastapi",
+    "uvicorn[standard]",
+    "websockets",
+]
+dev = [
+    "anyio",
+    "httpx",
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "types-requests",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+
+[tool.ruff]
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    ".vscode",
+    "node_modules",
+    "__pypackages__",
+]
+
+line-length = 88
+indent-width = 4
+
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["D203", "D213"]
+
+fixable = ["ALL"]
+unfixable = []
+
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+    "S101",    # assert is idiomatic in pytest
+    "INP001",  # test directories without __init__.py are common
+    "D",       # docstrings not required in tests
+    "ANN",     # type annotations not required in tests
+    "PLR2004", # magic values in assertions are expected
+    "PLC0415", # imports inside test functions for monkeypatching
+    "ARG",     # unused args in test helpers are intentional
+    "B017",    # bare pytest.raises(Exception) acceptable in tests
+    "PT011",   # broad pytest.raises is OK in tests
+    "EM101",   # string exception literals OK in test code
+    "FBT001",  # boolean positional arg in fake helpers
+    "FBT002",  # boolean default in fake helpers
+    "COM812",  # trailing comma is style preference in tests
+]
+"tools/*" = [
+    "INP001",  # tools are standalone scripts
+    "T201",    # print is appropriate in CLI scripts
+    "D",       # docstrings not needed in scripts
+    "ANN",     # type annotations not needed in scripts
+    "BLE001",  # bare exception in CLI tool is acceptable
+]
+"trainer/job.py" = [
+    "T201",    # Cloud Run Job uses stdout for logging
+    "TC001",   # TrainerConfig used in default arg, runtime import needed
+]
+"server/routes.py" = [
+    "TC001",   # FastAPI resolves these imports at runtime
+]
+"server/services/jobs.py" = [
+    "TC001",   # ServerConfig used at runtime
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+docstring-code-format = false
+docstring-code-line-length = "dynamic"

@@ -57,8 +57,7 @@ jobs:
             "You are a developmemt assistant for this repository.
             Before starting any work, you must review CLAUDE.md to understand the project overview,
             branch strategy, workflow, and important guidelines.
-            For implementation details, refer to 00.document/requirements.md,
-            and for the roadmap, see 00.document/roadmap.md."
+            For implementation details, refer to rules/coding-style.md."
             --allowTools "Bash(gh issue comment:*),Bash(gh pr comment:*)Bash(gh pr view:*),Bash(gh issue view:*),Bash(gh pr diff:*)"
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

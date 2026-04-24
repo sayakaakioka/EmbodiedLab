@@ -4,54 +4,30 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-
-  "remoteUser": "vscode",
-  "updateRemoteUserUID": true,
-  "init": true,
-
-  "mounts": [
-    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
-  ],
-
-  "runArgs": [
-    "--group-add=989"
-  ],
-
-  "forwardPorts": [8000],
-  "portsAttributes": {
-    "8000": {
-      "label": "FastAPI server",
-      "onAutoForward": "notify"
+  "workspaceFolder": "/workspaces/EmbodiedLab",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
     }
   },
-
-  "containerEnv": {
-    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
-    "PYTHONDONTWRITEBYTECODE": "1"
-  },
-
   "customizations": {
     "vscode": {
       "settings": {
-        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
-        "python.terminal.activateEnvironment": true,
-        "python.testing.pytestEnabled": true,
-        "python.testing.pytestArgs": ["tests"],
-        "files.exclude": {
-          "**/__pycache__": true,
-          "**/.pytest_cache": true
-        }
+        "python.defaultInterpreterPath": "/workspaces/EmbodiedLab/.venv/bin/python",
+        "python.terminal.activateEnvironment": false,
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true
       },
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-azuretools.vscode-docker",
-        "github.vscode-github-actions",
-        "eamodio.gitlens"
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml",
+        "DavidAnson.vscode-markdownlint"
       ]
     }
   },
-
-  "postCreateCommand": "bash -lc 'python -m venv .venv && .venv/bin/python -m pip install --upgrade pip'",
-  "postStartCommand": "bash -lc 'if [ -S /var/run/docker.sock ]; then SOCK_GID=$(stat -c \"%g\" /var/run/docker.sock); if ! getent group $SOCK_GID >/dev/null; then sudo groupadd -g $SOCK_GID docker-host; fi; GROUP_NAME=$(getent group $SOCK_GID | cut -d: -f1); sudo usermod -aG $GROUP_NAME vscode; fi'"
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "remoteUser": "root"
 }

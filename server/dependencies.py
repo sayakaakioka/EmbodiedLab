@@ -1,22 +1,45 @@
+"""FastAPI dependency providers for config and Firestore client."""
+
 from __future__ import annotations
 
-from typing import Any
+from functools import lru_cache
+from typing import Annotated
 
+from fastapi import Depends
 from google.cloud import firestore
 
 from server.config import ServerConfig, load_server_config
+from server.repositories import (
+    FirestoreResultRepository,
+    FirestoreSubmissionRepository,
+)
 
-config = load_server_config()
-_db = None
 
-
+@lru_cache(maxsize=1)
 def get_config() -> ServerConfig:
-	return config
+    """Return the server configuration singleton."""
+    return load_server_config()
 
 
-def get_db() -> Any:
-	global _db
-	if _db is None:
-		_db = firestore.Client(database=config.db_id)
+@lru_cache(maxsize=1)
+def _create_db() -> firestore.Client:
+    return firestore.Client(database=get_config().db_id)
 
-	return _db
+
+def get_db() -> firestore.Client:
+    """Return the Firestore client singleton."""
+    return _create_db()
+
+
+def get_submission_repository(
+    db: Annotated[firestore.Client, Depends(get_db)],
+) -> FirestoreSubmissionRepository:
+    """Return the submission repository bound to the shared Firestore client."""
+    return FirestoreSubmissionRepository(db)
+
+
+def get_result_repository(
+    db: Annotated[firestore.Client, Depends(get_db)],
+) -> FirestoreResultRepository:
+    """Return the result repository bound to the shared Firestore client."""
+    return FirestoreResultRepository(db)
