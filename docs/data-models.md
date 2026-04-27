@@ -60,6 +60,18 @@ object at startup. Deployment still depends on these Makefile-level variables:
 | `NOTIFICATION_SERVICE_NAME` | string | Cloud Run service name |
 | `NOTIFICATION_PUSH_PATH` | string | Pub/Sub push path, typically `/internal/pubsub/push` |
 
+### `tools/ws_client.py`
+
+The local WebSocket helper is usually run via `make get_result_ws`. It builds
+the Cloud Run WebSocket URL from environment variables exported by `Makefile`:
+
+| Name | Type | Purpose |
+| --- | --- | --- |
+| `NOTIFICATION_SERVICE_NAME` | string | Notification Cloud Run service name |
+| `HASH` | string | Cloud Run service URL hash suffix |
+| `REGION` | string | Cloud Run region |
+| `SUBMISSION_ID` | string | Submission to subscribe to |
+
 ## External API Payloads
 
 ### `POST /submissions`
@@ -166,11 +178,21 @@ Response model shape: `embodiedlab.result_models.ResultDocument`
       "storage": "gcs",
       "bucket": "my-model-bucket",
       "path": "models/submission-123/policy.zip"
+    },
+    "onnx_model": {
+      "storage": "gcs",
+      "bucket": "my-model-bucket",
+      "path": "models/submission-123/policy.onnx"
     }
   },
   "updated_at": "2026-04-24T12:34:56.000000+00:00"
 }
 ```
+
+Artifact paths are GCS object paths under `models/{submission_id}/`. The
+Makefile-created model bucket is configured for public object read, so clients
+can download both `policy.zip` and `policy.onnx` directly when the project
+allows public bucket IAM.
 
 ## Firestore Document Shapes
 
@@ -263,6 +285,9 @@ Published shape: `embodiedlab.result_models.ResultMessage`
   "updated_at": "2026-04-24T12:35:12.000000+00:00"
 }
 ```
+
+Completed result events include the same `artifacts` block returned by
+`GET /results/{submission_id}`, including both `model` and `onnx_model`.
 
 ### Pub/Sub Push -> Notification Service
 

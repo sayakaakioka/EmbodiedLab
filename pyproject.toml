@@ -19,6 +19,7 @@ trainer = [
     "gymnasium",
     "numpy",
     "torch",
+    "onnx",
     "stable-baselines3",
     "google-cloud-pubsub",
     "google-cloud-firestore",
