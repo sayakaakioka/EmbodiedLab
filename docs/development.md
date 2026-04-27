@@ -90,11 +90,16 @@ Trainer jobs upload completed model artifacts to `MODEL_BUCKET` under
 
 - `policy.zip`: Stable-Baselines3 saved model
 - `policy.onnx`: ONNX export of the deterministic GridWorld policy
+- `policy.sentis.onnx`: Unity Sentis-oriented ONNX export
 
 `make create_model_bucket` creates the bucket with uniform bucket-level access
 and grants public object read (`allUsers` as `roles/storage.objectViewer`).
 That means artifact paths returned by `GET /results/{submission_id}` are
 intended to be downloadable without additional authentication.
+
+The Sentis-oriented export uses ONNX opset 15 and a fixed `float32[1,4]`
+`observation` input laid out as `[robot_x, robot_y, goal_x, goal_y]`. Its output
+is `action_logits`, where indices `0/1/2/3` map to `up/right/down/left`.
 
 To clear generated artifacts while keeping the bucket and IAM settings:
 

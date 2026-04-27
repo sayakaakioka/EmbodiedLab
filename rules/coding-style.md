@@ -11,8 +11,8 @@
   Firestore documents
 - Result `artifacts` payloads are plain JSON dicts. GCS artifacts use
   `{ "storage": "gcs", "bucket": "...", "path": "..." }`; completed training
-  results should include both `model` (`policy.zip`) and `onnx_model`
-  (`policy.onnx`) when upload succeeds.
+  results should include `model` (`policy.zip`), `onnx_model` (`policy.onnx`),
+  and `sentis_model` (`policy.sentis.onnx`) when upload succeeds.
 
 ## Markdown
 

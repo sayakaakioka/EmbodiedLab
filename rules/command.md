@@ -54,5 +54,6 @@ gcloud storage rm --recursive gs://$MODEL_BUCKET/models/**
 ```
 
 The model bucket stores completed artifacts under `models/<submission_id>/`:
-`policy.zip` and `policy.onnx`. Removing `models/**` clears generated artifacts
-while keeping the bucket, IAM policy, and public-read configuration.
+`policy.zip`, `policy.onnx`, and `policy.sentis.onnx`. Removing `models/**`
+clears generated artifacts while keeping the bucket, IAM policy, and
+public-read configuration.

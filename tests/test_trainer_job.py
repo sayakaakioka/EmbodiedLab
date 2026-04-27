@@ -39,6 +39,10 @@ def test_run_training_job_updates_result_to_completed():
                 "bucket": bucket_name,
                 "path": f"models/{submission_id}/policy.onnx",
             },
+            "sentis_model": {
+                "bucket": bucket_name,
+                "path": f"models/{submission_id}/policy.sentis.onnx",
+            },
         }
 
     run_training_job(
@@ -59,6 +63,10 @@ def test_run_training_job_updates_result_to_completed():
     assert (
         payloads[-1]["data"]["artifacts"]["onnx_model"]["path"]
         == "models/submission-1/policy.onnx"
+    )
+    assert (
+        payloads[-1]["data"]["artifacts"]["sentis_model"]["path"]
+        == "models/submission-1/policy.sentis.onnx"
     )
     assert calls[0][0] == "train"
     assert calls[1][0] == "upload"

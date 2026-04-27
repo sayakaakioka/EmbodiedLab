@@ -10,7 +10,8 @@ This directory stores Claude Code settings for the repository.
 - `tools/ws_client.py` builds the notification WebSocket URL from
   `NOTIFICATION_SERVICE_NAME`, `HASH`, `REGION`, and `SUBMISSION_ID`.
 - Trainer artifacts are written to `MODEL_BUCKET` under
-  `models/<submission_id>/` as both `policy.zip` and `policy.onnx`.
+  `models/<submission_id>/` as `policy.zip`, `policy.onnx`, and
+  `policy.sentis.onnx`.
 - `make create_model_bucket` grants public object read on `MODEL_BUCKET`.
 
 ## Safety Notes

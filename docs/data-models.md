@@ -183,6 +183,29 @@ Response model shape: `embodiedlab.result_models.ResultDocument`
       "storage": "gcs",
       "bucket": "my-model-bucket",
       "path": "models/submission-123/policy.onnx"
+    },
+    "sentis_model": {
+      "storage": "gcs",
+      "bucket": "my-model-bucket",
+      "path": "models/submission-123/policy.sentis.onnx",
+      "format": "onnx",
+      "target": "unity-sentis",
+      "opset_version": 15,
+      "input": {
+        "name": "observation",
+        "shape": [1, 4],
+        "dtype": "float32",
+        "layout": ["robot_x", "robot_y", "goal_x", "goal_y"]
+      },
+      "output": {
+        "name": "action_logits",
+        "action_mapping": {
+          "0": "up",
+          "1": "right",
+          "2": "down",
+          "3": "left"
+        }
+      }
     }
   },
   "updated_at": "2026-04-24T12:34:56.000000+00:00"
@@ -191,8 +214,8 @@ Response model shape: `embodiedlab.result_models.ResultDocument`
 
 Artifact paths are GCS object paths under `models/{submission_id}/`. The
 Makefile-created model bucket is configured for public object read, so clients
-can download both `policy.zip` and `policy.onnx` directly when the project
-allows public bucket IAM.
+can download `policy.zip`, `policy.onnx`, and `policy.sentis.onnx` directly
+when the project allows public bucket IAM.
 
 ## Firestore Document Shapes
 
@@ -287,7 +310,8 @@ Published shape: `embodiedlab.result_models.ResultMessage`
 ```
 
 Completed result events include the same `artifacts` block returned by
-`GET /results/{submission_id}`, including both `model` and `onnx_model`.
+`GET /results/{submission_id}`, including `model`, `onnx_model`, and
+`sentis_model`.
 
 ### Pub/Sub Push -> Notification Service
 
