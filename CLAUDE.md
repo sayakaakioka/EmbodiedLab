@@ -65,8 +65,10 @@ results are streamed back in real time.
 
 - Entry point: `trainer/main.py` → `trainer/job.py:run_training_job()`
 - Fetches submission from Firestore, calls `embodiedlab/training/runner.py`,
-  uploads the saved model to GCS, writes the result back to Firestore, and
-  publishes the matching Pub/Sub event for each state transition
+  uploads the saved model artifacts to GCS, writes the result back to
+  Firestore, and publishes the matching Pub/Sub event for each state transition
+- Model artifacts include the Stable-Baselines3 zip (`policy.zip`) and an ONNX
+  export (`policy.onnx`) under `models/{submission_id}/`
 - `trainer/job.py` keeps Firestore updates and Pub/Sub publishing aligned via
   `write_result_update()`
 - Required env vars: `DB_ID`, `MODEL_BUCKET`, `SUBMISSION_ID`, `PUBSUB_TOPIC`,
@@ -103,7 +105,9 @@ Client
       → API triggers Cloud Run Job (SUBMISSION_ID env var)
           → Job reads Firestore submissions/{id}
           → Job trains PPO policy (embodiedlab/training/runner.py)
-          → Job saves model to GCS gs://{MODEL_BUCKET}/{id}/policy.zip
+          → Job saves model artifacts to GCS:
+              gs://{MODEL_BUCKET}/models/{id}/policy.zip
+              gs://{MODEL_BUCKET}/models/{id}/policy.onnx
           → Job writes Firestore results/{id} = completed
           → Job publishes Pub/Sub event (ordered, key = submission_id)
               → Pub/Sub push → notification /internal/pubsub/push
@@ -135,6 +139,11 @@ reads `.env` and exports everything. Required vars per service:
 | API | `DB_ID`, `REGION`, `PROJECT_ID`, `TRAINER_JOB_NAME` |
 | Trainer | `DB_ID`, `MODEL_BUCKET`, `SUBMISSION_ID`, `PUBSUB_TOPIC`, `PROJECT_ID` |
 | Notification deployment (Makefile) | `NOTIFICATION_SERVICE_NAME`, `NOTIFICATION_PUSH_PATH` |
+| `tools/ws_client.py` via Makefile | `NOTIFICATION_SERVICE_NAME`, `HASH`, `REGION`, `SUBMISSION_ID` |
+
+`Makefile` creates `MODEL_BUCKET` with uniform bucket-level access and grants
+`allUsers` `roles/storage.objectViewer`, so completed model artifacts are public
+read by default.
 
 Recommended `uv` sync patterns:
 

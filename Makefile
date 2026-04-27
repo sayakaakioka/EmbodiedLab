@@ -114,6 +114,9 @@ create_model_bucket: check_deps
 		$(GCLOUD) storage buckets create gs://$(MODEL_BUCKET) \
 			--location=$(REGION) \
 			--uniform-bucket-level-access
+	$(GCLOUD) storage buckets add-iam-policy-binding gs://$(MODEL_BUCKET) \
+		--member="allUsers" \
+		--role="roles/storage.objectViewer"
 
 create_firestore_db: check_deps
 	@$(GCLOUD) firestore databases describe --database=$(DB_ID) >/dev/null 2>&1 || \
@@ -298,17 +301,20 @@ server_local: check_deps
 
 
 ##### dev utilities #####
-.PHONY: list_trainers auth_docker \
+.PHONY: list_trainers auth_docker clear_model_bucket \
 	logs_api logs_trainer logs_trainer_exec logs_notification \
 	logs_raw
 
-list_trainers:
-	gcloud run jobs executions list \
+list_trainers: check_deps
+	$(GCLOUD) run jobs executions list \
 		--job $(TRAINER_JOB_NAME) \
 		--region $(REGION)
 
-auth_docker:
-	gcloud auth configure-docker $(REGION)-docker.pkg.dev
+auth_docker: check_deps
+	$(GCLOUD) auth configure-docker $(REGION)-docker.pkg.dev
+
+clear_model_bucket: check_deps
+	$(GCLOUD) storage rm --recursive gs://$(MODEL_BUCKET)/**
 
 LOG_LIMIT ?= 50
 

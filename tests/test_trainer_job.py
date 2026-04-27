@@ -34,7 +34,11 @@ def test_run_training_job_updates_result_to_completed():
             "model": {
                 "bucket": bucket_name,
                 "path": f"models/{submission_id}/policy.zip",
-            }
+            },
+            "onnx_model": {
+                "bucket": bucket_name,
+                "path": f"models/{submission_id}/policy.onnx",
+            },
         }
 
     run_training_job(
@@ -52,6 +56,10 @@ def test_run_training_job_updates_result_to_completed():
     assert statuses == ["starting", "running", "completed"]
     assert payloads[-1]["data"]["summary"] == {"score": 1.0}
     assert payloads[-1]["data"]["artifacts"]["model"]["bucket"] == "model-bucket"
+    assert (
+        payloads[-1]["data"]["artifacts"]["onnx_model"]["path"]
+        == "models/submission-1/policy.onnx"
+    )
     assert calls[0][0] == "train"
     assert calls[1][0] == "upload"
 
