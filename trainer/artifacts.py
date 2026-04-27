@@ -29,6 +29,27 @@ class OnnxableGridWorldPolicy(torch.nn.Module):
         return actions
 
 
+class SentisGridWorldPolicy(torch.nn.Module):
+    """Wrapper exposing a Sentis-friendly fixed observation tensor."""
+
+    def __init__(self, policy: BasePolicy) -> None:
+        """Store the trained Stable-Baselines3 policy."""
+        super().__init__()
+        self.policy = policy
+
+    def forward(self, observation: torch.Tensor) -> torch.Tensor:
+        """Return action logits for [robot_x, robot_y, goal_x, goal_y]."""
+        agent = observation[:, 0:2]
+        goal = observation[:, 2:4]
+        distribution = self.policy.get_distribution(
+            {
+                "agent": agent,
+                "goal": goal,
+            },
+        )
+        return distribution.distribution.logits
+
+
 def export_model_to_onnx(local_model_base_path: str) -> str:
     """Convert the saved Stable-Baselines3 policy zip to ONNX."""
     model = PPO.load(local_model_base_path)
@@ -54,6 +75,25 @@ def export_model_to_onnx(local_model_base_path: str) -> str:
     return onnx_path
 
 
+def export_model_to_sentis_onnx(local_model_base_path: str) -> str:
+    """Convert the saved policy zip to a Unity Sentis-compatible ONNX file."""
+    model = PPO.load(local_model_base_path)
+    onnx_path = f"{local_model_base_path}.sentis.onnx"
+    sentis_policy = SentisGridWorldPolicy(model.policy)
+    dummy_observation = torch.zeros((1, 4), dtype=torch.float32)
+
+    torch.onnx.export(
+        sentis_policy,
+        dummy_observation,
+        onnx_path,
+        input_names=["observation"],
+        output_names=["action_logits"],
+        opset_version=15,
+        dynamo=False,
+    )
+    return onnx_path
+
+
 def upload_file(
     *,
     bucket: storage.Bucket,
@@ -71,14 +111,16 @@ def upload_model_to_gcs(
     bucket_name: str,
     submission_id: str,
 ) -> dict:
-    """Upload the saved model zip and ONNX export to GCS."""
+    """Upload the saved model zip, ONNX export, and Sentis ONNX export to GCS."""
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
 
     local_zip_path = f"{local_model_base_path}.zip"
     local_onnx_path = export_model_to_onnx(local_model_base_path)
+    local_sentis_path = export_model_to_sentis_onnx(local_model_base_path)
     zip_blob_path = f"models/{submission_id}/policy.zip"
     onnx_blob_path = f"models/{submission_id}/policy.onnx"
+    sentis_blob_path = f"models/{submission_id}/policy.sentis.onnx"
 
     upload_file(
         bucket=bucket,
@@ -92,6 +134,12 @@ def upload_model_to_gcs(
         blob_path=onnx_blob_path,
         content_type="application/octet-stream",
     )
+    upload_file(
+        bucket=bucket,
+        local_path=local_sentis_path,
+        blob_path=sentis_blob_path,
+        content_type="application/octet-stream",
+    )
 
     return {
         "model": {
@@ -103,5 +151,28 @@ def upload_model_to_gcs(
             "storage": "gcs",
             "bucket": bucket_name,
             "path": onnx_blob_path,
+        },
+        "sentis_model": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": sentis_blob_path,
+            "format": "onnx",
+            "target": "unity-sentis",
+            "opset_version": 15,
+            "input": {
+                "name": "observation",
+                "shape": [1, 4],
+                "dtype": "float32",
+                "layout": ["robot_x", "robot_y", "goal_x", "goal_y"],
+            },
+            "output": {
+                "name": "action_logits",
+                "action_mapping": {
+                    "0": "up",
+                    "1": "right",
+                    "2": "down",
+                    "3": "left",
+                },
+            },
         },
     }

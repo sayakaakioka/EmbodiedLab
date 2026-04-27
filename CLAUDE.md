@@ -67,8 +67,9 @@ results are streamed back in real time.
 - Fetches submission from Firestore, calls `embodiedlab/training/runner.py`,
   uploads the saved model artifacts to GCS, writes the result back to
   Firestore, and publishes the matching Pub/Sub event for each state transition
-- Model artifacts include the Stable-Baselines3 zip (`policy.zip`) and an ONNX
-  export (`policy.onnx`) under `models/{submission_id}/`
+- Model artifacts include the Stable-Baselines3 zip (`policy.zip`), the general
+  ONNX export (`policy.onnx`), and a Unity Sentis-oriented ONNX export
+  (`policy.sentis.onnx`) under `models/{submission_id}/`
 - `trainer/job.py` keeps Firestore updates and Pub/Sub publishing aligned via
   `write_result_update()`
 - Required env vars: `DB_ID`, `MODEL_BUCKET`, `SUBMISSION_ID`, `PUBSUB_TOPIC`,
@@ -108,6 +109,7 @@ Client
           → Job saves model artifacts to GCS:
               gs://{MODEL_BUCKET}/models/{id}/policy.zip
               gs://{MODEL_BUCKET}/models/{id}/policy.onnx
+              gs://{MODEL_BUCKET}/models/{id}/policy.sentis.onnx
           → Job writes Firestore results/{id} = completed
           → Job publishes Pub/Sub event (ordered, key = submission_id)
               → Pub/Sub push → notification /internal/pubsub/push

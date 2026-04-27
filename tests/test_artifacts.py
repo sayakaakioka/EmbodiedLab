@@ -33,7 +33,7 @@ class FakeStorageClient:
         return self._bucket
 
 
-def test_upload_model_to_gcs_uploads_zip_and_onnx(monkeypatch):
+def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
     bucket = FakeBucket()
     model_base_path = "policy"
     monkeypatch.setattr(
@@ -45,6 +45,11 @@ def test_upload_model_to_gcs_uploads_zip_and_onnx(monkeypatch):
         artifacts,
         "export_model_to_onnx",
         lambda local_model_base_path: f"{local_model_base_path}.onnx",
+    )
+    monkeypatch.setattr(
+        artifacts,
+        "export_model_to_sentis_onnx",
+        lambda local_model_base_path: f"{local_model_base_path}.sentis.onnx",
     )
 
     result = artifacts.upload_model_to_gcs(
@@ -64,6 +69,29 @@ def test_upload_model_to_gcs_uploads_zip_and_onnx(monkeypatch):
             "bucket": "model-bucket",
             "path": "models/submission-1/policy.onnx",
         },
+        "sentis_model": {
+            "storage": "gcs",
+            "bucket": "model-bucket",
+            "path": "models/submission-1/policy.sentis.onnx",
+            "format": "onnx",
+            "target": "unity-sentis",
+            "opset_version": 15,
+            "input": {
+                "name": "observation",
+                "shape": [1, 4],
+                "dtype": "float32",
+                "layout": ["robot_x", "robot_y", "goal_x", "goal_y"],
+            },
+            "output": {
+                "name": "action_logits",
+                "action_mapping": {
+                    "0": "up",
+                    "1": "right",
+                    "2": "down",
+                    "3": "left",
+                },
+            },
+        },
     }
     assert bucket.blobs["models/submission-1/policy.zip"].uploads == [
         {
@@ -74,6 +102,12 @@ def test_upload_model_to_gcs_uploads_zip_and_onnx(monkeypatch):
     assert bucket.blobs["models/submission-1/policy.onnx"].uploads == [
         {
             "local_path": "policy.onnx",
+            "content_type": "application/octet-stream",
+        },
+    ]
+    assert bucket.blobs["models/submission-1/policy.sentis.onnx"].uploads == [
+        {
+            "local_path": "policy.sentis.onnx",
             "content_type": "application/octet-stream",
         },
     ]
