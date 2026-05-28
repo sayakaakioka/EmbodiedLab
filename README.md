@@ -9,6 +9,13 @@ The project is intentionally small right now: it focuses on a minimal
 end-to-end loop from environment definition to training, artifact storage, and
 result streaming.
 
+## Documentation Notes
+
+Markdown files under `docs/` are primarily agent-facing project notes. They
+record the overall design, implementation decisions, work history, and
+phase-specific context so that coding agents and collaborators can resume work
+with the right background.
+
 ## Architecture
 
 ```text

@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -8,6 +11,8 @@ from embodiedlab.schemas import (
     WorldSpec,
     build_submission_document,
 )
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def test_scenario_bundle_defaults_are_valid():
@@ -111,6 +116,24 @@ def test_scenario_bundle_accepts_documented_shape():
     assert scenario.scenario_id == "scenario_custom"
     assert scenario.world.static_obstacles[0].id == "box_001"
     assert isinstance(scenario.reward.components[0], DistanceDeltaRewardComponent)
+
+
+def test_envforge_navigation_fixture_matches_scenario_bundle_contract():
+    fixture_path = FIXTURE_DIR / "envforge" / "navigation_default_scenario_bundle.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    scenario = ScenarioBundle.model_validate(payload)
+
+    assert scenario.scenario_id == "navigation_default"
+    assert scenario.world.bounds.min.x == -8.0
+    assert scenario.world.bounds.max.z == 6.0
+    assert scenario.robot.start_pose.position.x == -6.0
+    assert scenario.robot.action_space.layout == ["forward", "turn"]
+    assert [sensor.id for sensor in scenario.sensors] == [
+        "front_camera",
+        "front_distance",
+    ]
+    assert scenario.training.max_episode_steps == 1000
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,207 @@
+{
+  "schema_version": "scenario-bundle.v0",
+  "scenario_id": "navigation_default",
+  "created_by": {
+    "tool": "EnvForge",
+    "version": "0.1.0"
+  },
+  "compatibility": {
+    "envforge_min_version": "0.1.0",
+    "robot_version": "simple_robot.v0",
+    "sensor_version": "basic_sensors.v0"
+  },
+  "world": {
+    "coordinate_system": "envforge_xz_meters",
+    "bounds": {
+      "min": {
+        "x": -8.0,
+        "z": -6.0
+      },
+      "max": {
+        "x": 8.0,
+        "z": 6.0
+      }
+    },
+    "static_walls": [
+      {
+        "id": "wall_north",
+        "center": {
+          "x": 0.0,
+          "z": 6.0
+        },
+        "size": {
+          "x": 16.0,
+          "z": 0.35
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "wall_south",
+        "center": {
+          "x": 0.0,
+          "z": -6.0
+        },
+        "size": {
+          "x": 16.0,
+          "z": 0.35
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "wall_east",
+        "center": {
+          "x": 8.0,
+          "z": 0.0
+        },
+        "size": {
+          "x": 0.35,
+          "z": 12.0
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "wall_west",
+        "center": {
+          "x": -8.0,
+          "z": 0.0
+        },
+        "size": {
+          "x": 0.35,
+          "z": 12.0
+        },
+        "rotation_y_degrees": 0.0
+      }
+    ],
+    "static_obstacles": [
+      {
+        "id": "inner_wall_a",
+        "shape": "box",
+        "center": {
+          "x": -1.5,
+          "z": -1.2
+        },
+        "size": {
+          "x": 0.35,
+          "z": 4.2
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "inner_wall_b",
+        "shape": "box",
+        "center": {
+          "x": 2.8,
+          "z": 1.6
+        },
+        "size": {
+          "x": 4.4,
+          "z": 0.35
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "inner_wall_c",
+        "shape": "box",
+        "center": {
+          "x": 4.8,
+          "z": -2.2
+        },
+        "size": {
+          "x": 0.35,
+          "z": 2.5
+        },
+        "rotation_y_degrees": 0.0
+      },
+      {
+        "id": "inner_wall_d",
+        "shape": "box",
+        "center": {
+          "x": -4.2,
+          "z": 2.2
+        },
+        "size": {
+          "x": 2.4,
+          "z": 0.35
+        },
+        "rotation_y_degrees": 0.0
+      }
+    ],
+    "goal": {
+      "id": "goal_001",
+      "position": {
+        "x": 6.0,
+        "z": 4.0
+      },
+      "radius": 1.2
+    }
+  },
+  "robot": {
+    "type": "simple_robot",
+    "start_pose": {
+      "position": {
+        "x": -6.0,
+        "z": -4.0
+      },
+      "rotation_y_degrees": 45.0
+    },
+    "action_space": {
+      "type": "continuous",
+      "layout": [
+        "forward",
+        "turn"
+      ]
+    }
+  },
+  "sensors": [
+    {
+      "id": "front_camera",
+      "type": "forward_camera",
+      "width": 112,
+      "height": 84,
+      "semantic_mode": "traversable_vs_blocked"
+    },
+    {
+      "id": "front_distance",
+      "type": "distance_sensor",
+      "range_meters": 5.0,
+      "direction": "forward"
+    }
+  ],
+  "reward": {
+    "components": [
+      {
+        "name": "goal_reached",
+        "type": "terminal_reward",
+        "weight": 10.0
+      },
+      {
+        "name": "goal_progress",
+        "type": "distance_delta",
+        "target": "goal_001",
+        "weight": 0.5
+      },
+      {
+        "name": "collision_penalty",
+        "type": "collision",
+        "weight": -5.0
+      },
+      {
+        "name": "step_penalty",
+        "type": "per_step",
+        "weight": -0.01
+      }
+    ]
+  },
+  "training": {
+    "algorithm": "ppo",
+    "timesteps": 5000,
+    "seed": 10,
+    "max_episode_steps": 1000,
+    "n_steps": 32,
+    "batch_size": 32,
+    "gamma": 0.99,
+    "learning_rate": 0.0003,
+    "ent_coef": 0.0,
+    "eval_episodes": 20
+  }
+}
