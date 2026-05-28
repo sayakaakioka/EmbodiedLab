@@ -163,7 +163,7 @@ def test_submission_train_and_result_flow_integrates_with_trainer(monkeypatch):
             upload_model=lambda **kwargs: {
                 "model": {
                     "bucket": "model-bucket",
-                    "path": f"models/{submission_id}/policy.zip",
+                    "path": f"results/{submission_id}/model/policy.zip",
                 },
             },
             publish_event=lambda **kwargs: published_events.append(kwargs),
@@ -182,7 +182,17 @@ def test_submission_train_and_result_flow_integrates_with_trainer(monkeypatch):
     assert train_response.status_code == 200
     assert result_response.status_code == 200
     assert result_response.json()["status"] == "completed"
-    assert result_response.json()["summary"] == {"score": 1.0}
+    summary = result_response.json()["summary"]
+    assert summary["score"] == 1.0
+    assert summary["training_timesteps"] == 5000
+    assert summary["training_seed"] == 10
+    assert result_response.json()["result_bundle"]["summary"] == {
+        "training_timesteps": 5000,
+        "training_seed": 10,
+        "success_rate": None,
+        "average_episode_reward": None,
+        "average_episode_steps": None,
+    }
     assert result_response.json()["artifacts"]["model"]["bucket"] == "model-bucket"
     assert [event["status"].value for event in published_events] == [
         "starting",

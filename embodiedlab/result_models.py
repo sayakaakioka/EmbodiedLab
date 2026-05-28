@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from embodiedlab.schemas import ScenarioBundle
 
 RESULT_SCHEMA_VERSION = "result-bundle.v0"
 REPLAY_LOG_SCHEMA_VERSION = "replay-log.v0"
@@ -98,11 +103,17 @@ class ResultBundle(BaseModel):
     error: ErrorReport | None = None
 
 
-class Pose2D(BaseModel):
-    """Robot pose on the replay x/z plane."""
+class ReplayPosition(BaseModel):
+    """A continuous replay position on the x/z plane."""
 
     x: float
     z: float
+
+
+class ReplayRobotState(BaseModel):
+    """Robot state emitted in a replay step."""
+
+    position: ReplayPosition
     rotation_y_degrees: float
 
 
@@ -122,7 +133,7 @@ class ReplayLogStep(BaseModel):
     episode_id: str = Field(min_length=1)
     step_index: int = Field(ge=0)
     time_seconds: float = Field(ge=0.0)
-    robot: Pose2D
+    robot: ReplayRobotState
     action: dict[str, float] = Field(default_factory=dict)
     reward: ReplayReward
     events: list[dict[str, Any]] = Field(default_factory=list)
@@ -154,6 +165,7 @@ class ResultDocument(BaseModel):
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
+    result_bundle: dict[str, Any] | ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
 
@@ -166,6 +178,7 @@ class ResultMessage(BaseModel):
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
+    result_bundle: dict[str, Any] | ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
 
@@ -177,7 +190,102 @@ class ResultUpdate(BaseModel):
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
+    result_bundle: dict[str, Any] | ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
+
+
+def _artifact_from_payload(
+    payload: dict[str, Any] | None,
+    *,
+    default_format: ArtifactFormat,
+) -> ArtifactLocation | None:
+    """Convert an uploaded artifact dict into a ResultBundle location."""
+    if payload is None:
+        return None
+
+    artifact_format = payload.get("format", default_format)
+    return ArtifactLocation(
+        storage=payload.get("storage", ArtifactStorage.GCS),
+        bucket=payload["bucket"],
+        path=payload["path"],
+        format=artifact_format,
+    )
+
+
+def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
+    """Build EnvForge compatibility metadata from the submitted scenario."""
+    sensor_layout = [sensor.id for sensor in scenario.sensors]
+    return ResultCompatibility(
+        scenario_schema_version=scenario.schema_version,
+        envforge_min_version=scenario.compatibility.envforge_min_version,
+        robot_version=scenario.compatibility.robot_version,
+        sensor_version=scenario.compatibility.sensor_version,
+        action_layout=list(scenario.robot.action_space.layout),
+        observation_layout=sensor_layout,
+    )
+
+
+def build_training_summary(summary: dict[str, Any]) -> TrainingSummary:
+    """Normalize the current runner summary into the ResultBundle summary."""
+    return TrainingSummary(
+        training_timesteps=summary["training_timesteps"],
+        training_seed=summary["training_seed"],
+        success_rate=summary.get("success_rate"),
+        average_episode_reward=summary.get(
+            "average_episode_reward",
+            summary.get("avg_reward"),
+        ),
+        average_episode_steps=summary.get(
+            "average_episode_steps",
+            summary.get("avg_steps"),
+        ),
+    )
+
+
+def build_result_bundle(  # noqa: PLR0913
+    *,
+    scenario: ScenarioBundle,
+    job_id: str,
+    status: ResultStatus,
+    summary: dict[str, Any] | None = None,
+    artifacts: dict[str, Any] | None = None,
+    error: str | None = None,
+) -> ResultBundle:
+    """Build the EnvForge-facing ResultBundle from trainer outputs."""
+    artifacts = artifacts or {}
+    result_error = ErrorReport(message=error) if error is not None else None
+    model_payload = artifacts.get("onnx_model")
+    model_format = ArtifactFormat.ONNX
+    if model_payload is None:
+        model_payload = artifacts.get("model")
+        model_format = ArtifactFormat.ZIP
+
+    return ResultBundle(
+        scenario_id=scenario.scenario_id,
+        job_id=job_id,
+        status=status,
+        compatibility=build_result_compatibility(scenario),
+        summary=build_training_summary(summary) if summary is not None else None,
+        artifacts=ResultArtifacts(
+            model=_artifact_from_payload(
+                model_payload,
+                default_format=model_format,
+            ),
+            replay_log=_artifact_from_payload(
+                artifacts.get("replay_log"),
+                default_format=ArtifactFormat.JSONL,
+            ),
+        ),
+        error=result_error,
+    )
+
+
+def serialize_replay_log_jsonl(steps: Iterable[ReplayLogStep]) -> str:
+    """Serialize replay steps to the JSON Lines artifact format."""
+    lines = [step.model_dump_json() for step in steps]
+    if not lines:
+        return ""
+    return "\n".join(lines) + "\n"
 
 
 def build_progress(
@@ -256,13 +364,14 @@ def build_queued_result_document(submission_id: str) -> dict:
     return document.model_dump(mode="json")
 
 
-def build_result_update(
+def build_result_update(  # noqa: PLR0913
     *,
     status: ResultStatus,
     progress: dict | Progress,
     summary: dict[str, Any] | None = None,
     error: str | None = None,
     artifacts: dict[str, Any] | None = None,
+    result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
     """Return a Firestore-ready dict for a partial result update."""
     update = ResultUpdate(
@@ -271,6 +380,7 @@ def build_result_update(
         summary=summary,
         error=error,
         artifacts=artifacts,
+        result_bundle=result_bundle,
     )
     return update.model_dump(mode="json")
 
@@ -282,6 +392,7 @@ def build_result_message(  # noqa: PLR0913
     summary: dict[str, Any] | None = None,
     error: str | None = None,
     artifacts: dict[str, Any] | None = None,
+    result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
     """Return a dict suitable for publishing as a Pub/Sub message."""
     message = ResultMessage(
@@ -291,6 +402,7 @@ def build_result_message(  # noqa: PLR0913
         summary=summary,
         error=error,
         artifacts=artifacts,
+        result_bundle=result_bundle,
     )
     return message.model_dump(mode="json")
 

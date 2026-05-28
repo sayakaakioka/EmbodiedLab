@@ -1,3 +1,5 @@
+import json
+
 from embodiedlab.result_models import (
     ArtifactLocation,
     ReplayLogStep,
@@ -8,6 +10,7 @@ from embodiedlab.result_models import (
     ResultStatus,
     TrainingSummary,
     build_queued_result_document,
+    build_result_bundle,
     build_result_message,
     build_result_update,
     completed_progress,
@@ -15,8 +18,10 @@ from embodiedlab.result_models import (
     parse_result_message,
     queued_progress,
     running_progress,
+    serialize_replay_log_jsonl,
     starting_progress,
 )
+from embodiedlab.schemas import ScenarioBundle
 
 
 def test_build_queued_result_document_returns_firestore_payload():
@@ -125,8 +130,10 @@ def test_replay_log_step_serializes_jsonl_row():
         step_index=1,
         time_seconds=0.1,
         robot={
-            "x": 1.02,
-            "z": 1.0,
+            "position": {
+                "x": 1.02,
+                "z": 1.0,
+            },
             "rotation_y_degrees": 0.0,
         },
         action={
@@ -146,6 +153,68 @@ def test_replay_log_step_serializes_jsonl_row():
     payload = step.model_dump(mode="json")
 
     assert payload["schema_version"] == "replay-log.v0"
-    assert payload["robot"]["x"] == 1.02
+    assert payload["robot"]["position"]["x"] == 1.02
     assert payload["reward"]["components"]["goal_progress"] == 0.05
     assert payload["terminated"] is False
+
+
+def test_serialize_replay_log_jsonl_returns_json_lines():
+    step = ReplayLogStep(
+        scenario_id="scenario_demo_001",
+        job_id="job_001",
+        episode_id="episode_0001",
+        step_index=0,
+        time_seconds=0.0,
+        robot={
+            "position": {"x": 1.0, "z": 1.0},
+            "rotation_y_degrees": 0.0,
+        },
+        reward=ReplayReward(total=0.0),
+    )
+
+    payload = serialize_replay_log_jsonl([step])
+
+    assert payload.endswith("\n")
+    rows = payload.splitlines()
+    assert len(rows) == 1
+    assert json.loads(rows[0])["schema_version"] == "replay-log.v0"
+
+
+def test_build_result_bundle_maps_replay_log_artifact_metadata():
+    bundle = build_result_bundle(
+        scenario=ScenarioBundle(),
+        job_id="job_001",
+        status=ResultStatus.COMPLETED,
+        summary={
+            "training_timesteps": 5000,
+            "training_seed": 10,
+        },
+        artifacts={
+            "onnx_model": {
+                "storage": "gcs",
+                "bucket": "embodiedlab-models",
+                "path": "results/job_001/model/policy.onnx",
+            },
+            "replay_log": {
+                "storage": "gcs",
+                "bucket": "embodiedlab-models",
+                "path": "results/job_001/replay/replay.jsonl",
+                "format": "jsonl",
+            },
+        },
+    )
+
+    payload = bundle.model_dump(mode="json")
+
+    assert payload["artifacts"]["model"] == {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/job_001/model/policy.onnx",
+        "format": "onnx",
+    }
+    assert payload["artifacts"]["replay_log"] == {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/job_001/replay/replay.jsonl",
+        "format": "jsonl",
+    }

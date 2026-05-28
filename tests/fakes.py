@@ -1,6 +1,6 @@
 from copy import deepcopy
 
-from embodiedlab.result_models import build_result_update
+from embodiedlab.result_models import ResultBundle, build_result_update
 from embodiedlab.schemas import ScenarioBundle, build_submission_document
 
 
@@ -144,6 +144,7 @@ class FakeResultRepository:
         summary: dict | None = None,
         error: str | None = None,
         artifacts: dict | None = None,
+        result_bundle: dict | ResultBundle | None = None,
     ) -> None:
         payload = build_result_update(
             status=status,
@@ -151,6 +152,7 @@ class FakeResultRepository:
             summary=summary,
             error=error,
             artifacts=artifacts,
+            result_bundle=result_bundle,
         )
         existing = self.results.get(submission_id, {})
         self.results[submission_id] = merge_dicts(existing, payload)

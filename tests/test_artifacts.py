@@ -1,3 +1,6 @@
+from pathlib import Path
+
+from embodiedlab.result_models import ReplayLogStep, ReplayReward
 from trainer import artifacts
 
 
@@ -7,12 +10,14 @@ class FakeBlob:
         self.uploads = []
 
     def upload_from_filename(self, local_path, content_type=None):
-        self.uploads.append(
-            {
-                "local_path": local_path,
-                "content_type": content_type,
-            },
-        )
+        upload = {
+            "local_path": local_path,
+            "content_type": content_type,
+        }
+        if content_type == "application/jsonl":
+            with Path(local_path).open(encoding="utf-8") as uploaded_file:
+                upload["contents"] = uploaded_file.read()
+        self.uploads.append(upload)
 
 
 class FakeBucket:
@@ -62,17 +67,24 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
         "model": {
             "storage": "gcs",
             "bucket": "model-bucket",
-            "path": "models/submission-1/policy.zip",
+            "path": "results/submission-1/model/policy.zip",
         },
         "onnx_model": {
             "storage": "gcs",
             "bucket": "model-bucket",
-            "path": "models/submission-1/policy.onnx",
+            "path": "results/submission-1/model/policy.onnx",
+        },
+        "replay_log": {
+            "storage": "gcs",
+            "bucket": "model-bucket",
+            "path": "results/submission-1/replay/replay.jsonl",
+            "format": "jsonl",
+            "schema_version": "replay-log.v0",
         },
         "sentis_model": {
             "storage": "gcs",
             "bucket": "model-bucket",
-            "path": "models/submission-1/policy.sentis.onnx",
+            "path": "results/submission-1/model/policy.sentis.onnx",
             "format": "onnx",
             "target": "unity-sentis",
             "opset_version": 15,
@@ -93,21 +105,68 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             },
         },
     }
-    assert bucket.blobs["models/submission-1/policy.zip"].uploads == [
+    assert bucket.blobs["results/submission-1/model/policy.zip"].uploads == [
         {
             "local_path": "policy.zip",
             "content_type": "application/zip",
         },
     ]
-    assert bucket.blobs["models/submission-1/policy.onnx"].uploads == [
+    assert bucket.blobs["results/submission-1/model/policy.onnx"].uploads == [
         {
             "local_path": "policy.onnx",
             "content_type": "application/octet-stream",
         },
     ]
-    assert bucket.blobs["models/submission-1/policy.sentis.onnx"].uploads == [
+    assert bucket.blobs["results/submission-1/model/policy.sentis.onnx"].uploads == [
         {
             "local_path": "policy.sentis.onnx",
             "content_type": "application/octet-stream",
         },
     ]
+    replay_upload = bucket.blobs["results/submission-1/replay/replay.jsonl"].uploads[0]
+    assert replay_upload["content_type"] == "application/jsonl"
+    assert replay_upload["contents"] == ""
+
+
+def test_upload_replay_log_to_gcs_uploads_jsonl_metadata(monkeypatch):
+    bucket = FakeBucket()
+    monkeypatch.setattr(
+        artifacts.storage,
+        "Client",
+        lambda: FakeStorageClient(bucket),
+    )
+    replay_steps = [
+        ReplayLogStep(
+            scenario_id="scenario_demo_001",
+            job_id="submission-1",
+            episode_id="episode_0001",
+            step_index=0,
+            time_seconds=0.0,
+            robot={
+                "position": {"x": 1.0, "z": 1.0},
+                "rotation_y_degrees": 0.0,
+            },
+            action={"forward": 0.0, "turn": 0.0},
+            reward=ReplayReward(total=0.0),
+        ),
+    ]
+
+    result = artifacts.upload_replay_log_to_gcs(
+        bucket_name="model-bucket",
+        submission_id="submission-1",
+        replay_steps=replay_steps,
+    )
+
+    assert result == {
+        "replay_log": {
+            "storage": "gcs",
+            "bucket": "model-bucket",
+            "path": "results/submission-1/replay/replay.jsonl",
+            "format": "jsonl",
+            "schema_version": "replay-log.v0",
+        },
+    }
+    upload = bucket.blobs["results/submission-1/replay/replay.jsonl"].uploads[0]
+    assert upload["content_type"] == "application/jsonl"
+    assert '"schema_version":"replay-log.v0"' in upload["contents"]
+    assert upload["contents"].endswith("\n")

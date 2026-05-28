@@ -6,15 +6,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from embodiedlab.result_models import ResultBundle, ResultStatus, build_result_bundle
 from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import (
+    ScenarioRuntimeConversion,
     convert_submission_to_spec,
+    describe_runtime_conversion,
     parse_scenario_bundle,
 )
 
 TrainModel = Callable[..., dict[str, Any]]
+if TYPE_CHECKING:
+    from embodiedlab.schemas import ScenarioBundle
+
+
 UploadModel = Callable[..., dict[str, Any]]
 
 
@@ -22,8 +29,10 @@ UploadModel = Callable[..., dict[str, Any]]
 class TrainingInputs:
     """Validated runtime inputs required to execute training."""
 
+    scenario: ScenarioBundle
     training: TrainingConfig
     spec: object
+    conversion: ScenarioRuntimeConversion
 
 
 @dataclass(frozen=True)
@@ -32,6 +41,7 @@ class TrainingExecution:
 
     summary: dict[str, Any]
     artifacts: dict[str, Any]
+    result_bundle: ResultBundle
 
 
 def parse_training_submission(
@@ -46,7 +56,13 @@ def parse_training_submission(
         },
     )
     spec = convert_submission_to_spec(scenario)
-    return TrainingInputs(training=training, spec=spec)
+    conversion = describe_runtime_conversion(scenario)
+    return TrainingInputs(
+        scenario=scenario,
+        training=training,
+        spec=spec,
+        conversion=conversion,
+    )
 
 
 def execute_training_run(
@@ -71,7 +87,27 @@ def execute_training_run(
             submission_id=submission_id,
         )
 
-    return TrainingExecution(summary=summary, artifacts=artifacts)
+    summary = {
+        **summary,
+        "training_timesteps": summary.get(
+            "training_timesteps",
+            inputs.training.timesteps,
+        ),
+        "training_seed": summary.get("training_seed", inputs.training.seed),
+    }
+    result_bundle = build_result_bundle(
+        scenario=inputs.scenario,
+        job_id=submission_id,
+        status=ResultStatus.COMPLETED,
+        summary=summary,
+        artifacts=artifacts,
+    )
+
+    return TrainingExecution(
+        summary=summary,
+        artifacts=artifacts,
+        result_bundle=result_bundle,
+    )
 
 
 def execute_training_run_from_submission(

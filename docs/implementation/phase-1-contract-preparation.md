@@ -333,6 +333,19 @@ Replay Log は、episode と step の列として扱う。初期版では JSON L
 7. replay artifact を GCS に保存する流れを追加する。
 8. fake repository と tests を追加する。
 
+## 現 runtime adapter の境界
+
+現在の Scenario Bundle から grid-world runtime への変換は、
+Phase 1 契約の最終形ではなく一時 adapter として扱う。
+EnvForge/EmbodiedLab 契約は `envforge_xz_meters` の連続 x/z meter 座標を
+保持する一方、現 runtime は非負の grid cell 座標へ floor して扱うため
+lossy である。
+
+この adapter では、障害物サイズ、回転、goal radius、センサ定義、
+宣言的 reward component など、契約上の情報の一部は runtime へ完全には
+反映されない。この制約は `describe_runtime_conversion` とそのテストで
+明示し、grid-world runtime を置き換えるまでの暫定境界として管理する。
+
 ## 保留事項
 
 - JSON Schema を出力するか。

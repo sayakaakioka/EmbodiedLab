@@ -9,6 +9,7 @@ from typing import Any
 from embodiedlab.repositories import ResultUpdateWriter, SubmissionReader
 from embodiedlab.result_models import (
     ResultStatus,
+    build_result_bundle,
     completed_progress,
     failed_progress,
     running_progress,
@@ -78,6 +79,7 @@ def run_training_job(  # noqa: PLR0913
         return
 
     total_steps = 0
+    inputs = None
 
     try:
         inputs = parse_training_submission(submission)
@@ -106,6 +108,7 @@ def run_training_job(  # noqa: PLR0913
             progress=completed_progress(total_steps),
             summary=execution.summary,
             artifacts=execution.artifacts,
+            result_bundle=execution.result_bundle,
         )
 
         log_trainer_event(
@@ -116,10 +119,19 @@ def run_training_job(  # noqa: PLR0913
 
     except Exception:
         error_message = traceback.format_exc()
+        failed_bundle = None
+        if inputs is not None:
+            failed_bundle = build_result_bundle(
+                scenario=inputs.scenario,
+                job_id=submission_id,
+                status=ResultStatus.FAILED,
+                error=error_message,
+            )
         transitions.write(
             status=ResultStatus.FAILED,
             progress=failed_progress("Training failed", total_steps=total_steps),
             error=error_message,
+            result_bundle=failed_bundle,
         )
         log_trainer_event(
             "trainer_job_failed",

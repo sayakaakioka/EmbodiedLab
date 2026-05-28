@@ -7,7 +7,12 @@ from typing import Any
 from google.cloud import firestore
 
 from embodiedlab.repositories import ResultUpdateWriter, SubmissionReader
-from embodiedlab.result_models import Progress, ResultStatus, build_result_update
+from embodiedlab.result_models import (
+    Progress,
+    ResultBundle,
+    ResultStatus,
+    build_result_update,
+)
 
 
 def create_firestore_client(db_id: str) -> firestore.Client:
@@ -49,6 +54,7 @@ class FirestoreResultRepository(ResultUpdateWriter):
         summary: dict[str, Any] | None = None,
         error: str | None = None,
         artifacts: dict[str, Any] | None = None,
+        result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Merge a status/progress update into the result document."""
         payload = build_result_update(
@@ -57,5 +63,6 @@ class FirestoreResultRepository(ResultUpdateWriter):
             summary=summary,
             error=error,
             artifacts=artifacts,
+            result_bundle=result_bundle,
         )
         self._db.collection("results").document(submission_id).set(payload, merge=True)

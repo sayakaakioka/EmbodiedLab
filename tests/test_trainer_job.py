@@ -33,15 +33,15 @@ def test_run_training_job_updates_result_to_completed():
         return {
             "model": {
                 "bucket": bucket_name,
-                "path": f"models/{submission_id}/policy.zip",
+                "path": f"results/{submission_id}/model/policy.zip",
             },
             "onnx_model": {
                 "bucket": bucket_name,
-                "path": f"models/{submission_id}/policy.onnx",
+                "path": f"results/{submission_id}/model/policy.onnx",
             },
             "sentis_model": {
                 "bucket": bucket_name,
-                "path": f"models/{submission_id}/policy.sentis.onnx",
+                "path": f"results/{submission_id}/model/policy.sentis.onnx",
             },
         }
 
@@ -58,15 +58,33 @@ def test_run_training_job_updates_result_to_completed():
     payloads = result_repository.payloads_for("submission-1")
     statuses = [payload["data"]["status"] for payload in payloads]
     assert statuses == ["starting", "running", "completed"]
-    assert payloads[-1]["data"]["summary"] == {"score": 1.0}
+    assert payloads[-1]["data"]["summary"] == {
+        "score": 1.0,
+        "training_timesteps": 5000,
+        "training_seed": 10,
+    }
     assert payloads[-1]["data"]["artifacts"]["model"]["bucket"] == "model-bucket"
     assert (
         payloads[-1]["data"]["artifacts"]["onnx_model"]["path"]
-        == "models/submission-1/policy.onnx"
+        == "results/submission-1/model/policy.onnx"
     )
     assert (
         payloads[-1]["data"]["artifacts"]["sentis_model"]["path"]
-        == "models/submission-1/policy.sentis.onnx"
+        == "results/submission-1/model/policy.sentis.onnx"
+    )
+    assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
+        "result-bundle.v0"
+    )
+    assert payloads[-1]["data"]["result_bundle"]["summary"] == {
+        "training_timesteps": 5000,
+        "training_seed": 10,
+        "success_rate": None,
+        "average_episode_reward": None,
+        "average_episode_steps": None,
+    }
+    assert (
+        payloads[-1]["data"]["result_bundle"]["artifacts"]["model"]["path"]
+        == "results/submission-1/model/policy.onnx"
     )
     assert calls[0][0] == "train"
     assert calls[1][0] == "upload"
@@ -113,3 +131,32 @@ def test_run_training_job_marks_invalid_submission_failed():
     assert payload["status"] == "failed"
     assert payload["progress"]["total_steps"] == 0
     assert "timesteps" in payload["error"]
+
+
+def test_run_training_job_writes_failed_result_bundle_after_runtime_failure():
+    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission_repository = FakeSubmissionRepository(
+        initial_submissions={"submission-1": submission},
+    )
+    result_repository = FakeResultRepository()
+
+    def fail_training(**kwargs):
+        msg = "runtime exploded"
+        raise RuntimeError(msg)
+
+    with pytest.raises(RuntimeError):
+        run_training_job(
+            _CONFIG,
+            create_db=lambda db_id: object(),
+            create_submission_repository=lambda db: submission_repository,
+            create_result_repository=lambda db: result_repository,
+            train_model=fail_training,
+            upload_model=lambda **kwargs: {},
+            publish_event=_NO_PUBLISH,
+        )
+
+    payload = result_repository.payloads_for("submission-1")[-1]["data"]
+    assert payload["status"] == "failed"
+    assert "runtime exploded" in payload["error"]
+    assert payload["result_bundle"]["status"] == "failed"
+    assert "runtime exploded" in payload["result_bundle"]["error"]["message"]

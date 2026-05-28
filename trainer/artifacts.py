@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 import torch
 from google.cloud import storage
 from stable_baselines3 import PPO
 
+from embodiedlab.result_models import ReplayLogStep, serialize_replay_log_jsonl
+
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from stable_baselines3.common.policies import BasePolicy
 
 
@@ -106,6 +112,39 @@ def upload_file(
     blob.upload_from_filename(local_path, content_type=content_type)
 
 
+def upload_replay_log_to_gcs(
+    *,
+    bucket_name: str,
+    submission_id: str,
+    replay_steps: Iterable[ReplayLogStep],
+) -> dict:
+    """Serialize replay steps as JSONL, upload them, and return artifact metadata."""
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob_path = f"results/{submission_id}/replay/replay.jsonl"
+
+    with TemporaryDirectory() as tmpdir:
+        local_path = Path(tmpdir) / "replay.jsonl"
+        with local_path.open("w", encoding="utf-8") as replay_file:
+            replay_file.write(serialize_replay_log_jsonl(replay_steps))
+        upload_file(
+            bucket=bucket,
+            local_path=str(local_path),
+            blob_path=blob_path,
+            content_type="application/jsonl",
+        )
+
+    return {
+        "replay_log": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": blob_path,
+            "format": "jsonl",
+            "schema_version": "replay-log.v0",
+        },
+    }
+
+
 def upload_model_to_gcs(
     local_model_base_path: str,
     bucket_name: str,
@@ -118,9 +157,9 @@ def upload_model_to_gcs(
     local_zip_path = f"{local_model_base_path}.zip"
     local_onnx_path = export_model_to_onnx(local_model_base_path)
     local_sentis_path = export_model_to_sentis_onnx(local_model_base_path)
-    zip_blob_path = f"models/{submission_id}/policy.zip"
-    onnx_blob_path = f"models/{submission_id}/policy.onnx"
-    sentis_blob_path = f"models/{submission_id}/policy.sentis.onnx"
+    zip_blob_path = f"results/{submission_id}/model/policy.zip"
+    onnx_blob_path = f"results/{submission_id}/model/policy.onnx"
+    sentis_blob_path = f"results/{submission_id}/model/policy.sentis.onnx"
 
     upload_file(
         bucket=bucket,
@@ -141,6 +180,12 @@ def upload_model_to_gcs(
         content_type="application/octet-stream",
     )
 
+    replay_artifact = upload_replay_log_to_gcs(
+        bucket_name=bucket_name,
+        submission_id=submission_id,
+        replay_steps=(),
+    )
+
     return {
         "model": {
             "storage": "gcs",
@@ -152,6 +197,7 @@ def upload_model_to_gcs(
             "bucket": bucket_name,
             "path": onnx_blob_path,
         },
+        **replay_artifact,
         "sentis_model": {
             "storage": "gcs",
             "bucket": bucket_name,
