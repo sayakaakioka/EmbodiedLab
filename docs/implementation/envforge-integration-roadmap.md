@@ -138,6 +138,15 @@ Unity をクラウドで実行することは必須ではない。
 dynamic obstacles、humans、curriculum learning、multiple robot types は
 後続フェーズに送る。
 
+現在、ContinuousNavigationEnv と ContinuousNavigationSpec を追加し、
+Scenario Bundle から EnvForge x/z meter 座標を保った runtime spec へ
+変換できるようにした。初期実装では、連続 action forward/turn、Y 回転、
+goal radius、static walls、static obstacles、回転付き box collision、
+距離センサ range を扱う。
+
+まだ既定の trainer/export 経路は grid-world runner のままである。
+次の作業では、この連続 runtime を trainer の主経路へ接続する。
+
 ## Phase 5: Model Compatibility
 
 EmbodiedLab は内部で ML-Agents を使う必要はない。

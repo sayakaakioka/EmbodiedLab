@@ -343,7 +343,7 @@ lossy である。
 
 この adapter では、障害物サイズ、回転、goal radius、センサ定義、
 宣言的 reward component など、契約上の情報の一部は runtime へ完全には
-反映されない。この制約は `describe_runtime_conversion` とそのテストで
+反映されない。この制約は grid-world 用の conversion description とそのテストで
 明示し、grid-world runtime を置き換えるまでの暫定境界として管理する。
 
 ## 保留事項

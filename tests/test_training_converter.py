@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import (
     convert_submission_to_spec,
-    describe_runtime_conversion,
+    describe_grid_runtime_conversion,
     parse_scenario_bundle,
 )
 from embodiedlab.training.training_models import GridPosition
@@ -92,7 +92,7 @@ def test_describe_runtime_conversion_marks_grid_adapter_as_lossy():
         },
     )
 
-    conversion = describe_runtime_conversion(scenario)
+    conversion = describe_grid_runtime_conversion(scenario)
 
     assert conversion.source_coordinate_system == "envforge_xz_meters"
     assert conversion.runtime_coordinate_system == "grid_world_cells"
@@ -135,7 +135,7 @@ def test_runtime_conversion_description_matches_flooring_behavior():
         },
     )
 
-    conversion = describe_runtime_conversion(scenario)
+    conversion = describe_grid_runtime_conversion(scenario)
     spec = convert_submission_to_spec(scenario)
 
     assert conversion.lossy is True

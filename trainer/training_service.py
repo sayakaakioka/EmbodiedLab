@@ -18,7 +18,7 @@ from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import (
     ScenarioRuntimeConversion,
     convert_submission_to_spec,
-    describe_runtime_conversion,
+    describe_grid_runtime_conversion,
     parse_scenario_bundle,
 )
 
@@ -61,7 +61,7 @@ def parse_training_submission(
         },
     )
     spec = convert_submission_to_spec(scenario)
-    conversion = describe_runtime_conversion(scenario)
+    conversion = describe_grid_runtime_conversion(scenario)
     return TrainingInputs(
         scenario=scenario,
         training=training,
