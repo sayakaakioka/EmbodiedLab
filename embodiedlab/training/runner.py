@@ -32,6 +32,9 @@ def build_grid_replay_step(  # noqa: PLR0913
     info: dict[str, Any],
     terminated: bool,
     truncated: bool,
+    envforge_origin_x: float = 0.0,
+    envforge_origin_z: float = 0.0,
+    cell_size_meters: float = 1.0,
 ) -> dict[str, Any]:
     """Build a JsonUtility-friendly replay row from the temporary grid runtime."""
     action_values = ACTION_REPLAY_VALUES[Action(action)]
@@ -81,8 +84,8 @@ def build_grid_replay_step(  # noqa: PLR0913
         "time_seconds": round(step_index * 0.1, 6),
         "robot": {
             "position": {
-                "x": float(obs["agent"][0]),
-                "z": float(obs["agent"][1]),
+                "x": envforge_origin_x + float(obs["agent"][0]) * cell_size_meters,
+                "z": envforge_origin_z + float(obs["agent"][1]) * cell_size_meters,
             },
             "rotation_y_degrees": action_values["rotation_y_degrees"],
         },
@@ -106,8 +109,8 @@ def build_grid_replay_step(  # noqa: PLR0913
         "sensors": [
             {
                 "id": "front_distance",
-                "type": "grid_manhattan_distance",
-                "value": float(info["distance"]),
+                "type": "envforge_manhattan_distance_meters",
+                "value": float(info["distance"]) * cell_size_meters,
             },
         ],
         "terminated": terminated or truncated,
@@ -153,6 +156,9 @@ def evaluate_policy(
                         info=_info,
                         terminated=terminated,
                         truncated=truncated,
+                        envforge_origin_x=env.spec.envforge_origin_x,
+                        envforge_origin_z=env.spec.envforge_origin_z,
+                        cell_size_meters=env.spec.cell_size_meters,
                     ),
                 )
 

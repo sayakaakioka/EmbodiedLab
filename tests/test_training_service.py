@@ -34,7 +34,7 @@ def test_execute_training_run_uploads_replay_steps():
                     "sensors": [
                         {
                             "id": "front_distance",
-                            "type": "grid_manhattan_distance",
+                            "type": "envforge_manhattan_distance_meters",
                             "value": 14.0,
                         },
                     ],

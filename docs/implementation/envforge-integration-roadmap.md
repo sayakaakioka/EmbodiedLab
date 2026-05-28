@@ -115,7 +115,8 @@ action、reward components、sensor summaries は arbitrary dictionary ではな
 
 現在の grid-world adapter では、trainer evaluation の先頭 episode から
 Replay Log steps を生成し、GCS replay artifact へ渡す。これは EnvForge-compatible
-runtime へ移行するまでの暫定ログであり、座標と行動 semantics は lossy である。
+runtime へ移行するまでの暫定ログである。robot position は EnvForge の x/z meter
+座標へ戻すが、行動 semantics はまだ grid action からの近似である。
 
 ## Phase 4: Environment Upgrade
 

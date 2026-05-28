@@ -45,15 +45,18 @@ reward components も `{ "name": ..., "value": ... }` の配列にする。
 ## 到達点
 
 現在の runtime はまだ EnvForge の連続空間そのものではなく、一時的な grid-world
-adapter である。そのため Replay Log は lossy であり、行動も grid action から
+adapter である。Replay Log の robot position は Scenario Bundle の `bounds.min`
+を使って EnvForge の x/z meter 座標へ戻すが、行動は grid action から
 `forward` / `turn` へ近似している。
 
-それでも、空の Replay Log artifact ではなく、評価 episode の位置、行動、報酬成分、
-イベント、距離 sensor summary を JSONL として保存できる入口ができた。
+それでも、空の Replay Log artifact ではなく、評価 episode の EnvForge 座標、
+行動、報酬成分、イベント、距離 sensor summary を JSONL として保存できる入口が
+できた。
 
 ## 保留事項
 
 - EnvForge-compatible runtime から Replay Log step を生成する処理。
+- continuous `forward` / `turn` action semantics への移行。
 - collision/contact event の詳細 schema。
 - 数値以外の sensor summary を扱う場合の型別 schema。
 - 長い Replay Log の圧縮、分割、部分読み込み。

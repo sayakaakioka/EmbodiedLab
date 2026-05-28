@@ -26,3 +26,6 @@ class GridWorldSpec:
     goal: GridPosition
     robot_start: GridPosition
     robot_type: str
+    envforge_origin_x: float = 0.0
+    envforge_origin_z: float = 0.0
+    cell_size_meters: float = 1.0

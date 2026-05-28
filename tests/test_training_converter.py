@@ -42,6 +42,8 @@ def test_convert_scenario_model_to_current_runtime_spec():
     assert spec.robot_start == GridPosition(x=1, y=1)
     assert spec.obstacles == frozenset()
     assert spec.robot_type == "simple_robot"
+    assert spec.envforge_origin_x == 0.0
+    assert spec.envforge_origin_z == 0.0
 
 
 def test_convert_scenario_dict_to_spec_includes_obstacles():
@@ -178,6 +180,8 @@ def test_convert_scenario_with_translated_bounds_uses_bounds_relative_cells():
     assert spec.robot_start == GridPosition(x=1, y=2)
     assert spec.goal == GridPosition(x=8, y=8)
     assert spec.obstacles == frozenset({GridPosition(x=4, y=5)})
+    assert spec.envforge_origin_x == 100.0
+    assert spec.envforge_origin_z == 200.0
 
 
 def test_parse_scenario_bundle_rejects_invalid_dict():

@@ -93,4 +93,6 @@ def convert_submission_to_spec(
         goal=_position_to_grid(scenario.world.goal.position, bounds.min),
         robot_start=_position_to_grid(scenario.robot.start_pose.position, bounds.min),
         robot_type=scenario.robot.type.value,
+        envforge_origin_x=bounds.min.x,
+        envforge_origin_z=bounds.min.z,
     )

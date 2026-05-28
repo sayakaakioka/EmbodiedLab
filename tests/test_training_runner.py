@@ -13,10 +13,12 @@ def test_build_grid_replay_step_returns_envforge_replay_shape():
         info={"distance": 5, "distance_delta": 1, "blocked": True},
         terminated=False,
         truncated=False,
+        envforge_origin_x=100.0,
+        envforge_origin_z=200.0,
     )
 
     assert step["episode_id"] == "episode_0001"
-    assert step["robot"]["position"] == {"x": 3.0, "z": 4.0}
+    assert step["robot"]["position"] == {"x": 103.0, "z": 204.0}
     assert step["robot"]["rotation_y_degrees"] == 90.0
     assert step["action"]["values"] == [
         {"name": "forward", "value": 0.0},
@@ -36,7 +38,7 @@ def test_build_grid_replay_step_returns_envforge_replay_shape():
     assert step["sensors"] == [
         {
             "id": "front_distance",
-            "type": "grid_manhattan_distance",
+            "type": "envforge_manhattan_distance_meters",
             "value": 5.0,
         },
     ]
