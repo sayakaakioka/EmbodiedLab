@@ -17,7 +17,7 @@ from embodiedlab.result_models import (
     build_queued_result_document,
     build_result_update,
 )
-from embodiedlab.schemas import SubmitRequest, build_submission_document
+from embodiedlab.schemas import ScenarioBundle, build_submission_document
 
 if TYPE_CHECKING:
     from google.cloud import firestore
@@ -30,11 +30,11 @@ class FirestoreSubmissionRepository(SubmissionWriter, SubmissionExistenceChecker
         """Bind the repository to a Firestore client."""
         self._db = db
 
-    def save(self, req: SubmitRequest) -> str:
+    def save(self, scenario: ScenarioBundle) -> str:
         """Persist a new submission document and return its generated ID."""
         submission_id = str(uuid.uuid4())
         self._db.collection("submissions").document(submission_id).set(
-            build_submission_document(submission_id, req),
+            build_submission_document(submission_id, scenario),
         )
         return submission_id
 

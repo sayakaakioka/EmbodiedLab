@@ -48,11 +48,12 @@ def test_create_submission_persists_default_payload():
     submission_id = response.json()["submission_id"]
     submission = submission_repository.fetch(submission_id)
     assert submission["submission_id"] == submission_id
-    assert submission["environment"]["size"] == [2, 2]
-    assert submission["environment"]["goal"] == {"x": 1, "y": 1}
-    assert submission["environment"]["robot_start"] == {"x": 0, "y": 0}
-    assert submission["robot"] == {"type": "simple"}
-    assert submission["training"]["algorithm"] == "ppo"
+    scenario = submission["scenario"]
+    assert scenario["schema_version"] == "scenario-bundle.v0"
+    assert scenario["world"]["goal"]["position"] == {"x": 8.5, "z": 8.5}
+    assert scenario["robot"]["type"] == "simple_robot"
+    assert scenario["robot"]["action_space"]["layout"] == ["forward", "turn"]
+    assert scenario["training"]["algorithm"] == "ppo"
 
 
 def test_train_queues_result_and_runs_job(monkeypatch):

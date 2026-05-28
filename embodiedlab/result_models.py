@@ -8,6 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+RESULT_SCHEMA_VERSION = "result-bundle.v0"
+REPLAY_LOG_SCHEMA_VERSION = "replay-log.v0"
+
 
 class ResultStatus(StrEnum):
     """Lifecycle states of a training result."""
@@ -17,6 +20,115 @@ class ResultStatus(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class ArtifactStorage(StrEnum):
+    """Supported artifact storage backends."""
+
+    GCS = "gcs"
+
+
+class ArtifactFormat(StrEnum):
+    """Supported artifact formats."""
+
+    ONNX = "onnx"
+    JSONL = "jsonl"
+    ZIP = "zip"
+
+
+class ArtifactLocation(BaseModel):
+    """Location and format of a result artifact."""
+
+    storage: ArtifactStorage = ArtifactStorage.GCS
+    bucket: str = Field(min_length=1)
+    path: str = Field(min_length=1)
+    format: ArtifactFormat
+
+
+class ResultCompatibility(BaseModel):
+    """Compatibility metadata needed by EnvForge when loading a result."""
+
+    scenario_schema_version: str = Field(default="scenario-bundle.v0", min_length=1)
+    envforge_min_version: str = Field(default="0.1.0", min_length=1)
+    robot_version: str = Field(default="simple_robot.v0", min_length=1)
+    sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
+    action_layout: list[str] = Field(default_factory=lambda: ["forward", "turn"])
+    observation_layout: list[str] = Field(
+        default_factory=lambda: [
+            "front_camera_semantic",
+            "front_distance",
+        ],
+    )
+
+
+class TrainingSummary(BaseModel):
+    """High-level metrics from a completed training run."""
+
+    training_timesteps: int = Field(ge=0)
+    training_seed: int
+    success_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    average_episode_reward: float | None = None
+    average_episode_steps: float | None = Field(default=None, ge=0.0)
+
+
+class ResultArtifacts(BaseModel):
+    """Artifacts produced by a training run."""
+
+    model: ArtifactLocation | None = None
+    replay_log: ArtifactLocation | None = None
+
+
+class ErrorReport(BaseModel):
+    """Structured failure details for failed result bundles."""
+
+    message: str = Field(min_length=1)
+    details: str | None = None
+
+
+class ResultBundle(BaseModel):
+    """EnvForge-facing training result bundle."""
+
+    schema_version: str = RESULT_SCHEMA_VERSION
+    scenario_id: str = Field(min_length=1)
+    job_id: str = Field(min_length=1)
+    status: ResultStatus
+    compatibility: ResultCompatibility = Field(default_factory=ResultCompatibility)
+    summary: TrainingSummary | None = None
+    artifacts: ResultArtifacts = Field(default_factory=ResultArtifacts)
+    error: ErrorReport | None = None
+
+
+class Pose2D(BaseModel):
+    """Robot pose on the replay x/z plane."""
+
+    x: float
+    z: float
+    rotation_y_degrees: float
+
+
+class ReplayReward(BaseModel):
+    """Reward values emitted for a replay step."""
+
+    total: float
+    components: dict[str, float] = Field(default_factory=dict)
+
+
+class ReplayLogStep(BaseModel):
+    """One JSON Lines row in an EnvForge replay log."""
+
+    schema_version: str = REPLAY_LOG_SCHEMA_VERSION
+    scenario_id: str = Field(min_length=1)
+    job_id: str = Field(min_length=1)
+    episode_id: str = Field(min_length=1)
+    step_index: int = Field(ge=0)
+    time_seconds: float = Field(ge=0.0)
+    robot: Pose2D
+    action: dict[str, float] = Field(default_factory=dict)
+    reward: ReplayReward
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    sensors: dict[str, Any] = Field(default_factory=dict)
+    terminated: bool = False
+    termination_reason: str | None = None
 
 
 def utc_now_iso() -> str:

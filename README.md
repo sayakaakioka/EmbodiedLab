@@ -70,8 +70,8 @@ uv run ruff check embodiedlab server trainer tests notification
 
 Detailed payload and config reference:
 
-- [docs/data-models.md](/workspaces/EmbodiedLab/docs/data-models.md)
-- [docs/development.md](/workspaces/EmbodiedLab/docs/development.md)
+- [docs/implementation/data-models.md](docs/implementation/data-models.md)
+- [docs/implementation/development.md](docs/implementation/development.md)
 
 ## Dependency Groups
 

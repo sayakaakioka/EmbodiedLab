@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from embodiedlab.result_models import Progress, ResultStatus
-    from embodiedlab.schemas import SubmitRequest
+    from embodiedlab.schemas import ScenarioBundle
 
 
 class SubmissionWriter(Protocol):
     """Write boundary for submission persistence."""
 
-    def save(self, req: SubmitRequest) -> str:
+    def save(self, scenario: ScenarioBundle) -> str:
         """Persist a new submission and return its ID."""
 
 

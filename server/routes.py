@@ -13,7 +13,7 @@ from embodiedlab.repositories import (
     SubmissionExistenceChecker,
     SubmissionWriter,
 )
-from embodiedlab.schemas import SubmitRequest
+from embodiedlab.schemas import ScenarioBundle
 from server.config import ServerConfig
 from server.dependencies import (
     get_config,
@@ -32,14 +32,14 @@ router = APIRouter()
 
 @router.post("/submissions")
 def create_submission(
-    req: SubmitRequest,
+    scenario: ScenarioBundle,
     submission_repository: Annotated[
         SubmissionWriter,
         Depends(get_submission_repository),
     ],
 ) -> dict[str, str]:
     """Create a new submission and persist it to Firestore."""
-    submission_id = submission_repository.save(req)
+    submission_id = submission_repository.save(scenario)
 
     return {
         "status": "accepted",

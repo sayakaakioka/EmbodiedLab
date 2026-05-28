@@ -9,7 +9,10 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from embodiedlab.training.training_config import TrainingConfig
-from embodiedlab.training.training_converter import convert_submission_to_spec
+from embodiedlab.training.training_converter import (
+    convert_submission_to_spec,
+    parse_scenario_bundle,
+)
 
 TrainModel = Callable[..., dict[str, Any]]
 UploadModel = Callable[..., dict[str, Any]]
@@ -35,8 +38,14 @@ def parse_training_submission(
     submission: dict[str, Any],
 ) -> TrainingInputs:
     """Validate a submission payload and convert it into runtime training inputs."""
-    training = TrainingConfig.model_validate(submission["training"])
-    spec = convert_submission_to_spec(submission)
+    scenario = parse_scenario_bundle(submission)
+    training = TrainingConfig.model_validate(
+        {
+            **scenario.training.model_dump(mode="json"),
+            "max_steps": scenario.training.max_episode_steps,
+        },
+    )
+    spec = convert_submission_to_spec(scenario)
     return TrainingInputs(training=training, spec=spec)
 
 

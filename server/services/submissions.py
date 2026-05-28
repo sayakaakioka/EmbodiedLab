@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from google.cloud import firestore
 
-from embodiedlab.schemas import SubmitRequest, build_submission_document
+from embodiedlab.schemas import ScenarioBundle, build_submission_document
 
 
-def save_submission(db: firestore.Client, req: SubmitRequest) -> str:
+def save_submission(db: firestore.Client, scenario: ScenarioBundle) -> str:
     """Persist a new submission document and return its generated ID."""
     submission_id = str(uuid.uuid4())
 
     db.collection("submissions").document(submission_id).set(
-        build_submission_document(submission_id, req),
+        build_submission_document(submission_id, scenario),
     )
 
     return submission_id

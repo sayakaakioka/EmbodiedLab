@@ -1,4 +1,4 @@
-include .env
+-include .env
 export
 
 SHELL := /bin/bash
@@ -15,7 +15,7 @@ setup_all: clear_submission_id gcp_bootstrap deploy_all
 
 
 ##### dependencies #####
-.PHONY: ensure_uv ensure_venv check_deps show_env
+.PHONY: ensure_uv ensure_venv check_deps require_cloud_env require_api_env show_env
 
 ensure_uv:
 	@test -n "$(UV)" || { echo "uv not found"; exit 1; }
@@ -48,9 +48,45 @@ check_deps: ensure_venv
 	@echo " DOCKER=$(DOCKER)"
 	@echo " UV=$(UV)"
 
+CLOUD_ENV_VARS := \
+	PROJECT_ID \
+	REGION \
+	DB_ID \
+	ARTIFACT_REPO \
+	MODEL_BUCKET \
+	PUBSUB_TOPIC \
+	PUBSUB_SUBSCRIPTION \
+	RUNTIME_SA_NAME \
+	API_SERVICE_NAME \
+	TRAINER_JOB_NAME \
+	NOTIFICATION_SERVICE_NAME \
+	NOTIFICATION_PUSH_PATH
+
+API_ENV_VARS := API_URL
+
+require_cloud_env:
+	@missing=0; \
+	for name in $(CLOUD_ENV_VARS); do \
+		if [ -z "$${!name}" ]; then \
+			echo "$$name required"; \
+			missing=1; \
+		fi; \
+	done; \
+	exit $$missing
+
+require_api_env:
+	@missing=0; \
+	for name in $(API_ENV_VARS); do \
+		if [ -z "$${!name}" ]; then \
+			echo "$$name required"; \
+			missing=1; \
+		fi; \
+	done; \
+	exit $$missing
+
 RUNTIME_SA_EMAIL := $(RUNTIME_SA_NAME)@$(PROJECT_ID).iam.gserviceaccount.com
 
-show_env: check_deps
+show_env: check_deps require_cloud_env
 	@echo "PROJECT_ID=$(PROJECT_ID)"
 	@echo "REGION=$(REGION)"
 	@echo "DB_ID=$(DB_ID)"
@@ -70,11 +106,11 @@ show_env: check_deps
 	create_runtime_sa create_artifact_repo create_model_bucket create_firestore_db create_pubsub_topic \
 	grant_runtime_roles
 
-gcp_auth: check_deps
+gcp_auth: check_deps require_cloud_env
 	$(GCLOUD) auth login
 	$(GCLOUD) config set project $(PROJECT_ID)
 
-gcp_bootstrap: check_deps \
+gcp_bootstrap: check_deps require_cloud_env \
 	enable_services \
 	create_runtime_sa \
 	create_artifact_repo \
@@ -84,7 +120,7 @@ gcp_bootstrap: check_deps \
 	grant_runtime_roles
 	@echo "GCP bootstrap complete"
 
-enable_services: check_deps
+enable_services: check_deps require_cloud_env
 	$(GCLOUD) config set project $(PROJECT_ID)
 	$(GCLOUD) services enable \
 		run.googleapis.com \
@@ -96,12 +132,12 @@ enable_services: check_deps
 		storage.googleapis.com \
 		logging.googleapis.com
 
-create_runtime_sa: check_deps
+create_runtime_sa: check_deps require_cloud_env
 	@$(GCLOUD) iam service-accounts describe $(RUNTIME_SA_EMAIL) >/dev/null 2>&1 || \
 		$(GCLOUD) iam service-accounts create $(RUNTIME_SA_NAME) \
 			--display-name="$(RUNTIME_SA_NAME) Runtime"
 
-create_artifact_repo: check_deps
+create_artifact_repo: check_deps require_cloud_env
 	@$(GCLOUD) artifacts repositories describe $(ARTIFACT_REPO) \
 		--location=$(REGION) >/dev/null 2>&1 || \
 		$(GCLOUD) artifacts repositories create $(ARTIFACT_REPO) \
@@ -109,7 +145,7 @@ create_artifact_repo: check_deps
 			--location=$(REGION) \
 			--description="$(ARTIFACT_REPO) container images"
 
-create_model_bucket: check_deps
+create_model_bucket: check_deps require_cloud_env
 	@$(GCLOUD) storage buckets describe gs://$(MODEL_BUCKET) >/dev/null 2>&1 || \
 		$(GCLOUD) storage buckets create gs://$(MODEL_BUCKET) \
 			--location=$(REGION) \
@@ -118,18 +154,18 @@ create_model_bucket: check_deps
 		--member="allUsers" \
 		--role="roles/storage.objectViewer"
 
-create_firestore_db: check_deps
+create_firestore_db: check_deps require_cloud_env
 	@$(GCLOUD) firestore databases describe --database=$(DB_ID) >/dev/null 2>&1 || \
 		$(GCLOUD) firestore databases create \
 			--database=$(DB_ID) \
 			--location=$(REGION) \
 			--type=firestore-native
 
-create_pubsub_topic: check_deps
+create_pubsub_topic: check_deps require_cloud_env
 	@$(GCLOUD) pubsub topics describe $(PUBSUB_TOPIC) >/dev/null 2>&1 || \
 		$(GCLOUD) pubsub topics create $(PUBSUB_TOPIC)
 
-grant_runtime_roles: check_deps
+grant_runtime_roles: check_deps require_cloud_env
 	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
 		--role="roles/datastore.user"
@@ -167,7 +203,7 @@ setup_builder:
 ARTIFACT_HOST := $(REGION)-docker.pkg.dev
 API_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/api:latest
 
-build_api: check_deps setup_builder
+build_api: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
@@ -186,7 +222,7 @@ deploy_api: build_api
 
 TRAINER_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/trainer:latest
 
-build_trainer: check_deps setup_builder
+build_trainer: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
@@ -211,7 +247,7 @@ deploy_trainer: build_trainer
 
 NOTIFICATION_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/notification:latest
 
-build_notification: check_deps setup_builder
+build_notification: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
@@ -231,12 +267,12 @@ deploy_notification: build_notification
 ##### pubsub / notification #####
 .PHONY: show_notification_url recreate_pubsub_push
 
-show_notification_url: check_deps
+show_notification_url: check_deps require_cloud_env
 	@$(GCLOUD) run services describe $(NOTIFICATION_SERVICE_NAME) \
 		--region $(REGION) \
 		--format='value(status.url)'
 
-recreate_pubsub_push: check_deps
+recreate_pubsub_push: check_deps require_cloud_env
 	@NOTIFICATION_URL="$$( $(GCLOUD) run services describe $(NOTIFICATION_SERVICE_NAME) --region $(REGION) --format='value(status.url)' )"; \
 	test -n "$$NOTIFICATION_URL" || { echo "notification service URL not found"; exit 1; }; \
 	echo "Using push endpoint: $$NOTIFICATION_URL$(NOTIFICATION_PUSH_PATH)"; \
@@ -253,7 +289,7 @@ recreate_pubsub_push: check_deps
 LAST_SUBMISSION_RESPONSE_FILE := .last_submit_response.json
 LAST_SUBMISSION_ID_FILE := .last_submission_id
 
-submit: check_deps
+submit: check_deps require_api_env
 	@test -f payload.json
 	@curl -s -X POST $(API_URL)/submissions \
 		-H "Content-Type: application/json" \
@@ -263,17 +299,17 @@ submit: check_deps
 	@$(UV) run python -c 'import json; print(json.load(open("$(LAST_SUBMISSION_RESPONSE_FILE)", encoding="utf-8"))["submission_id"])' > $(LAST_SUBMISSION_ID_FILE)
 	@echo "Saved submission_id: $$(cat $(LAST_SUBMISSION_ID_FILE))"
 
-train: check_deps
+train: check_deps require_api_env
 	@test -f $(LAST_SUBMISSION_ID_FILE)
 	curl -s -X POST $(API_URL)/submissions/$$(cat $(LAST_SUBMISSION_ID_FILE))/train \
 		| $(UV) run python -m json.tool
 
-get_result: check_deps
+get_result: check_deps require_api_env
 	@test -f $(LAST_SUBMISSION_ID_FILE)
 	curl -s $(API_URL)/results/$$(cat $(LAST_SUBMISSION_ID_FILE)) \
 		| $(UV) run python -m json.tool
 
-get_result_ws: check_deps
+get_result_ws: check_deps require_api_env
 	@test -f $(LAST_SUBMISSION_ID_FILE)
 	@SUBMISSION_ID=$$(cat $(LAST_SUBMISSION_ID_FILE)) $(UV) run python tools/ws_client.py
 
@@ -287,11 +323,24 @@ clear_submission_id:
 	rm -f $(LAST_SUBMISSION_ID_FILE)
 	rm -f $(LAST_SUBMISSION_RESPONSE_FILE)
 
-##### local test #####
-.PHONY: local_setup local_test server_local
+##### local checks #####
+.PHONY: local_setup lint_python lint_markdown lint test check local_test server_local
 
 local_setup:
 	@$(UV) $(UV_SYNC_ALL_GROUPS)
+
+lint_python: local_setup
+	$(UV) run ruff check embodiedlab server trainer tests notification
+
+lint_markdown: local_setup
+	$(UV) run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs
+
+lint: lint_python lint_markdown
+
+test: local_setup
+	$(UV) run pytest
+
+check: lint test
 
 local_test: local_setup
 	$(UV) run pytest tests
@@ -305,26 +354,26 @@ server_local: check_deps
 	logs_api logs_trainer logs_trainer_exec logs_notification \
 	logs_raw
 
-list_trainers: check_deps
+list_trainers: check_deps require_cloud_env
 	$(GCLOUD) run jobs executions list \
 		--job $(TRAINER_JOB_NAME) \
 		--region $(REGION)
 
-auth_docker: check_deps
+auth_docker: check_deps require_cloud_env
 	$(GCLOUD) auth configure-docker $(REGION)-docker.pkg.dev
 
-clear_model_bucket: check_deps
+clear_model_bucket: check_deps require_cloud_env
 	$(GCLOUD) storage rm --recursive gs://$(MODEL_BUCKET)/**
 
 LOG_LIMIT ?= 50
 
-logs_api: check_deps
+logs_api: check_deps require_cloud_env
 	$(GCLOUD) logging read \
 		'resource.type="cloud_run_revision" AND resource.labels.service_name="$(API_SERVICE_NAME)"' \
 		--limit $(LOG_LIMIT) \
 		--format="value(textPayload)"
 
-logs_trainer: check_deps
+logs_trainer: check_deps require_cloud_env
 	@EXEC=$$($(GCLOUD) run jobs executions list \
 		--job $(TRAINER_JOB_NAME) \
 		--region $(REGION) \
@@ -337,20 +386,20 @@ logs_trainer: check_deps
 		--limit $(LOG_LIMIT) \
 		--format="value(textPayload)"
 
-logs_trainer_exec: check_deps
+logs_trainer_exec: check_deps require_cloud_env
 	@test -n "$(EXECUTION_NAME)" || { echo "EXECUTION_NAME required"; exit 1; }
 	$(GCLOUD) logging read \
 		"resource.type=cloud_run_job AND resource.labels.job_name=$(TRAINER_JOB_NAME) AND labels.\"run.googleapis.com/execution_name\"=$(EXECUTION_NAME)" \
 		--limit $(LOG_LIMIT) \
 		--format="value(textPayload)"
 
-logs_notification: check_deps
+logs_notification: check_deps require_cloud_env
 	$(GCLOUD) logging read \
 		'resource.type="cloud_run_revision" AND resource.labels.service_name="$(NOTIFICATION_SERVICE_NAME)"' \
 		--limit $(LOG_LIMIT) \
 		--format="value(textPayload)"
 
-logs_raw: check_deps
+logs_raw: check_deps require_cloud_env
 	$(GCLOUD) logging read \
 		'resource.type="cloud_run_revision"' \
 		--limit $(LOG_LIMIT)

@@ -33,6 +33,7 @@ notification = [
 dev = [
     "anyio",
     "httpx",
+    "pymarkdownlnt>=0.9.37",
     "pytest",
     "pytest-asyncio",
     "ruff",
@@ -58,7 +59,7 @@ exclude = [
 line-length = 88
 indent-width = 4
 
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = ["ALL"]

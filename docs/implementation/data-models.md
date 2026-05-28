@@ -1,22 +1,22 @@
-# Data Models
+# データモデル
 
-This document summarizes the main startup configuration and runtime payloads
-used by the `server`, `trainer`, and `notification` services.
+この文書は、`server`、`trainer`、`notification` service が使う
+主な startup config と runtime payload をまとめる。
 
 ## Service Startup Config
 
 ### `server`
 
-Environment variables loaded by `server/config.py`:
+`server/config.py` が読む環境変数:
 
 | Name | Type | Purpose |
 | --- | --- | --- |
 | `DB_ID` | string | Firestore database ID |
 | `REGION` | string | Cloud Run region |
 | `PROJECT_ID` | string | GCP project ID |
-| `TRAINER_JOB_NAME` | string | Cloud Run Job name used to construct `job_path` |
+| `TRAINER_JOB_NAME` | string | Cloud Run Job name |
 
-Resolved runtime shape:
+resolved runtime shape:
 
 ```json
 {
@@ -28,17 +28,17 @@ Resolved runtime shape:
 
 ### `trainer`
 
-Environment variables loaded by `trainer/config.py`:
+`trainer/config.py` が読む環境変数:
 
 | Name | Type | Purpose |
 | --- | --- | --- |
 | `DB_ID` | string | Firestore database ID |
 | `MODEL_BUCKET` | string | GCS bucket for model artifacts |
 | `SUBMISSION_ID` | string | Submission to train |
-| `PUBSUB_TOPIC` | string | Topic used for ordered result events |
+| `PUBSUB_TOPIC` | string | Topic for ordered result events |
 | `PROJECT_ID` | string | GCP project ID |
 
-Resolved runtime shape:
+resolved runtime shape:
 
 ```json
 {
@@ -52,22 +52,23 @@ Resolved runtime shape:
 
 ### `notification`
 
-The notification service does not currently load a dedicated Python config
-object at startup. Deployment still depends on these Makefile-level variables:
+notification service は、現在 dedicated Python config object を
+startup 時に読み込んでいない。
+deploy は Makefile-level variables に依存している。
 
 | Name | Type | Purpose |
 | --- | --- | --- |
 | `NOTIFICATION_SERVICE_NAME` | string | Cloud Run service name |
-| `NOTIFICATION_PUSH_PATH` | string | Pub/Sub push path, typically `/internal/pubsub/push` |
+| `NOTIFICATION_PUSH_PATH` | string | Pub/Sub push endpoint path |
 
 ### `tools/ws_client.py`
 
-The local WebSocket helper is usually run via `make get_result_ws`. It builds
-the Cloud Run WebSocket URL from environment variables exported by `Makefile`:
+local WebSocket helper は通常 `make get_result_ws` 経由で実行する。
+Makefile が export する環境変数から Cloud Run WebSocket URL を作る。
 
 | Name | Type | Purpose |
 | --- | --- | --- |
-| `NOTIFICATION_SERVICE_NAME` | string | Notification Cloud Run service name |
+| `NOTIFICATION_SERVICE_NAME` | string | Notification service name |
 | `HASH` | string | Cloud Run service URL hash suffix |
 | `REGION` | string | Cloud Run region |
 | `SUBMISSION_ID` | string | Submission to subscribe to |
@@ -76,26 +77,69 @@ the Cloud Run WebSocket URL from environment variables exported by `Makefile`:
 
 ### `POST /submissions`
 
-Request model: `embodiedlab.schemas.SubmitRequest`
+request model: `embodiedlab.schemas.ScenarioBundle`
 
 ```json
 {
-  "environment": {
-    "size": [4, 4],
-    "obstacles": [
-      { "x": 1, "y": 1 }
-    ],
-    "goal": { "x": 3, "y": 3 },
-    "robot_start": { "x": 0, "y": 0 }
+  "schema_version": "scenario-bundle.v0",
+  "scenario_id": "scenario_demo_001",
+  "created_by": {
+    "tool": "EnvForge",
+    "version": "0.1.0"
+  },
+  "compatibility": {
+    "envforge_min_version": "0.1.0",
+    "robot_version": "simple_robot.v0",
+    "sensor_version": "basic_sensors.v0"
+  },
+  "world": {
+    "coordinate_system": "envforge_xz_meters",
+    "bounds": {
+      "min": { "x": 0.0, "z": 0.0 },
+      "max": { "x": 10.0, "z": 10.0 }
+    },
+    "static_walls": [],
+    "static_obstacles": [],
+    "goal": {
+      "id": "goal_001",
+      "position": { "x": 8.5, "z": 8.5 },
+      "radius": 0.5
+    }
   },
   "robot": {
-    "type": "simple"
+    "type": "simple_robot",
+    "start_pose": {
+      "position": { "x": 1.0, "z": 1.0 },
+      "rotation_y_degrees": 0.0
+    },
+    "action_space": {
+      "type": "continuous",
+      "layout": ["forward", "turn"]
+    }
+  },
+  "sensors": [
+    {
+      "id": "front_camera",
+      "type": "forward_camera",
+      "width": 84,
+      "height": 84,
+      "semantic_mode": "traversable_vs_blocked"
+    },
+    {
+      "id": "front_distance",
+      "type": "distance_sensor",
+      "range_meters": 5.0,
+      "direction": "forward"
+    }
+  ],
+  "reward": {
+    "components": []
   },
   "training": {
     "algorithm": "ppo",
     "timesteps": 5000,
     "seed": 10,
-    "max_steps": 50,
+    "max_episode_steps": 512,
     "n_steps": 32,
     "batch_size": 32,
     "gamma": 0.99,
@@ -106,7 +150,7 @@ Request model: `embodiedlab.schemas.SubmitRequest`
 }
 ```
 
-Response:
+response:
 
 ```json
 {
@@ -117,9 +161,9 @@ Response:
 
 ### `POST /submissions/{submission_id}/train`
 
-Request body: none
+request body はない。
 
-Successful response:
+successful response:
 
 ```json
 {
@@ -128,7 +172,7 @@ Successful response:
 }
 ```
 
-Failure responses:
+failure responses:
 
 ```json
 {
@@ -144,7 +188,7 @@ Failure responses:
 
 ### `GET /results/{submission_id}`
 
-Response model shape: `embodiedlab.result_models.ResultDocument`
+response model shape: `embodiedlab.result_models.ResultDocument`
 
 ```json
 {
@@ -178,92 +222,55 @@ Response model shape: `embodiedlab.result_models.ResultDocument`
       "storage": "gcs",
       "bucket": "my-model-bucket",
       "path": "models/submission-123/policy.zip"
-    },
-    "onnx_model": {
-      "storage": "gcs",
-      "bucket": "my-model-bucket",
-      "path": "models/submission-123/policy.onnx"
-    },
-    "sentis_model": {
-      "storage": "gcs",
-      "bucket": "my-model-bucket",
-      "path": "models/submission-123/policy.sentis.onnx",
-      "format": "onnx",
-      "target": "unity-sentis",
-      "opset_version": 15,
-      "input": {
-        "name": "observation",
-        "shape": [1, 4],
-        "dtype": "float32",
-        "layout": ["robot_x", "robot_y", "goal_x", "goal_y"]
-      },
-      "output": {
-        "name": "action_logits",
-        "action_mapping": {
-          "0": "up",
-          "1": "right",
-          "2": "down",
-          "3": "left"
-        }
-      }
     }
   },
   "updated_at": "2026-04-24T12:34:56.000000+00:00"
 }
 ```
 
-Artifact paths are GCS object paths under `models/{submission_id}/`. The
-Makefile-created model bucket is configured for public object read, so clients
-can download `policy.zip`, `policy.onnx`, and `policy.sentis.onnx` directly
-when the project allows public bucket IAM.
+artifact path は `models/{submission_id}/` 配下の GCS object path である。
+現在の Makefile-created model bucket は public object read を許可する。
+これは prototype 用であり、今後 access control を見直す。
 
 ## Firestore Document Shapes
 
 ### `submissions/{submission_id}`
 
-Stored shape: `embodiedlab.schemas.SubmissionDocument`
+stored shape: `embodiedlab.schemas.SubmissionDocument`
 
 ```json
 {
   "submission_id": "submission-123",
   "created_at": "2026-04-24T12:34:56.000000+00:00",
-  "environment": {
-    "size": [4, 4],
-    "obstacles": [
-      { "x": 1, "y": 1 }
-    ],
-    "goal": { "x": 3, "y": 3 },
-    "robot_start": { "x": 0, "y": 0 }
-  },
-  "robot": {
-    "type": "simple"
-  },
-  "training": {
-    "algorithm": "ppo",
-    "timesteps": 5000,
-    "seed": 10,
-    "max_steps": 50,
-    "n_steps": 32,
-    "batch_size": 32,
-    "gamma": 0.99,
-    "learning_rate": 0.0003,
-    "ent_coef": 0.0,
-    "eval_episodes": 20
+  "scenario": {
+    "schema_version": "scenario-bundle.v0",
+    "scenario_id": "scenario_demo_001",
+    "world": {
+      "coordinate_system": "envforge_xz_meters"
+    },
+    "robot": {
+      "type": "simple_robot"
+    },
+    "training": {
+      "algorithm": "ppo",
+      "timesteps": 5000,
+      "max_episode_steps": 512
+    }
   }
 }
 ```
 
 ### `results/{submission_id}`
 
-Stored shape: `embodiedlab.result_models.ResultDocument`
+stored shape: `embodiedlab.result_models.ResultDocument`
 
-Common status values:
+common status values:
 
 ```json
 ["queued", "starting", "running", "completed", "failed"]
 ```
 
-Progress shape:
+progress shape:
 
 ```json
 {
@@ -278,8 +285,8 @@ Progress shape:
 
 ### API -> Cloud Run Job Override
 
-The API does not send JSON to the trainer service directly. It starts a Cloud
-Run Job and overrides one environment variable:
+API は trainer service に JSON を直接送らない。
+Cloud Run Job を起動し、環境変数 `SUBMISSION_ID` を override する。
 
 ```json
 {
@@ -290,7 +297,7 @@ Run Job and overrides one environment variable:
 
 ### Trainer -> Pub/Sub Result Event
 
-Published shape: `embodiedlab.result_models.ResultMessage`
+published shape: `embodiedlab.result_models.ResultMessage`
 
 ```json
 {
@@ -309,29 +316,22 @@ Published shape: `embodiedlab.result_models.ResultMessage`
 }
 ```
 
-Completed result events include the same `artifacts` block returned by
-`GET /results/{submission_id}`, including `model`, `onnx_model`, and
-`sentis_model`.
-
 ### Pub/Sub Push -> Notification Service
 
-The notification service receives the standard Pub/Sub push envelope. The
-result event above is JSON-encoded and then base64-encoded into `message.data`.
+notification service は standard Pub/Sub push envelope を受け取る。
+result event は JSON encode 後、`message.data` に base64 encode される。
 
 ```json
 {
   "message": {
-    "data": "eyJzdWJtaXNzaW9uX2lkIjogInN1Ym1pc3Npb24tMTIzIiwgInN0YXR1cyI6ICJydW5uaW5nIiwgLi4ufQ=="
+    "data": "eyJzdWJtaXNzaW9uX2lkIjogInN1Ym1pc3Npb24tMTIzIn0="
   }
 }
 ```
 
-The notification service validates the decoded payload against
-`embodiedlab.result_models.ResultMessage`.
-
 ### Notification -> WebSocket Client
 
-Initial handshake message:
+initial handshake message:
 
 ```json
 {
@@ -340,24 +340,7 @@ Initial handshake message:
 }
 ```
 
-Subsequent pushed message:
-
-```json
-{
-  "submission_id": "submission-123",
-  "status": "running",
-  "progress": {
-    "phase": "running",
-    "current_step": 0,
-    "total_steps": 5000,
-    "message": "Training"
-  },
-  "summary": null,
-  "error": null,
-  "artifacts": null,
-  "updated_at": "2026-04-24T12:35:12.000000+00:00"
-}
-```
+subsequent pushed message は `ResultMessage` と同じ形である。
 
 ## Shared Nested Models
 
@@ -389,8 +372,8 @@ Subsequent pushed message:
 
 ### `GridWorldSpec`
 
-`GridWorldSpec` is an internal Python dataclass passed to the training runner.
-It is not stored or transmitted directly as JSON, but it resolves to:
+`GridWorldSpec` は training runner に渡す internal Python dataclass である。
+JSON として直接保存・送信されるものではない。
 
 ```json
 {

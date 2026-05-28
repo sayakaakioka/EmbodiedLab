@@ -1,6 +1,6 @@
 import pytest
 
-from embodiedlab.schemas import SubmitRequest
+from embodiedlab.schemas import ScenarioBundle
 from tests.fakes import FakeResultRepository, FakeSubmissionRepository
 from trainer.config import TrainerConfig
 from trainer.job import run_training_job
@@ -17,7 +17,7 @@ _NO_PUBLISH = lambda **kwargs: None  # noqa: E731
 
 
 def test_run_training_job_updates_result_to_completed():
-    submission = SubmitRequest().model_dump(mode="json")
+    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
@@ -91,8 +91,8 @@ def test_run_training_job_marks_missing_submission_failed():
 
 
 def test_run_training_job_marks_invalid_submission_failed():
-    submission = SubmitRequest().model_dump(mode="json")
-    submission["training"]["timesteps"] = 0
+    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission["scenario"]["training"]["timesteps"] = 0
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )

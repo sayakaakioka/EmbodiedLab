@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 from embodiedlab.result_models import build_result_update
-from embodiedlab.schemas import SubmitRequest, build_submission_document
+from embodiedlab.schemas import ScenarioBundle, build_submission_document
 
 
 def merge_dicts(existing: dict, update: dict) -> dict:
@@ -85,9 +85,12 @@ class FakeSubmissionRepository:
     def __init__(self, initial_submissions: dict[str, dict] | None = None):
         self.submissions = deepcopy(initial_submissions or {})
 
-    def save(self, req: SubmitRequest) -> str:
+    def save(self, scenario: ScenarioBundle) -> str:
         submission_id = f"submission-{len(self.submissions) + 1}"
-        self.submissions[submission_id] = build_submission_document(submission_id, req)
+        self.submissions[submission_id] = build_submission_document(
+            submission_id,
+            scenario,
+        )
         return submission_id
 
     def exists(self, submission_id: str) -> bool:
