@@ -4,15 +4,117 @@ from __future__ import annotations
 
 from pathlib import Path
 from statistics import mean
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from stable_baselines3 import PPO
 
-from embodiedlab.gridworld_env import GridWorldTrainingEnv
+from embodiedlab.gridworld_env import Action, GridWorldTrainingEnv
 from embodiedlab.training.training_config import TrainingAlgorithm, TrainingConfig
 
 if TYPE_CHECKING:
     from embodiedlab.training.training_models import GridWorldSpec
+
+ACTION_REPLAY_VALUES = {
+    Action.UP: {"forward": 1.0, "turn": 0.0, "rotation_y_degrees": 0.0},
+    Action.RIGHT: {"forward": 0.0, "turn": 1.0, "rotation_y_degrees": 90.0},
+    Action.DOWN: {"forward": -1.0, "turn": 0.0, "rotation_y_degrees": 180.0},
+    Action.LEFT: {"forward": 0.0, "turn": -1.0, "rotation_y_degrees": 270.0},
+}
+
+
+def build_grid_replay_step(  # noqa: PLR0913
+    *,
+    episode_index: int,
+    step_index: int,
+    action: int,
+    obs: dict[str, Any],
+    reward: float,
+    info: dict[str, Any],
+    terminated: bool,
+    truncated: bool,
+) -> dict[str, Any]:
+    """Build a JsonUtility-friendly replay row from the temporary grid runtime."""
+    action_values = ACTION_REPLAY_VALUES[Action(action)]
+    reward_components = [
+        {
+            "name": "step_penalty",
+            "value": -0.2,
+        },
+    ]
+    distance_delta = float(info.get("distance_delta", 0.0))
+    if distance_delta:
+        reward_components.append(
+            {
+                "name": "goal_progress",
+                "value": 0.5 * distance_delta,
+            },
+        )
+    if terminated:
+        reward_components.append(
+            {
+                "name": "goal_reached",
+                "value": 10.0,
+            },
+        )
+
+    events = []
+    if info.get("blocked"):
+        events.append(
+            {
+                "type": "collision",
+                "object_id": None,
+                "message": "Grid movement was blocked",
+            },
+        )
+    if terminated:
+        events.append(
+            {
+                "type": "goal_reached",
+                "object_id": "goal_001",
+                "message": "Goal reached",
+            },
+        )
+
+    return {
+        "episode_id": f"episode_{episode_index + 1:04d}",
+        "step_index": step_index,
+        "time_seconds": round(step_index * 0.1, 6),
+        "robot": {
+            "position": {
+                "x": float(obs["agent"][0]),
+                "z": float(obs["agent"][1]),
+            },
+            "rotation_y_degrees": action_values["rotation_y_degrees"],
+        },
+        "action": {
+            "values": [
+                {
+                    "name": "forward",
+                    "value": action_values["forward"],
+                },
+                {
+                    "name": "turn",
+                    "value": action_values["turn"],
+                },
+            ],
+        },
+        "reward": {
+            "total": reward,
+            "components": reward_components,
+        },
+        "events": events,
+        "sensors": [
+            {
+                "id": "front_distance",
+                "type": "grid_manhattan_distance",
+                "value": float(info["distance"]),
+            },
+        ],
+        "terminated": terminated or truncated,
+        "termination_reason": (
+            "goal_reached" if terminated else "max_steps" if truncated else None
+        ),
+    }
 
 
 def evaluate_policy(
@@ -24,6 +126,7 @@ def evaluate_policy(
     rewards: list[float] = []
     steps: list[int] = []
     successes = 0
+    replay_steps: list[dict[str, Any]] = []
 
     for episode_index in range(training.eval_episodes):
         obs, _info = env.reset(seed=training.seed + episode_index)
@@ -39,6 +142,19 @@ def evaluate_policy(
             episode_reward += reward
             episode_steps += 1
             done = terminated or truncated
+            if episode_index == 0:
+                replay_steps.append(
+                    build_grid_replay_step(
+                        episode_index=episode_index,
+                        step_index=episode_steps - 1,
+                        action=int(action),
+                        obs=obs,
+                        reward=reward,
+                        info=_info,
+                        terminated=terminated,
+                        truncated=truncated,
+                    ),
+                )
 
         if terminated:
             successes += 1
@@ -51,6 +167,7 @@ def evaluate_policy(
         "success_rate": successes / training.eval_episodes,
         "avg_reward": mean(rewards),
         "avg_steps": mean(steps),
+        "replay_steps": replay_steps,
     }
 
 

@@ -113,6 +113,10 @@ Replay Log v0 は Unity `JsonUtility` で読み込める形を優先する。
 action、reward components、sensor summaries は arbitrary dictionary ではなく
 `name` / `value` を持つ配列として表す。
 
+現在の grid-world adapter では、trainer evaluation の先頭 episode から
+Replay Log steps を生成し、GCS replay artifact へ渡す。これは EnvForge-compatible
+runtime へ移行するまでの暫定ログであり、座標と行動 semantics は lossy である。
+
 ## Phase 4: Environment Upgrade
 
 現在の grid-world から、EnvForge-compatible scenario model へ移行する。

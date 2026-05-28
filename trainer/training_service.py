@@ -8,7 +8,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
 
-from embodiedlab.result_models import ResultBundle, ResultStatus, build_result_bundle
+from embodiedlab.result_models import (
+    ReplayLogStep,
+    ResultBundle,
+    ResultStatus,
+    build_result_bundle,
+)
 from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import (
     ScenarioRuntimeConversion,
@@ -81,10 +86,23 @@ def execute_training_run(
             training=inputs.training,
             model_output_path=model_base_path,
         )
+        replay_payloads = summary.pop("replay_steps", [])
+        replay_steps = [
+            ReplayLogStep.model_validate(
+                {
+                    **payload,
+                    "schema_version": "replay-log.v0",
+                    "scenario_id": inputs.scenario.scenario_id,
+                    "job_id": submission_id,
+                },
+            )
+            for payload in replay_payloads
+        ]
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
             submission_id=submission_id,
+            replay_steps=replay_steps,
         )
 
     summary = {

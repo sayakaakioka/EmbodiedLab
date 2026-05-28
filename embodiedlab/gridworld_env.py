@@ -104,8 +104,9 @@ class GridWorldTrainingEnv(gym.Env):
         next_x = int(np.clip(self.agent_pos[0] + dx, 0, self.spec.width - 1))
         next_y = int(np.clip(self.agent_pos[1] + dy, 0, self.spec.height - 1))
         next_pos = GridPosition(x=next_x, y=next_y)
+        blocked = next_pos in self.spec.obstacles
 
-        if next_pos not in self.spec.obstacles:
+        if not blocked:
             self.agent_pos = np.array([next_x, next_y], dtype=np.int32)
 
         terminated = bool(np.array_equal(self.agent_pos, self.goal_pos))
@@ -114,5 +115,10 @@ class GridWorldTrainingEnv(gym.Env):
         new_distance = int(np.abs(self.agent_pos - self.goal_pos).sum())
         distance_delta = prev_distance - new_distance
         reward = 10.0 if terminated else (-0.2 + 0.5 * distance_delta)
+        info = {
+            **self._get_info(),
+            "blocked": blocked,
+            "distance_delta": distance_delta,
+        }
 
-        return self._get_obs(), reward, terminated, truncated, self._get_info()
+        return self._get_obs(), reward, terminated, truncated, info

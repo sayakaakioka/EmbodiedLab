@@ -149,6 +149,7 @@ def upload_model_to_gcs(
     local_model_base_path: str,
     bucket_name: str,
     submission_id: str,
+    replay_steps: Iterable[ReplayLogStep] = (),
 ) -> dict:
     """Upload the saved model zip, ONNX export, and Sentis ONNX export to GCS."""
     storage_client = storage.Client()
@@ -183,7 +184,7 @@ def upload_model_to_gcs(
     replay_artifact = upload_replay_log_to_gcs(
         bucket_name=bucket_name,
         submission_id=submission_id,
-        replay_steps=(),
+        replay_steps=replay_steps,
     )
 
     return {

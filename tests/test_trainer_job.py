@@ -28,8 +28,15 @@ def test_run_training_job_updates_result_to_completed():
         calls.append(("train", spec, training, model_output_path))
         return {"score": 1.0}
 
-    def upload_model(*, local_model_base_path, bucket_name, submission_id):
+    def upload_model(
+        *,
+        local_model_base_path,
+        bucket_name,
+        submission_id,
+        replay_steps,
+    ):
         calls.append(("upload", local_model_base_path, bucket_name, submission_id))
+        replay_steps = list(replay_steps)
         return {
             "model": {
                 "bucket": bucket_name,
@@ -42,6 +49,12 @@ def test_run_training_job_updates_result_to_completed():
             "sentis_model": {
                 "bucket": bucket_name,
                 "path": f"results/{submission_id}/model/policy.sentis.onnx",
+            },
+            "replay_log": {
+                "bucket": bucket_name,
+                "path": f"results/{submission_id}/replay/replay.jsonl",
+                "format": "jsonl",
+                "step_count": len(replay_steps),
             },
         }
 
@@ -72,6 +85,10 @@ def test_run_training_job_updates_result_to_completed():
         payloads[-1]["data"]["artifacts"]["sentis_model"]["path"]
         == "results/submission-1/model/policy.sentis.onnx"
     )
+    assert (
+        payloads[-1]["data"]["artifacts"]["replay_log"]["path"]
+        == "results/submission-1/replay/replay.jsonl"
+    )
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
     )
@@ -85,6 +102,10 @@ def test_run_training_job_updates_result_to_completed():
     assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["model"]["path"]
         == "results/submission-1/model/policy.onnx"
+    )
+    assert (
+        payloads[-1]["data"]["result_bundle"]["artifacts"]["replay_log"]["path"]
+        == "results/submission-1/replay/replay.jsonl"
     )
     assert calls[0][0] == "train"
     assert calls[1][0] == "upload"
