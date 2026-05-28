@@ -19,11 +19,11 @@ Pub/Sub event、WebSocket fan-out を持つ。
 ## 現在の EmbodiedLab baseline
 
 - 入力モデルは EnvForge Scenario Bundle へ置き換える。
-- training backend は Gymnasium-compatible grid world と
+- training backend は continuous navigation runtime と
   Stable-Baselines3 PPO である。
-- 成果物は `models/<submission_id>/` に保存される。
-- 保存される model は `policy.zip`、`policy.onnx`、
-  `policy.sentis.onnx` である。
+- 成果物は `results/<submission_id>/` に保存される。
+- 保存される artifact は `policy.zip`、`policy.onnx`、
+  `policy.sentis.onnx`、`replay/replay.jsonl` である。
 - 結果通知は Firestore result document、Pub/Sub、WebSocket で行う。
 - tests は API routes、trainer transitions、artifact flow、schemas、
   notification fan-out を cover している。
@@ -144,8 +144,12 @@ Scenario Bundle から EnvForge x/z meter 座標を保った runtime spec へ
 goal radius、static walls、static obstacles、回転付き box collision、
 距離センサ range を扱う。
 
-まだ既定の trainer/export 経路は grid-world runner のままである。
-次の作業では、この連続 runtime を trainer の主経路へ接続する。
+既定の trainer 経路は continuous navigation runtime へ切り替えた。
+trainer は ContinuousNavigationSpec を学習し、policy.zip、通常 ONNX、
+Unity Sentis 向け ONNX、Replay Log を主成果物として保存する。Sentis 向け
+ONNX は `robot_x`、`robot_z`、`robot_rotation_y_degrees`、`goal_x`、
+`goal_z`、`goal_radius`、`front_distance` の固定長 input から `[forward, turn]`
+の continuous action を返す。
 
 ## Phase 5: Model Compatibility
 
@@ -160,7 +164,7 @@ EmbodiedLab は内部で ML-Agents を使う必要はない。
 - scenario schema version
 - EnvForge binary compatibility
 
-ONNX は引き続き有力候補である。
+ONNX/Sentis ONNX は continuous 主経路の artifact として生成できる。
 ただし最終判断は、EnvForge が安定して load / run できる形式に従う。
 
 ## Open Issues

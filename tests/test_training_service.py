@@ -1,5 +1,9 @@
 from embodiedlab.schemas import ScenarioBundle
-from trainer.training_service import execute_training_run_from_submission
+from embodiedlab.training.training_converter import describe_runtime_conversion
+from trainer.training_service import (
+    execute_training_run_from_submission,
+    parse_training_submission,
+)
 
 
 def test_execute_training_run_uploads_replay_steps():
@@ -44,12 +48,14 @@ def test_execute_training_run_uploads_replay_steps():
             ],
         }
 
-    def upload_model(
+    def upload_model(  # noqa: PLR0913
         *,
         local_model_base_path,
         bucket_name,
         submission_id,
         replay_steps,
+        export_onnx,
+        model_export_layout,
     ):
         captured_replay_steps.extend(replay_steps)
         return {
@@ -73,3 +79,16 @@ def test_execute_training_run_uploads_replay_steps():
     assert captured_replay_steps[0].scenario_id == "scenario_demo_001"
     assert captured_replay_steps[0].job_id == "submission-1"
     assert execution.result_bundle.artifacts.replay_log is not None
+
+
+def test_parse_training_submission_uses_continuous_runtime_spec():
+    scenario = ScenarioBundle()
+
+    inputs = parse_training_submission({"scenario": scenario.model_dump(mode="json")})
+
+    expected_conversion = describe_runtime_conversion(scenario)
+    assert inputs.conversion == expected_conversion
+    assert inputs.spec.goal.x == scenario.world.goal.position.x
+    assert inputs.spec.goal.z == scenario.world.goal.position.z
+    assert inputs.spec.robot_start.x == scenario.robot.start_pose.position.x
+    assert inputs.spec.robot_start.z == scenario.robot.start_pose.position.z

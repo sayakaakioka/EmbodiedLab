@@ -15,7 +15,7 @@ from embodiedlab.result_models import (
     running_progress,
     starting_progress,
 )
-from embodiedlab.training.runner import run_gridworld_training
+from embodiedlab.training.runner import run_continuous_navigation_training
 from trainer.artifacts import upload_model_to_gcs
 from trainer.config import TrainerConfig
 from trainer.logging_utils import log_trainer_event
@@ -47,7 +47,7 @@ def run_training_job(  # noqa: PLR0913
         FirestoreSubmissionRepository
     ),
     create_result_repository: CreateResultRepository = FirestoreResultRepository,
-    train_model: TrainModel = run_gridworld_training,
+    train_model: TrainModel = run_continuous_navigation_training,
     upload_model: UploadModel = upload_model_to_gcs,
     publish_event: PublishEvent = publish_training_event,
 ) -> None:

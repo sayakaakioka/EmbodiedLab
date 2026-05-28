@@ -28,12 +28,14 @@ def test_run_training_job_updates_result_to_completed():
         calls.append(("train", spec, training, model_output_path))
         return {"score": 1.0}
 
-    def upload_model(
+    def upload_model(  # noqa: PLR0913
         *,
         local_model_base_path,
         bucket_name,
         submission_id,
         replay_steps,
+        export_onnx,
+        model_export_layout,
     ):
         calls.append(("upload", local_model_base_path, bucket_name, submission_id))
         replay_steps = list(replay_steps)

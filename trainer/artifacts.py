@@ -56,14 +56,88 @@ class SentisGridWorldPolicy(torch.nn.Module):
         return distribution.distribution.logits
 
 
-def export_model_to_onnx(local_model_base_path: str) -> str:
+class OnnxableContinuousNavigationPolicy(torch.nn.Module):
+    """Wrapper exposing the continuous policy as ONNX-friendly inputs."""
+
+    def __init__(self, policy: BasePolicy) -> None:
+        """Store the trained Stable-Baselines3 policy."""
+        super().__init__()
+        self.policy = policy
+
+    def forward(
+        self,
+        robot: torch.Tensor,
+        goal: torch.Tensor,
+        front_distance: torch.Tensor,
+    ) -> torch.Tensor:
+        """Return deterministic continuous action values for a batch."""
+        actions, _values, _log_prob = self.policy(
+            {
+                "robot": robot,
+                "goal": goal,
+                "front_distance": front_distance,
+            },
+            deterministic=True,
+        )
+        return actions
+
+
+class SentisContinuousNavigationPolicy(torch.nn.Module):
+    """Wrapper exposing a fixed continuous observation tensor for Sentis."""
+
+    def __init__(self, policy: BasePolicy) -> None:
+        """Store the trained Stable-Baselines3 policy."""
+        super().__init__()
+        self.policy = policy
+
+    def forward(self, observation: torch.Tensor) -> torch.Tensor:
+        """Return [forward, turn] actions for a compact observation tensor."""
+        robot = observation[:, 0:3]
+        goal = observation[:, 3:6]
+        front_distance = observation[:, 6:7]
+        actions, _values, _log_prob = self.policy(
+            {
+                "robot": robot,
+                "goal": goal,
+                "front_distance": front_distance,
+            },
+            deterministic=True,
+        )
+        return actions
+
+
+def export_model_to_onnx(
+    local_model_base_path: str,
+    model_export_layout: str = "grid_world",
+) -> str:
     """Convert the saved Stable-Baselines3 policy zip to ONNX."""
     model = PPO.load(local_model_base_path)
     onnx_path = f"{local_model_base_path}.onnx"
+    if model_export_layout == "continuous_navigation":
+        onnxable_policy = OnnxableContinuousNavigationPolicy(model.policy)
+        dummy_robot = torch.zeros((1, 3), dtype=torch.float32)
+        dummy_goal = torch.zeros((1, 3), dtype=torch.float32)
+        dummy_front_distance = torch.zeros((1, 1), dtype=torch.float32)
+        torch.onnx.export(
+            onnxable_policy,
+            (dummy_robot, dummy_goal, dummy_front_distance),
+            onnx_path,
+            input_names=["robot", "goal", "front_distance"],
+            output_names=["action"],
+            dynamic_axes={
+                "robot": {0: "batch"},
+                "goal": {0: "batch"},
+                "front_distance": {0: "batch"},
+                "action": {0: "batch"},
+            },
+            opset_version=17,
+            dynamo=False,
+        )
+        return onnx_path
+
     onnxable_policy = OnnxableGridWorldPolicy(model.policy)
     dummy_agent = torch.zeros((1, 2), dtype=torch.float32)
     dummy_goal = torch.zeros((1, 2), dtype=torch.float32)
-
     torch.onnx.export(
         onnxable_policy,
         (dummy_agent, dummy_goal),
@@ -81,19 +155,28 @@ def export_model_to_onnx(local_model_base_path: str) -> str:
     return onnx_path
 
 
-def export_model_to_sentis_onnx(local_model_base_path: str) -> str:
+def export_model_to_sentis_onnx(
+    local_model_base_path: str,
+    model_export_layout: str = "grid_world",
+) -> str:
     """Convert the saved policy zip to a Unity Sentis-compatible ONNX file."""
     model = PPO.load(local_model_base_path)
     onnx_path = f"{local_model_base_path}.sentis.onnx"
-    sentis_policy = SentisGridWorldPolicy(model.policy)
-    dummy_observation = torch.zeros((1, 4), dtype=torch.float32)
+    if model_export_layout == "continuous_navigation":
+        sentis_policy = SentisContinuousNavigationPolicy(model.policy)
+        dummy_observation = torch.zeros((1, 7), dtype=torch.float32)
+        output_name = "action"
+    else:
+        sentis_policy = SentisGridWorldPolicy(model.policy)
+        dummy_observation = torch.zeros((1, 4), dtype=torch.float32)
+        output_name = "action_logits"
 
     torch.onnx.export(
         sentis_policy,
         dummy_observation,
         onnx_path,
         input_names=["observation"],
-        output_names=["action_logits"],
+        output_names=[output_name],
         opset_version=15,
         dynamo=False,
     )
@@ -145,19 +228,79 @@ def upload_replay_log_to_gcs(
     }
 
 
-def upload_model_to_gcs(
+
+def _sentis_metadata(
+    *,
+    bucket_name: str,
+    path: str,
+    model_export_layout: str,
+) -> dict:
+    if model_export_layout == "continuous_navigation":
+        return {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": path,
+            "format": "onnx",
+            "target": "unity-sentis",
+            "opset_version": 15,
+            "input": {
+                "name": "observation",
+                "shape": [1, 7],
+                "dtype": "float32",
+                "layout": [
+                    "robot_x",
+                    "robot_z",
+                    "robot_rotation_y_degrees",
+                    "goal_x",
+                    "goal_z",
+                    "goal_radius",
+                    "front_distance",
+                ],
+            },
+            "output": {
+                "name": "action",
+                "layout": ["forward", "turn"],
+            },
+        }
+
+    return {
+        "storage": "gcs",
+        "bucket": bucket_name,
+        "path": path,
+        "format": "onnx",
+        "target": "unity-sentis",
+        "opset_version": 15,
+        "input": {
+            "name": "observation",
+            "shape": [1, 4],
+            "dtype": "float32",
+            "layout": ["robot_x", "robot_y", "goal_x", "goal_y"],
+        },
+        "output": {
+            "name": "action_logits",
+            "action_mapping": {
+                "0": "up",
+                "1": "right",
+                "2": "down",
+                "3": "left",
+            },
+        },
+    }
+
+def upload_model_to_gcs(  # noqa: PLR0913
+    *,
     local_model_base_path: str,
     bucket_name: str,
     submission_id: str,
     replay_steps: Iterable[ReplayLogStep] = (),
+    export_onnx: bool = True,
+    model_export_layout: str = "grid_world",
 ) -> dict:
     """Upload the saved model zip, ONNX export, and Sentis ONNX export to GCS."""
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
 
     local_zip_path = f"{local_model_base_path}.zip"
-    local_onnx_path = export_model_to_onnx(local_model_base_path)
-    local_sentis_path = export_model_to_sentis_onnx(local_model_base_path)
     zip_blob_path = f"results/{submission_id}/model/policy.zip"
     onnx_blob_path = f"results/{submission_id}/model/policy.onnx"
     sentis_blob_path = f"results/{submission_id}/model/policy.sentis.onnx"
@@ -168,58 +311,54 @@ def upload_model_to_gcs(
         blob_path=zip_blob_path,
         content_type="application/zip",
     )
-    upload_file(
-        bucket=bucket,
-        local_path=local_onnx_path,
-        blob_path=onnx_blob_path,
-        content_type="application/octet-stream",
-    )
-    upload_file(
-        bucket=bucket,
-        local_path=local_sentis_path,
-        blob_path=sentis_blob_path,
-        content_type="application/octet-stream",
-    )
+
+    artifacts = {
+        "model": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": zip_blob_path,
+        },
+    }
+
+    if export_onnx:
+        local_onnx_path = export_model_to_onnx(
+            local_model_base_path,
+            model_export_layout=model_export_layout,
+        )
+        local_sentis_path = export_model_to_sentis_onnx(
+            local_model_base_path,
+            model_export_layout=model_export_layout,
+        )
+        upload_file(
+            bucket=bucket,
+            local_path=local_onnx_path,
+            blob_path=onnx_blob_path,
+            content_type="application/octet-stream",
+        )
+        upload_file(
+            bucket=bucket,
+            local_path=local_sentis_path,
+            blob_path=sentis_blob_path,
+            content_type="application/octet-stream",
+        )
+        artifacts.update(
+            {
+                "onnx_model": {
+                    "storage": "gcs",
+                    "bucket": bucket_name,
+                    "path": onnx_blob_path,
+                },
+                "sentis_model": _sentis_metadata(
+                    bucket_name=bucket_name,
+                    path=sentis_blob_path,
+                    model_export_layout=model_export_layout,
+                ),
+            },
+        )
 
     replay_artifact = upload_replay_log_to_gcs(
         bucket_name=bucket_name,
         submission_id=submission_id,
         replay_steps=replay_steps,
     )
-
-    return {
-        "model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": zip_blob_path,
-        },
-        "onnx_model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": onnx_blob_path,
-        },
-        **replay_artifact,
-        "sentis_model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": sentis_blob_path,
-            "format": "onnx",
-            "target": "unity-sentis",
-            "opset_version": 15,
-            "input": {
-                "name": "observation",
-                "shape": [1, 4],
-                "dtype": "float32",
-                "layout": ["robot_x", "robot_y", "goal_x", "goal_y"],
-            },
-            "output": {
-                "name": "action_logits",
-                "action_mapping": {
-                    "0": "up",
-                    "1": "right",
-                    "2": "down",
-                    "3": "left",
-                },
-            },
-        },
-    }
+    return {**artifacts, **replay_artifact}

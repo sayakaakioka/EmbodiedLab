@@ -102,11 +102,12 @@ cloud/API 系 target は、必要な環境変数が不足している場合、
 ## Model Artifacts
 
 trainer job は完了した model artifact を `MODEL_BUCKET` の
-`models/<submission_id>/` に upload する。
+`results/<submission_id>/` に upload する。
 
 - `policy.zip`: Stable-Baselines3 saved model
-- `policy.onnx`: deterministic GridWorld policy の ONNX export
-- `policy.sentis.onnx`: Unity Sentis-oriented ONNX export
+- `policy.onnx`: deterministic continuous navigation policy の ONNX export
+- `policy.sentis.onnx`: Unity Sentis-oriented continuous navigation ONNX export
+- `replay/replay.jsonl`: EnvForge local replay 用の JSON Lines log
 
 現在の bucket 作成処理は public object read を許可する。
 これは prototype 用の挙動であり、user-specific result を扱う段階では

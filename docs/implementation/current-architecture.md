@@ -2,8 +2,8 @@
 
 ## 概要
 
-EmbodiedLab は現在、grid-world 強化学習のための最小限の
-クラウド学習ループを実装している。
+EmbodiedLab は現在、EnvForge Scenario Bundle を continuous navigation
+runtime へ変換し、クラウド上で PPO 学習する最小限の学習ループを実装している。
 
 FastAPI service が submission を受け取り、Firestore に保存し、
 Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
@@ -20,7 +20,7 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
           -> Firestore results/{submission_id} = queued
           -> Cloud Run Job with SUBMISSION_ID override
               -> Firestore submission lookup
-              -> GridWorld PPO training
+              -> Continuous navigation PPO training
               -> GCS artifact upload
               -> Firestore result update
               -> Pub/Sub event
@@ -57,8 +57,8 @@ broadcast する。
 
 ### `embodiedlab/`
 
-schemas、result models、repository protocols、grid-world environment、
-training converter、training runner を含む shared library である。
+schemas、result models、repository protocols、continuous navigation environment、
+grid-world environment、training converter、training runner を含む shared library である。
 
 ## 現在のデータモデル
 
@@ -72,29 +72,28 @@ training converter、training runner を含む shared library である。
 - robot type
 - PPO training configuration
 
-現在の環境は、Gymnasium-compatible grid world である。
-action は discrete four-action policy である。
-
-- up
-- right
-- down
-- left
-
-observation は agent 座標と goal 座標を含む dictionary である。
+現在の主経路の環境は、Gymnasium-compatible continuous navigation runtime
+である。action は continuous forward/turn policy であり、observation は robot、
+goal、front_distance を含む dictionary である。旧 grid-world runtime は
+比較・fallback 用に残す。
 
 ## 現在の成果物
 
 trainer job が完了すると、以下の成果物をアップロードする。
 
-    models/<submission_id>/
+    results/<submission_id>/
       policy.zip
       policy.onnx
       policy.sentis.onnx
+      replay/replay.jsonl
 
-`policy.zip` は Stable-Baselines3 model である。
-`policy.onnx` は一般的な ONNX export である。
-`policy.sentis.onnx` は Unity Sentis 向けの ONNX export であり、
-固定の `float32[1,4]` observation input を持つ。
+`policy.zip` は Stable-Baselines3 model である。`policy.onnx` は
+continuous navigation の dict observation を `robot`、`goal`、
+`front_distance` input として公開する一般 ONNX artifact である。
+`policy.sentis.onnx` は Unity Sentis 向けに固定長 `float32[1,7]` input
+へまとめた ONNX artifact であり、output は `[forward, turn]` の
+continuous action である。Replay Log は EnvForge がローカル再生するための
+JSON Lines artifact である。
 
 ## 現在の強み
 
@@ -112,15 +111,15 @@ Phase 4 の準備として、ContinuousNavigationEnv を追加した。
 forward/turn、goal radius、static walls、static obstacles、
 回転付き box collision、距離センサ range を表現する。
 
-ただし、現在の production training path はまだ GridWorldTrainingEnv と
-run_gridworld_training を使う。したがって、連続 runtime は実装済みだが、
-trainer/export/result artifact の主経路へ接続する作業が残っている。
+現在の production training path は ContinuousNavigationEnv と
+run_continuous_navigation_training を使う。Replay Log は continuous runtime の
+実座標と実 action から生成する。
 
 - Scenario Bundle contract がない。
 - Result Bundle contract がない。
-- Replay Log artifact がない。
-- reward logic が `GridWorldTrainingEnv` に固定されている。
+- ONNX/Sentis export は continuous 主経路に接続済みだが、EnvForge 側の
+  load / inference 検証はまだである。
+- reward component の runtime mapping がまだ固定値である。
 - robot と sensor descriptor が最小限である。
-- environment が grid-based で、EnvForge の壁、障害物、センサ、
-  continuous robot motion をまだ表現していない。
+- forward camera observation はまだ抽象化されたままである。
 - artifact access が public-read 前提である。
