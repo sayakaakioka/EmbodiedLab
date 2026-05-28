@@ -43,3 +43,5 @@ resolve deliberately rather than changing it incidentally.
 Project direction is documented under `docs/vision/`. Current architecture,
 development workflow, data models, and the EnvForge integration roadmap are
 documented under `docs/implementation/`.
+
+For sub-agent orchestration, read `docs/implementation/subagent-workflow.md`.
