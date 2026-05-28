@@ -5,9 +5,9 @@
 Phase 3 では、EnvForge から EmbodiedLab へ Scenario Bundle を送る導線を
 作り始める。
 
-最初の目標は、HTTP 送信やクラウドジョブ起動ではなく、EnvForge が生成する
-Scenario Bundle JSON を EmbodiedLab の Pydantic model で検証できることを
-確認することである。
+最初の目標は、クラウドジョブ起動ではなく、EnvForge が生成する
+Scenario Bundle JSON を EmbodiedLab の Pydantic model と `/submissions`
+endpoint で検証できることを確認することである。
 
 ## 今回の範囲
 
@@ -24,6 +24,10 @@ EnvForge 側の canonical fixture と同じ JSON を EmbodiedLab 側にも置く
 - sensor は `front_camera` と `front_distance` である。
 - training の `max_episode_steps` は EnvForge 側の固定値と一致する。
 
+Phase 3B では、同じ fixture を FastAPI test client から `/submissions` に POST
+する smoke test も追加する。これにより、Pydantic model 単体だけでなく API
+境界でも EnvForge の JSON を受け取れることを確認する。
+
 ## この順序を採用する理由
 
 EnvForge 側の Unity UI、HTTP client、認証、クラウドジョブ起動を実装する前に、
@@ -37,5 +41,4 @@ EnvForge 側の Unity UI、HTTP client、認証、クラウドジョブ起動を
 
 - EnvForge fixture と EmbodiedLab fixture の同期方法。
 - EnvForge 側で fixture を Unity batchmode から自動生成する方法。
-- `/submissions` へ実際に POST する smoke test。
-- Replay Log parser。Unity `JsonUtility` 前提は崩さず、別途専用 parser を設計する。
+- 実 backend に対する `/submissions` smoke test。

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from embodiedlab.result_models import ReplayLogStep, ReplayReward
+from embodiedlab.result_models import ReplayAction, ReplayLogStep, ReplayReward
 from trainer import artifacts
 
 
@@ -146,7 +146,12 @@ def test_upload_replay_log_to_gcs_uploads_jsonl_metadata(monkeypatch):
                 "position": {"x": 1.0, "z": 1.0},
                 "rotation_y_degrees": 0.0,
             },
-            action={"forward": 0.0, "turn": 0.0},
+            action=ReplayAction(
+                values=[
+                    {"name": "forward", "value": 0.0},
+                    {"name": "turn", "value": 0.0},
+                ],
+            ),
             reward=ReplayReward(total=0.0),
         ),
     ]

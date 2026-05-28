@@ -117,11 +117,40 @@ class ReplayRobotState(BaseModel):
     rotation_y_degrees: float
 
 
+class ReplayNamedValue(BaseModel):
+    """A named scalar value in a JsonUtility-friendly replay payload."""
+
+    name: str = Field(min_length=1)
+    value: float
+
+
+class ReplayAction(BaseModel):
+    """Action values emitted for a replay step."""
+
+    values: list[ReplayNamedValue] = Field(default_factory=list)
+
+
 class ReplayReward(BaseModel):
     """Reward values emitted for a replay step."""
 
     total: float
-    components: dict[str, float] = Field(default_factory=dict)
+    components: list[ReplayNamedValue] = Field(default_factory=list)
+
+
+class ReplayEvent(BaseModel):
+    """A compact event emitted during replay."""
+
+    type: str = Field(min_length=1)
+    object_id: str | None = None
+    message: str | None = None
+
+
+class ReplaySensorSummary(BaseModel):
+    """A compact sensor summary emitted during replay."""
+
+    id: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    value: float
 
 
 class ReplayLogStep(BaseModel):
@@ -134,10 +163,10 @@ class ReplayLogStep(BaseModel):
     step_index: int = Field(ge=0)
     time_seconds: float = Field(ge=0.0)
     robot: ReplayRobotState
-    action: dict[str, float] = Field(default_factory=dict)
+    action: ReplayAction = Field(default_factory=ReplayAction)
     reward: ReplayReward
-    events: list[dict[str, Any]] = Field(default_factory=list)
-    sensors: dict[str, Any] = Field(default_factory=dict)
+    events: list[ReplayEvent] = Field(default_factory=list)
+    sensors: list[ReplaySensorSummary] = Field(default_factory=list)
     terminated: bool = False
     termination_reason: str | None = None
 

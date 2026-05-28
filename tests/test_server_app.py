@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import server.routes
 import trainer.job
 from server.config import ServerConfig
@@ -8,6 +11,8 @@ from server.dependencies import (
 )
 from server.main import create_app
 from tests.fakes import FakeResultRepository, FakeSubmissionRepository
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def build_test_app(
@@ -54,6 +59,27 @@ def test_create_submission_persists_default_payload():
     assert scenario["robot"]["type"] == "simple_robot"
     assert scenario["robot"]["action_space"]["layout"] == ["forward", "turn"]
     assert scenario["training"]["algorithm"] == "ppo"
+
+
+def test_create_submission_accepts_envforge_navigation_fixture():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+    fixture_path = FIXTURE_DIR / "envforge" / "navigation_default_scenario_bundle.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = client.post("/submissions", json=payload)
+
+    assert response.status_code == 200
+    submission_id = response.json()["submission_id"]
+    submission = submission_repository.fetch(submission_id)
+    scenario = submission["scenario"]
+    assert scenario["scenario_id"] == "navigation_default"
+    assert scenario["world"]["bounds"]["min"] == {"x": -8.0, "z": -6.0}
+    assert scenario["robot"]["start_pose"]["position"] == {"x": -6.0, "z": -4.0}
+    assert scenario["training"]["max_episode_steps"] == 1000
 
 
 def test_train_queues_result_and_runs_job(monkeypatch):

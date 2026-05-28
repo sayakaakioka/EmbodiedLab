@@ -1,9 +1,12 @@
 import json
+from pathlib import Path
 
 from embodiedlab.result_models import (
     ArtifactLocation,
     ReplayLogStep,
+    ReplayNamedValue,
     ReplayReward,
+    ReplaySensorSummary,
     ResultArtifacts,
     ResultBundle,
     ResultCompatibility,
@@ -22,6 +25,8 @@ from embodiedlab.result_models import (
     starting_progress,
 )
 from embodiedlab.schemas import ScenarioBundle
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def test_build_queued_result_document_returns_firestore_payload():
@@ -137,24 +142,41 @@ def test_replay_log_step_serializes_jsonl_row():
             "rotation_y_degrees": 0.0,
         },
         action={
-            "forward": 0.2,
-            "turn": 0.0,
+            "values": [
+                {"name": "forward", "value": 0.2},
+                {"name": "turn", "value": 0.0},
+            ],
         },
         reward=ReplayReward(
             total=0.04,
-            components={
-                "goal_progress": 0.05,
-                "step_penalty": -0.01,
-            },
+            components=[
+                ReplayNamedValue(name="goal_progress", value=0.05),
+                ReplayNamedValue(name="step_penalty", value=-0.01),
+            ],
         ),
-        sensors={"front_distance": 5.0},
+        sensors=[
+            ReplaySensorSummary(
+                id="front_distance",
+                type="distance_meters",
+                value=5.0,
+            ),
+        ],
     )
 
     payload = step.model_dump(mode="json")
 
     assert payload["schema_version"] == "replay-log.v0"
     assert payload["robot"]["position"]["x"] == 1.02
-    assert payload["reward"]["components"]["goal_progress"] == 0.05
+    assert payload["action"]["values"][0] == {"name": "forward", "value": 0.2}
+    assert payload["reward"]["components"][0] == {
+        "name": "goal_progress",
+        "value": 0.05,
+    }
+    assert payload["sensors"][0] == {
+        "id": "front_distance",
+        "type": "distance_meters",
+        "value": 5.0,
+    }
     assert payload["terminated"] is False
 
 
@@ -178,6 +200,19 @@ def test_serialize_replay_log_jsonl_returns_json_lines():
     rows = payload.splitlines()
     assert len(rows) == 1
     assert json.loads(rows[0])["schema_version"] == "replay-log.v0"
+
+
+def test_envforge_navigation_replay_fixture_matches_contract():
+    fixture_path = FIXTURE_DIR / "envforge" / "navigation_default_replay_log.jsonl"
+    rows = fixture_path.read_text(encoding="utf-8").splitlines()
+
+    steps = [ReplayLogStep.model_validate_json(row) for row in rows]
+
+    assert len(steps) == 2
+    assert steps[0].scenario_id == "navigation_default"
+    assert steps[0].action.values[0].name == "forward"
+    assert steps[1].reward.components[0].name == "goal_progress"
+    assert steps[1].sensors[0].id == "front_distance"
 
 
 def test_build_result_bundle_maps_replay_log_artifact_metadata():
