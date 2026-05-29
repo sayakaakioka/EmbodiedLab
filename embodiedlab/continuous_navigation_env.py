@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import ceil, cos, radians, sin
+from math import atan2, ceil, cos, degrees, radians, sin
 from typing import TYPE_CHECKING, ClassVar
 
 import gymnasium as gym
@@ -22,6 +22,8 @@ FORWARD_ACTION_INDEX = 0
 TURN_ACTION_INDEX = 1
 MOVEMENT_COLLISION_STEP_METERS = 0.005
 RAY_STEP_METERS = 0.05
+WIDE_ANGLE_DEGREES = 90.0
+REAR_ANGLE_DEGREES = 150.0
 
 
 class ContinuousNavigationEnv(gym.Env):
@@ -98,9 +100,18 @@ class ContinuousNavigationEnv(gym.Env):
         angle = radians(self.robot_rotation_y_degrees)
         return np.array([sin(angle), cos(angle)], dtype=np.float32)
 
+    def _signed_angle_to_goal_degrees(self) -> float:
+        delta = self._goal_pos() - self.robot_pos
+        target_degrees = degrees(atan2(float(delta[0]), float(delta[1])))
+        return self._normalise_angle(target_degrees - self.robot_rotation_y_degrees)
+
     @staticmethod
     def _normalise_rotation(rotation_y_degrees: float) -> float:
         return ((rotation_y_degrees + 180.0) % 360.0) - 180.0
+
+    @staticmethod
+    def _normalise_angle(angle_degrees: float) -> float:
+        return ((angle_degrees + 180.0) % 360.0) - 180.0
 
     def _inside_bounds(self, position: np.ndarray) -> bool:
         return bool(
@@ -241,11 +252,31 @@ class ContinuousNavigationEnv(gym.Env):
         distance_delta = previous_distance - distance
         terminated = distance <= self.spec.goal.radius
         truncated = self.steps >= self.max_steps
-        reward = -0.01 + 0.5 * distance_delta
+        weights = self.spec.reward_weights
+        reward = weights.step_penalty + weights.goal_progress * distance_delta
+        forward = float(clipped_action[FORWARD_ACTION_INDEX])
+        turn = float(clipped_action[TURN_ACTION_INDEX])
+        moving = (
+            abs(forward) > weights.movement_threshold
+            or abs(turn) > weights.movement_threshold
+        )
+        if moving:
+            reward += weights.movement_reward
+        signed_angle_to_goal = self._signed_angle_to_goal_degrees()
+        if abs(signed_angle_to_goal) > REAR_ANGLE_DEGREES:
+            reward += weights.rear_angle_penalty
+        elif abs(signed_angle_to_goal) > WIDE_ANGLE_DEGREES:
+            reward += weights.wide_angle_penalty
+        inactive = (
+            abs(forward) <= weights.movement_threshold
+            or abs(turn) <= weights.turn_activity_threshold
+        )
+        if inactive:
+            reward += weights.inactive_penalty
         if collision_id is not None:
-            reward -= 5.0
+            reward += weights.collision_penalty
         if terminated:
-            reward += 10.0
+            reward += weights.goal_reached
 
         return (
             self._get_obs(),

@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
 from embodiedlab.schemas import ScenarioBundle
@@ -56,7 +57,7 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     assert conversion.runtime_coordinate_system == "envforge_xz_meters"
     assert conversion.coordinate_mapping == "direct_envforge_xz_meters"
     assert conversion.lossy is True
-    assert "reward.components" in conversion.omitted_contract_fields
+    assert "reward.components" not in conversion.omitted_contract_fields
     assert spec.bounds.min_x == -5.0
     assert spec.bounds.max_z == 15.0
     assert spec.goal.goal_id == "goal_001"
@@ -87,6 +88,39 @@ def test_continuous_env_moves_forward_in_envforge_xz_space():
     assert reward > -0.01
     assert terminated is False
     assert truncated is False
+
+
+def test_continuous_env_uses_declared_reward_weights():
+    scenario = ScenarioBundle(
+        reward={
+            "components": [
+                {"name": "goal_reached", "type": "terminal_reward", "weight": 10.0},
+                {
+                    "name": "goal_progress",
+                    "type": "distance_delta",
+                    "target": "goal_001",
+                    "weight": 0.0,
+                },
+                {"name": "collision_penalty", "type": "collision", "weight": -5.0},
+                {"name": "step_penalty", "type": "per_step", "weight": -0.2},
+                {"name": "movement_reward", "type": "per_step", "weight": 0.7},
+                {"name": "inactive_penalty", "type": "per_step", "weight": -0.4},
+                {"name": "movement_threshold", "type": "per_step", "weight": 0.001},
+                {"name": "turn_activity_threshold", "type": "per_step", "weight": 0.3},
+            ],
+        },
+    )
+    env = ContinuousNavigationEnv(
+        spec=convert_submission_to_spec(scenario),
+        max_steps=10,
+    )
+    _obs, _info = env.reset()
+
+    _next_obs, reward, _terminated, _truncated, _next_info = env.step(
+        np.array([1.0, 1.0], dtype=np.float32),
+    )
+
+    assert reward == pytest.approx(0.5)
 
 
 def test_continuous_env_blocks_rotated_obstacle_collision():

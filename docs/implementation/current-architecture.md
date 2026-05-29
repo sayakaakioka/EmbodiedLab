@@ -111,7 +111,11 @@ run_continuous_navigation_training を使う。Replay Log は continuous runtime
 - Result Bundle contract がない。
 - ONNX/Sentis export は continuous 主経路と Result Bundle metadata に
   接続済みだが、EnvForge 側の Sentis runtime inference 検証はまだである。
-- reward component の runtime mapping がまだ固定値である。
+- reward component の主要 weight は Scenario Bundle から continuous runtime へ
+  反映する。現時点では `goal_reached`、`goal_progress`、
+  `collision_penalty`、`step_penalty`、`movement_reward`、
+  `wide_angle_penalty`、`rear_angle_penalty`、`inactive_penalty`、
+  `movement_threshold`、`turn_activity_threshold` を扱う。
 - robot と sensor descriptor が最小限である。
 - forward camera observation はまだ抽象化されたままである。
 - artifact access が public-read 前提である。

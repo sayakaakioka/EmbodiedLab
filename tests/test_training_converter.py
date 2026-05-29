@@ -70,6 +70,25 @@ def test_convert_scenario_to_continuous_runtime_spec():
             {"id": "front_camera", "type": "forward_camera"},
             {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
         ],
+        reward={
+            "components": [
+                {"name": "goal_reached", "type": "terminal_reward", "weight": 101.0},
+                {
+                    "name": "goal_progress",
+                    "type": "distance_delta",
+                    "target": "goal_001",
+                    "weight": 0.25,
+                },
+                {"name": "collision_penalty", "type": "collision", "weight": -12.0},
+                {"name": "step_penalty", "type": "per_step", "weight": -0.2},
+                {"name": "movement_reward", "type": "per_step", "weight": 0.03},
+                {"name": "wide_angle_penalty", "type": "per_step", "weight": -0.4},
+                {"name": "rear_angle_penalty", "type": "per_step", "weight": -7.0},
+                {"name": "inactive_penalty", "type": "per_step", "weight": -0.5},
+                {"name": "movement_threshold", "type": "per_step", "weight": 0.02},
+                {"name": "turn_activity_threshold", "type": "per_step", "weight": 0.4},
+            ],
+        },
     )
 
     conversion = describe_runtime_conversion(scenario)
@@ -78,7 +97,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert conversion.runtime_coordinate_system == "envforge_xz_meters"
     assert conversion.coordinate_mapping == "direct_envforge_xz_meters"
     assert conversion.lossy is True
-    assert "reward.components" in conversion.omitted_contract_fields
+    assert "reward.components" not in conversion.omitted_contract_fields
     assert spec.bounds.min_x == -5.0
     assert spec.bounds.max_z == 15.0
     assert spec.goal.goal_id == "goal_001"
@@ -86,6 +105,16 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.robot_start.x == 1.9
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
+    assert spec.reward_weights.goal_reached == 101.0
+    assert spec.reward_weights.goal_progress == 0.25
+    assert spec.reward_weights.collision_penalty == -12.0
+    assert spec.reward_weights.step_penalty == -0.2
+    assert spec.reward_weights.movement_reward == 0.03
+    assert spec.reward_weights.wide_angle_penalty == -0.4
+    assert spec.reward_weights.rear_angle_penalty == -7.0
+    assert spec.reward_weights.inactive_penalty == -0.5
+    assert spec.reward_weights.movement_threshold == 0.02
+    assert spec.reward_weights.turn_activity_threshold == 0.4
     assert [obstacle.obstacle_id for obstacle in spec.obstacles] == [
         "wall_001",
         "box_001",

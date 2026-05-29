@@ -5,16 +5,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from embodiedlab.schemas import (
+    CollisionRewardComponent,
+    DistanceDeltaRewardComponent,
     DistanceSensor,
+    PerStepRewardComponent,
     ScenarioBundle,
     StaticObstacle,
     StaticWall,
+    TerminalRewardComponent,
 )
 from embodiedlab.training.training_models import (
     ContinuousBounds,
     ContinuousBoxObstacle,
     ContinuousGoal,
     ContinuousNavigationSpec,
+    ContinuousRewardWeights,
     ContinuousRobotStart,
 )
 
@@ -53,7 +58,6 @@ def describe_runtime_conversion(
         coordinate_mapping="direct_envforge_xz_meters",
         omitted_contract_fields=(
             "sensors.forward_camera.image_observation",
-            "reward.components",
         ),
         lossy=True,
         notes=(
@@ -61,8 +65,8 @@ def describe_runtime_conversion(
             "and static obstacle footprints stay in EnvForge x/z meters.",
             "Forward camera output remains an abstraction at this runtime layer; "
             "distance sensor range is represented directly.",
-            "Declarative reward components are not yet carried into the "
-            "continuous runtime spec; reward weights remain runtime defaults.",
+            "Supported declarative reward component weights are carried into "
+            "the continuous runtime spec.",
         ),
     )
 
@@ -72,6 +76,34 @@ def _distance_sensor_range(scenario: ScenarioBundle) -> float:
         if isinstance(sensor, DistanceSensor):
             return sensor.range_meters
     return 5.0
+
+
+def _reward_weights(scenario: ScenarioBundle) -> ContinuousRewardWeights:
+    weights = ContinuousRewardWeights()
+    values = {
+        "goal_reached": weights.goal_reached,
+        "goal_progress": weights.goal_progress,
+        "collision_penalty": weights.collision_penalty,
+        "step_penalty": weights.step_penalty,
+        "movement_reward": weights.movement_reward,
+        "wide_angle_penalty": weights.wide_angle_penalty,
+        "rear_angle_penalty": weights.rear_angle_penalty,
+        "inactive_penalty": weights.inactive_penalty,
+        "movement_threshold": weights.movement_threshold,
+        "turn_activity_threshold": weights.turn_activity_threshold,
+    }
+    for component in scenario.reward.components:
+        if isinstance(
+            component,
+            (
+                TerminalRewardComponent,
+                DistanceDeltaRewardComponent,
+                CollisionRewardComponent,
+                PerStepRewardComponent,
+            ),
+        ) and component.name in values:
+            values[component.name] = component.weight
+    return ContinuousRewardWeights(**values)
 
 
 def _wall_to_obstacle(wall_index: int, wall: StaticWall) -> ContinuousBoxObstacle:
@@ -133,4 +165,5 @@ def convert_submission_to_spec(
         ),
         robot_type=scenario.robot.type.value,
         distance_sensor_range_meters=_distance_sensor_range(scenario),
+        reward_weights=_reward_weights(scenario),
     )
