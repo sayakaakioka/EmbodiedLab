@@ -120,7 +120,7 @@ runtime へ移行するまでの暫定ログである。robot position は EnvFo
 
 ## Phase 4: Environment Upgrade
 
-現在の grid-world から、EnvForge-compatible scenario model へ移行する。
+旧 grid-world 実装を廃止し、EnvForge-compatible scenario model へ移行する。
 
 Unity をクラウドで実行することは必須ではない。
 重要なのは、学習に必要な EnvForge のシナリオ条件を再現することである。
@@ -138,9 +138,9 @@ Unity をクラウドで実行することは必須ではない。
 dynamic obstacles、humans、curriculum learning、multiple robot types は
 後続フェーズに送る。
 
-現在、ContinuousNavigationEnv と ContinuousNavigationSpec を追加し、
+ContinuousNavigationEnv と ContinuousNavigationSpec を主経路として使い、
 Scenario Bundle から EnvForge x/z meter 座標を保った runtime spec へ
-変換できるようにした。初期実装では、連続 action forward/turn、Y 回転、
+変換する。初期実装では、連続 action forward/turn、Y 回転、
 goal radius、static walls、static obstacles、回転付き box collision、
 距離センサ range を扱う。
 
@@ -181,7 +181,6 @@ Phase 5 の最小到達点は以下である。
 
 - Scenario Bundle schema をどちらのリポジトリで管理するか。
 - 共有 package を作るか。
-- 旧 grid-world API は公開契約として残さず、既存 `/submissions` を上書きする。
 - Replay Log をどう圧縮・分割するか。
 - user-specific result を導入した後の GCS access をどうするか。
 - public-read model artifact をいつまで許容するか。

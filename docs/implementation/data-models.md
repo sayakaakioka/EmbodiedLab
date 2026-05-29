@@ -344,15 +344,6 @@ subsequent pushed message は `ResultMessage` と同じ形である。
 
 ## Shared Nested Models
 
-### `GridPosition`
-
-```json
-{
-  "x": 0,
-  "y": 0
-}
-```
-
 ### `TrainingConfig`
 
 ```json
@@ -367,23 +358,5 @@ subsequent pushed message は `ResultMessage` と同じ形である。
   "learning_rate": 0.0003,
   "ent_coef": 0.0,
   "eval_episodes": 20
-}
-```
-
-### `GridWorldSpec`
-
-`GridWorldSpec` は training runner に渡す internal Python dataclass である。
-JSON として直接保存・送信されるものではない。
-
-```json
-{
-  "width": 4,
-  "height": 4,
-  "obstacles": [
-    { "x": 1, "y": 1 }
-  ],
-  "goal": { "x": 3, "y": 3 },
-  "robot_start": { "x": 0, "y": 0 },
-  "robot_type": "simple"
 }
 ```

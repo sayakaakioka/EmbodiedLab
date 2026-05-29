@@ -17,7 +17,7 @@ from embodiedlab.result_models import (
 from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import (
     ScenarioRuntimeConversion,
-    convert_submission_to_continuous_spec,
+    convert_submission_to_spec,
     describe_runtime_conversion,
     parse_scenario_bundle,
 )
@@ -60,7 +60,7 @@ def parse_training_submission(
             "max_steps": scenario.training.max_episode_steps,
         },
     )
-    spec = convert_submission_to_continuous_spec(scenario)
+    spec = convert_submission_to_spec(scenario)
     conversion = describe_runtime_conversion(scenario)
     return TrainingInputs(
         scenario=scenario,
@@ -87,8 +87,6 @@ def execute_training_run(
             model_output_path=model_base_path,
         )
         replay_payloads = summary.pop("replay_steps", [])
-        export_onnx = bool(summary.pop("export_onnx", True))
-        model_export_layout = str(summary.pop("model_export_layout", "grid_world"))
         replay_steps = [
             ReplayLogStep.model_validate(
                 {
@@ -105,8 +103,6 @@ def execute_training_run(
             bucket_name=model_bucket,
             submission_id=submission_id,
             replay_steps=replay_steps,
-            export_onnx=export_onnx,
-            model_export_layout=model_export_layout,
         )
 
     summary = {

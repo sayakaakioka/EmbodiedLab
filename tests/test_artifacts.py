@@ -4,11 +4,11 @@ from embodiedlab.result_models import ReplayAction, ReplayLogStep, ReplayReward
 from trainer import artifacts
 
 
-def fake_onnx_export(local_model_base_path, model_export_layout="grid_world"):
+def fake_onnx_export(local_model_base_path):
     return f"{local_model_base_path}.onnx"
 
 
-def fake_sentis_export(local_model_base_path, model_export_layout="grid_world"):
+def fake_sentis_export(local_model_base_path):
     return f"{local_model_base_path}.sentis.onnx"
 
 
@@ -98,18 +98,21 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             "opset_version": 15,
             "input": {
                 "name": "observation",
-                "shape": [1, 4],
+                "shape": [1, 7],
                 "dtype": "float32",
-                "layout": ["robot_x", "robot_y", "goal_x", "goal_y"],
+                "layout": [
+                    "robot_x",
+                    "robot_z",
+                    "robot_rotation_y_degrees",
+                    "goal_x",
+                    "goal_z",
+                    "goal_radius",
+                    "front_distance",
+                ],
             },
             "output": {
-                "name": "action_logits",
-                "action_mapping": {
-                    "0": "up",
-                    "1": "right",
-                    "2": "down",
-                    "3": "left",
-                },
+                "name": "action",
+                "layout": ["forward", "turn"],
             },
         },
     }
@@ -183,42 +186,3 @@ def test_upload_replay_log_to_gcs_uploads_jsonl_metadata(monkeypatch):
     assert upload["content_type"] == "application/jsonl"
     assert '"schema_version":"replay-log.v0"' in upload["contents"]
     assert upload["contents"].endswith("\n")
-
-
-def test_upload_model_to_gcs_can_skip_grid_onnx_exports(monkeypatch):
-    bucket = FakeBucket()
-    model_base_path = "policy"
-    export_calls = []
-    monkeypatch.setattr(
-        artifacts.storage,
-        "Client",
-        lambda: FakeStorageClient(bucket),
-    )
-    monkeypatch.setattr(
-        artifacts,
-        "export_model_to_onnx",
-        lambda local_model_base_path: export_calls.append("onnx"),
-    )
-    monkeypatch.setattr(
-        artifacts,
-        "export_model_to_sentis_onnx",
-        lambda local_model_base_path: export_calls.append("sentis"),
-    )
-
-    result = artifacts.upload_model_to_gcs(
-        local_model_base_path=model_base_path,
-        bucket_name="model-bucket",
-        submission_id="submission-1",
-        export_onnx=False,
-    )
-
-    assert export_calls == []
-    assert set(result) == {"model", "replay_log"}
-    assert bucket.blobs["results/submission-1/model/policy.zip"].uploads == [
-        {
-            "local_path": "policy.zip",
-            "content_type": "application/zip",
-        },
-    ]
-    assert "results/submission-1/model/policy.onnx" not in bucket.blobs
-    assert "results/submission-1/model/policy.sentis.onnx" not in bucket.blobs

@@ -48,14 +48,12 @@ def test_execute_training_run_uploads_replay_steps():
             ],
         }
 
-    def upload_model(  # noqa: PLR0913
+    def upload_model(
         *,
         local_model_base_path,
         bucket_name,
         submission_id,
         replay_steps,
-        export_onnx,
-        model_export_layout,
     ):
         captured_replay_steps.extend(replay_steps)
         return {

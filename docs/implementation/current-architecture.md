@@ -58,24 +58,15 @@ broadcast する。
 ### `embodiedlab/`
 
 schemas、result models、repository protocols、continuous navigation environment、
-grid-world environment、training converter、training runner を含む shared library である。
+training converter、training runner を含む shared library である。
 
 ## 現在のデータモデル
 
-現在の API は EnvForge Scenario Bundle を受け取る方向へ移行中である。
-旧 grid-world submission は公開契約として残さない。
-
-- grid size
-- obstacle cells
-- goal cell
-- robot start cell
-- robot type
-- PPO training configuration
-
-現在の主経路の環境は、Gymnasium-compatible continuous navigation runtime
-である。action は continuous forward/turn policy であり、observation は robot、
-goal、front_distance を含む dictionary である。旧 grid-world runtime は
-比較・fallback 用に残す。
+現在の API は EnvForge Scenario Bundle を受け取る。主経路の環境は、
+Gymnasium-compatible continuous navigation runtime である。action は continuous
+forward/turn policy であり、observation は robot、goal、front_distance を含む
+dictionary である。旧 grid-world runtime は削除済みで、必要な履歴は Git history を
+参照する。
 
 ## 現在の成果物
 

@@ -1,7 +1,8 @@
 # EmbodiedLab
 
 EmbodiedLab is an experimental platform for embodied AI research. The current
-prototype accepts grid-world training requests through a Cloud Run API, starts a
+prototype accepts EnvForge Scenario Bundle submissions through a Cloud Run API,
+starts a
 Cloud Run Job to train a reinforcement learning policy, stores model artifacts
 in GCS, and streams status updates to clients over WebSockets.
 
@@ -26,7 +27,7 @@ Client
       -> Firestore results/{submission_id} = queued
       -> Cloud Run Job with SUBMISSION_ID
           -> Firestore submission lookup
-          -> GridWorld PPO training
+          -> Continuous navigation PPO training
           -> GCS model upload
           -> Firestore result update
           -> Pub/Sub event
@@ -40,8 +41,8 @@ Client
 
 ```text
 embodiedlab/
-  Shared domain models, request schemas, result models, GridWorld environment,
-  and training logic.
+  Shared domain models, request schemas, result models, continuous navigation
+  environment, and training logic.
 
 server/
   FastAPI API service for accepting submissions, starting training jobs, and

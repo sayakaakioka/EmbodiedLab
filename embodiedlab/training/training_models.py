@@ -1,34 +1,8 @@
-"""Data models representing internal training runtime specifications."""
+"""Data models representing the continuous navigation training runtime."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class GridPosition(BaseModel):
-    """An (x, y) cell coordinate inside the grid."""
-
-    model_config = ConfigDict(frozen=True)
-
-    x: int = Field(ge=0)
-    y: int = Field(ge=0)
-
-
-@dataclass(frozen=True)
-class GridWorldSpec:
-    """Fully resolved grid-world specification passed to the training runner."""
-
-    width: int
-    height: int
-    obstacles: frozenset[GridPosition]
-    goal: GridPosition
-    robot_start: GridPosition
-    robot_type: str
-    envforge_origin_x: float = 0.0
-    envforge_origin_z: float = 0.0
-    cell_size_meters: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -78,7 +52,6 @@ class ContinuousNavigationSpec:
 
     bounds: ContinuousBounds
     obstacles: tuple[ContinuousBoxObstacle, ...]
-
     goal: ContinuousGoal
     robot_start: ContinuousRobotStart
     robot_type: str

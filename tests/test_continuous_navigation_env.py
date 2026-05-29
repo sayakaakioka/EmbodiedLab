@@ -3,7 +3,7 @@ import numpy as np
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import (
-    convert_submission_to_continuous_spec,
+    convert_submission_to_spec,
     describe_runtime_conversion,
 )
 
@@ -51,7 +51,7 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     )
 
     conversion = describe_runtime_conversion(scenario)
-    spec = convert_submission_to_continuous_spec(scenario)
+    spec = convert_submission_to_spec(scenario)
 
     assert conversion.runtime_coordinate_system == "envforge_xz_meters"
     assert conversion.coordinate_mapping == "direct_envforge_xz_meters"
@@ -72,7 +72,7 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
 
 
 def test_continuous_env_moves_forward_in_envforge_xz_space():
-    spec = convert_submission_to_continuous_spec(ScenarioBundle())
+    spec = convert_submission_to_spec(ScenarioBundle())
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
 
     obs, info = env.reset()
@@ -104,7 +104,7 @@ def test_continuous_env_blocks_rotated_obstacle_collision():
         },
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_continuous_spec(scenario),
+        spec=convert_submission_to_spec(scenario),
         max_steps=10,
     )
     obs, _info = env.reset()
@@ -135,7 +135,7 @@ def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
         },
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_continuous_spec(scenario),
+        spec=convert_submission_to_spec(scenario),
         max_steps=10,
     )
     obs, _info = env.reset()
