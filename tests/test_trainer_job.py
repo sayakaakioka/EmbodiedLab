@@ -106,6 +106,14 @@ def test_run_training_job_updates_result_to_completed():
         == "results/submission-1/model/policy.onnx"
     )
     assert (
+        payloads[-1]["data"]["result_bundle"]["artifacts"]["onnx_model"]["path"]
+        == "results/submission-1/model/policy.onnx"
+    )
+    assert (
+        payloads[-1]["data"]["result_bundle"]["artifacts"]["sentis_model"]["path"]
+        == "results/submission-1/model/policy.sentis.onnx"
+    )
+    assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["replay_log"]["path"]
         == "results/submission-1/replay/replay.jsonl"
     )

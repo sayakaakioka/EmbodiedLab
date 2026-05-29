@@ -50,6 +50,32 @@ class ArtifactLocation(BaseModel):
     format: ArtifactFormat
 
 
+class ModelInput(BaseModel):
+    """Input metadata for an EnvForge-loadable model artifact."""
+
+    name: str = Field(min_length=1)
+    shape: list[int] = Field(default_factory=list)
+    dtype: str = Field(min_length=1)
+    layout: list[str] = Field(default_factory=list)
+
+
+class ModelOutput(BaseModel):
+    """Output metadata for an EnvForge-loadable model artifact."""
+
+    name: str = Field(min_length=1)
+    layout: list[str] = Field(default_factory=list)
+    action_mapping: dict[str, str] | None = None
+
+
+class ModelArtifactLocation(ArtifactLocation):
+    """Model artifact location with Unity compatibility metadata."""
+
+    target: str | None = None
+    opset_version: int | None = None
+    input: ModelInput | None = None
+    output: ModelOutput | None = None
+
+
 class ResultCompatibility(BaseModel):
     """Compatibility metadata needed by EnvForge when loading a result."""
 
@@ -80,6 +106,8 @@ class ResultArtifacts(BaseModel):
     """Artifacts produced by a training run."""
 
     model: ArtifactLocation | None = None
+    onnx_model: ArtifactLocation | None = None
+    sentis_model: ModelArtifactLocation | None = None
     replay_log: ArtifactLocation | None = None
 
 
@@ -241,6 +269,27 @@ def _artifact_from_payload(
     )
 
 
+def _model_artifact_from_payload(
+    payload: dict[str, Any] | None,
+    *,
+    default_format: ArtifactFormat,
+) -> ModelArtifactLocation | None:
+    """Convert an uploaded model dict into compatibility-aware metadata."""
+    if payload is None:
+        return None
+
+    return ModelArtifactLocation(
+        storage=payload.get("storage", ArtifactStorage.GCS),
+        bucket=payload["bucket"],
+        path=payload["path"],
+        format=payload.get("format", default_format),
+        target=payload.get("target"),
+        opset_version=payload.get("opset_version"),
+        input=payload.get("input"),
+        output=payload.get("output"),
+    )
+
+
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     """Build EnvForge compatibility metadata from the submitted scenario."""
     sensor_layout = [sensor.id for sensor in scenario.sensors]
@@ -299,6 +348,14 @@ def build_result_bundle(  # noqa: PLR0913
             model=_artifact_from_payload(
                 model_payload,
                 default_format=model_format,
+            ),
+            onnx_model=_artifact_from_payload(
+                artifacts.get("onnx_model"),
+                default_format=ArtifactFormat.ONNX,
+            ),
+            sentis_model=_model_artifact_from_payload(
+                artifacts.get("sentis_model"),
+                default_format=ArtifactFormat.ONNX,
             ),
             replay_log=_artifact_from_payload(
                 artifacts.get("replay_log"),

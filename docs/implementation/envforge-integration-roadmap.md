@@ -165,6 +165,16 @@ EmbodiedLab は内部で ML-Agents を使う必要はない。
 - EnvForge binary compatibility
 
 ONNX/Sentis ONNX は continuous 主経路の artifact として生成できる。
+Result Bundle には EnvForge が artifact を取得し、input/output layout を
+解釈するための metadata を含める。
+
+Phase 5 の最小到達点は以下である。
+
+- Result Bundle が通常 ONNX と Sentis ONNX の location を含む。
+- Sentis ONNX が固定長 `float32[1,7]` input layout を明示する。
+- EnvForge が Result Bundle から Replay Log と model artifact を取得できる。
+- EnvForge が Replay Log をローカル再生できる。
+
 ただし最終判断は、EnvForge が安定して load / run できる形式に従う。
 
 ## Open Issues

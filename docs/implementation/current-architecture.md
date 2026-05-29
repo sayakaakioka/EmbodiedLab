@@ -93,7 +93,8 @@ continuous navigation の dict observation を `robot`、`goal`、
 `policy.sentis.onnx` は Unity Sentis 向けに固定長 `float32[1,7]` input
 へまとめた ONNX artifact であり、output は `[forward, turn]` の
 continuous action である。Replay Log は EnvForge がローカル再生するための
-JSON Lines artifact である。
+JSON Lines artifact である。Result Bundle には通常 ONNX と Sentis ONNX の
+artifact location と input/output layout metadata を含める。
 
 ## 現在の強み
 
@@ -117,8 +118,8 @@ run_continuous_navigation_training を使う。Replay Log は continuous runtime
 
 - Scenario Bundle contract がない。
 - Result Bundle contract がない。
-- ONNX/Sentis export は continuous 主経路に接続済みだが、EnvForge 側の
-  load / inference 検証はまだである。
+- ONNX/Sentis export は continuous 主経路と Result Bundle metadata に
+  接続済みだが、EnvForge 側の Sentis runtime inference 検証はまだである。
 - reward component の runtime mapping がまだ固定値である。
 - robot と sensor descriptor が最小限である。
 - forward camera observation はまだ抽象化されたままである。

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from embodiedlab.result_models import (
     ArtifactLocation,
+    ModelArtifactLocation,
     ReplayLogStep,
     ReplayNamedValue,
     ReplayReward,
@@ -111,6 +112,28 @@ def test_result_bundle_serializes_envforge_artifacts():
                 path="results/job_001/model/policy.onnx",
                 format="onnx",
             ),
+            onnx_model=ArtifactLocation(
+                bucket="embodiedlab-models",
+                path="results/job_001/model/policy.onnx",
+                format="onnx",
+            ),
+            sentis_model=ModelArtifactLocation(
+                bucket="embodiedlab-models",
+                path="results/job_001/model/policy.sentis.onnx",
+                format="onnx",
+                target="unity-sentis",
+                opset_version=15,
+                input={
+                    "name": "observation",
+                    "shape": [1, 7],
+                    "dtype": "float32",
+                    "layout": ["robot_x", "robot_z", "front_distance"],
+                },
+                output={
+                    "name": "action",
+                    "layout": ["forward", "turn"],
+                },
+            ),
             replay_log=ArtifactLocation(
                 bucket="embodiedlab-models",
                 path="results/job_001/replay/replay.jsonl",
@@ -124,6 +147,9 @@ def test_result_bundle_serializes_envforge_artifacts():
     assert payload["schema_version"] == "result-bundle.v0"
     assert payload["compatibility"]["action_layout"] == ["forward", "turn"]
     assert payload["artifacts"]["model"]["format"] == "onnx"
+    assert payload["artifacts"]["onnx_model"]["path"].endswith("policy.onnx")
+    assert payload["artifacts"]["sentis_model"]["target"] == "unity-sentis"
+    assert payload["artifacts"]["sentis_model"]["input"]["shape"] == [1, 7]
     assert payload["artifacts"]["replay_log"]["format"] == "jsonl"
 
 
