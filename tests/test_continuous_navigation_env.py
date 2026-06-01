@@ -180,3 +180,16 @@ def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
 
     assert next_obs["robot"].tolist() == obs["robot"].tolist()
     assert next_info["collision"] is True
+
+
+def test_continuous_env_clips_negative_forward_to_stop():
+    spec = convert_submission_to_spec(ScenarioBundle())
+    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+
+    obs, _info = env.reset()
+    next_obs, _reward, _terminated, _truncated, _next_info = env.step(
+        np.array([-1.0, 0.0], dtype=np.float32),
+    )
+
+    assert env.action_space.low.tolist() == [0.0, -1.0]
+    assert next_obs["robot"].tolist() == obs["robot"].tolist()

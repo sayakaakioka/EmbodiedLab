@@ -144,6 +144,10 @@ Scenario Bundle から EnvForge x/z meter 座標を保った runtime spec へ
 goal radius、static walls、static obstacles、回転付き box collision、
 距離センサ range を扱う。
 
+行動契約は、EnvForge 側のロボット方針に合わせて forward は 0..1、
+turn は -1..1 とする。ロボットは後退せず、後ろへ向かう必要がある場合は
+回転してから前進する。Replay Log と exported ONNX の action もこの契約に揃える。
+
 既定の trainer 経路は continuous navigation runtime へ切り替えた。
 trainer は ContinuousNavigationSpec を学習し、policy.zip、通常 ONNX、
 Unity Sentis 向け ONNX、Replay Log を主成果物として保存する。Sentis 向け

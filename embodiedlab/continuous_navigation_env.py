@@ -41,7 +41,7 @@ class ContinuousNavigationEnv(gym.Env):
         self.spec = spec
         self.max_steps = max_steps
         self.action_space = spaces.Box(
-            low=np.array([-1.0, -1.0], dtype=np.float32),
+            low=np.array([0.0, -1.0], dtype=np.float32),
             high=np.array([1.0, 1.0], dtype=np.float32),
             shape=(ACTION_SIZE,),
             dtype=np.float32,
