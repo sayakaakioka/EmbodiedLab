@@ -11,7 +11,9 @@ from server.config import ServerConfig
 def run_training_job(config: ServerConfig, submission_id: str) -> None:
     """Trigger the configured Cloud Run Job with the submission ID override."""
     jobs_client = run_v2.JobsClient(
-        client_options=ClientOptions(api_endpoint=f"{config.region}-run.googleapis.com"),
+        client_options=ClientOptions(
+            api_endpoint=f"{config.region}-run.googleapis.com",
+        ),
     )
 
     request = run_v2.RunJobRequest(

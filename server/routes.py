@@ -17,8 +17,13 @@ from embodiedlab.schemas import ScenarioBundle
 from server.config import ServerConfig
 from server.dependencies import (
     get_config,
+    get_execution_failure_finder,
     get_result_repository,
     get_submission_repository,
+)
+from server.services.execution_failures import (
+    ExecutionFailureFinder,
+    reconcile_result_with_execution_failure,
 )
 from server.services.jobs import run_training_job
 from server.services.training_requests import (
@@ -86,9 +91,14 @@ def train(
 @router.get("/results/{submission_id}")
 def get_result(
     submission_id: str,
+    server_config: Annotated[ServerConfig, Depends(get_config)],
     result_repository: Annotated[
-        ResultReader,
+        ResultReader | ResultFailureWriter,
         Depends(get_result_repository),
+    ],
+    find_execution_failure: Annotated[
+        ExecutionFailureFinder,
+        Depends(get_execution_failure_finder),
     ],
 ) -> dict[str, Any]:
     """Return the latest result document for the submission."""
@@ -96,4 +106,10 @@ def get_result(
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
 
-    return result
+    return reconcile_result_with_execution_failure(
+        config=server_config,
+        submission_id=submission_id,
+        result_repository=result_repository,
+        result=result,
+        find_failed_execution=find_execution_failure,
+    )

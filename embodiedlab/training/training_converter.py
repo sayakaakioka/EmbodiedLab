@@ -56,9 +56,7 @@ def describe_runtime_conversion(
         source_coordinate_system=scenario.world.coordinate_system.value,
         runtime_coordinate_system="envforge_xz_meters",
         coordinate_mapping="direct_envforge_xz_meters",
-        omitted_contract_fields=(
-            "sensors.forward_camera.image_observation",
-        ),
+        omitted_contract_fields=("sensors.forward_camera.image_observation",),
         lossy=True,
         notes=(
             "Runtime positions, rotations, bounds, goal radius, static walls, "
@@ -85,23 +83,24 @@ def _reward_weights(scenario: ScenarioBundle) -> ContinuousRewardWeights:
         "goal_progress": weights.goal_progress,
         "collision_penalty": weights.collision_penalty,
         "step_penalty": weights.step_penalty,
-        "movement_reward": weights.movement_reward,
         "wide_angle_penalty": weights.wide_angle_penalty,
         "rear_angle_penalty": weights.rear_angle_penalty,
         "inactive_penalty": weights.inactive_penalty,
         "movement_threshold": weights.movement_threshold,
-        "turn_activity_threshold": weights.turn_activity_threshold,
     }
     for component in scenario.reward.components:
-        if isinstance(
-            component,
-            (
-                TerminalRewardComponent,
-                DistanceDeltaRewardComponent,
-                CollisionRewardComponent,
-                PerStepRewardComponent,
-            ),
-        ) and component.name in values:
+        if (
+            isinstance(
+                component,
+                (
+                    TerminalRewardComponent,
+                    DistanceDeltaRewardComponent,
+                    CollisionRewardComponent,
+                    PerStepRewardComponent,
+                ),
+            )
+            and component.name in values
+        ):
             values[component.name] = component.weight
     return ContinuousRewardWeights(**values)
 

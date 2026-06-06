@@ -16,6 +16,9 @@
 | `PROJECT_ID` | string | GCP project ID |
 | `TRAINER_JOB_NAME` | string | Cloud Run Job name |
 
+Makefile の `deploy_trainer` は `TRAINER_TASK_TIMEOUT` を読み、Cloud Run Job の
+task timeout として適用する。現在の既定値は `24h` である。
+
 resolved runtime shape:
 
 ```json
@@ -190,6 +193,14 @@ failure responses:
 
 response model shape: `embodiedlab.result_models.ResultDocument`
 
+active status（`queued`、`starting`、`running`）の result を返す場合、API は
+Cloud Run execution を `SUBMISSION_ID` override で照合する。対応する execution が
+timeout などで失敗済みなら、Firestore result を `failed` に更新してから返す。
+これは trainer process が Cloud Run に強制終了され、trainer 自身の失敗更新が
+実行されない場合の補正である。
+この照合には runtime service account の `run.executions.list` 権限が必要であり、
+bootstrap では `roles/run.viewer` を付与する。
+
 ```json
 {
   "submission_id": "submission-123",
@@ -287,6 +298,8 @@ progress shape:
 
 API は trainer service に JSON を直接送らない。
 Cloud Run Job を起動し、環境変数 `SUBMISSION_ID` を override する。
+trainer job の task timeout は Makefile の `TRAINER_TASK_TIMEOUT` で指定し、
+現在の既定値は `24h` である。
 
 ```json
 {

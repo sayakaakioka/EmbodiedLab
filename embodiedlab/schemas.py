@@ -305,10 +305,14 @@ class TrainingSpec(BaseModel):
     timesteps: int = Field(default=5_000, ge=1)
     seed: int = 10
     max_episode_steps: int = Field(default=512, ge=1)
+    n_envs: int = Field(default=1, ge=1)
+    cpu_count: int | None = Field(default=None, ge=1)
+    torch_num_threads: int | None = Field(default=None, ge=1)
     n_steps: int = Field(default=32, ge=1)
     batch_size: int = Field(default=32, ge=1)
+    n_epochs: int = Field(default=3, ge=1)
     gamma: float = Field(default=0.99, gt=0.0, le=1.0)
-    learning_rate: float = Field(default=3e-4, gt=0.0)
+    learning_rate: float = Field(default=1e-6, gt=0.0)
     ent_coef: float = Field(default=0.0, ge=0.0)
     eval_episodes: int = Field(default=20, ge=1)
 
@@ -336,20 +340,36 @@ class ScenarioBundle(BaseModel):
             components=[
                 TerminalRewardComponent(
                     name="goal_reached",
-                    weight=10.0,
+                    weight=100.0,
                 ),
                 DistanceDeltaRewardComponent(
                     name="goal_progress",
                     target="goal_001",
-                    weight=0.5,
+                    weight=0.1,
                 ),
                 CollisionRewardComponent(
                     name="collision_penalty",
-                    weight=-5.0,
+                    weight=-50.0,
                 ),
                 PerStepRewardComponent(
                     name="step_penalty",
                     weight=-0.01,
+                ),
+                PerStepRewardComponent(
+                    name="wide_angle_penalty",
+                    weight=-0.1,
+                ),
+                PerStepRewardComponent(
+                    name="rear_angle_penalty",
+                    weight=-5.0,
+                ),
+                PerStepRewardComponent(
+                    name="inactive_penalty",
+                    weight=-0.1,
+                ),
+                PerStepRewardComponent(
+                    name="movement_threshold",
+                    weight=0.001,
                 ),
             ],
         ),

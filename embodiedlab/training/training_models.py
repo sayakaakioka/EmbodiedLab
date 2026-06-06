@@ -50,16 +50,14 @@ class ContinuousRobotStart:
 class ContinuousRewardWeights:
     """Reward weights used by the continuous EnvForge runtime."""
 
-    goal_reached: float = 10.0
-    goal_progress: float = 0.5
-    collision_penalty: float = -5.0
+    goal_reached: float = 100.0
+    goal_progress: float = 0.1
+    collision_penalty: float = -50.0
     step_penalty: float = -0.01
-    movement_reward: float = 0.0
-    wide_angle_penalty: float = 0.0
-    rear_angle_penalty: float = 0.0
-    inactive_penalty: float = 0.0
+    wide_angle_penalty: float = -0.1
+    rear_angle_penalty: float = -5.0
+    inactive_penalty: float = -0.1
     movement_threshold: float = 0.001
-    turn_activity_threshold: float = 0.3
 
 
 @dataclass(frozen=True)

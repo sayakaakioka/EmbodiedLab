@@ -8,11 +8,7 @@ def merge_dicts(existing: dict, update: dict) -> dict:
     """Recursively merge Firestore-style payloads into an existing document."""
     merged = deepcopy(existing)
     for key, value in update.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = merge_dicts(merged[key], value)
         else:
             merged[key] = deepcopy(value)

@@ -432,6 +432,7 @@ embodiedlab = [
 ]
 notification = [
     { name = "fastapi" },
+    { name = "google-cloud-firestore" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "websockets" },
 ]
@@ -467,6 +468,7 @@ dev = [
 embodiedlab = [{ name = "pydantic" }]
 notification = [
     { name = "fastapi" },
+    { name = "google-cloud-firestore" },
     { name = "uvicorn", extras = ["standard"] },
     { name = "websockets" },
 ]

@@ -6,10 +6,12 @@ import trainer.job
 from server.config import ServerConfig
 from server.dependencies import (
     get_config,
+    get_execution_failure_finder,
     get_result_repository,
     get_submission_repository,
 )
 from server.main import create_app
+from server.services.execution_failures import ExecutionFailure
 from tests.fakes import FakeResultRepository, FakeSubmissionRepository
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -18,6 +20,8 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 def build_test_app(
     submission_repository: FakeSubmissionRepository,
     result_repository: FakeResultRepository,
+    *,
+    find_execution_failure=lambda _config, _submission_id: None,
 ):
     app = create_app()
     app.dependency_overrides[get_config] = lambda: ServerConfig(
@@ -27,6 +31,9 @@ def build_test_app(
     )
     app.dependency_overrides[get_submission_repository] = lambda: submission_repository
     app.dependency_overrides[get_result_repository] = lambda: result_repository
+    app.dependency_overrides[get_execution_failure_finder] = lambda: (
+        find_execution_failure
+    )
     return app
 
 
@@ -152,6 +159,52 @@ def test_get_result_returns_existing_result():
         "submission_id": "submission-1",
         "status": "completed",
     }
+
+
+def test_get_result_marks_active_result_failed_after_cloud_run_failure():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository(
+        initial_results={
+            "submission-1": {
+                "submission_id": "submission-1",
+                "status": "running",
+                "progress": {
+                    "phase": "running",
+                    "current_step": 0,
+                    "total_steps": 1500000,
+                    "message": "Training",
+                },
+            },
+        },
+    )
+
+    def find_execution_failure(config, submission_id):
+        assert submission_id == "submission-1"
+        assert config.job_path.endswith("/jobs/test-trainer")
+        return ExecutionFailure(
+            execution_name="test-trainer-abcde",
+            message="The configured timeout was reached.",
+        )
+
+    client = TestClient(
+        build_test_app(
+            submission_repository,
+            result_repository,
+            find_execution_failure=find_execution_failure,
+        ),
+    )
+
+    response = client.get("/results/submission-1")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "failed"
+    assert result["progress"]["phase"] == "failed"
+    assert result["progress"]["total_steps"] == 1500000
+    assert "test-trainer-abcde" in result["error"]
+    assert "configured timeout" in result["error"]
 
 
 def test_get_result_returns_404_for_missing_result():

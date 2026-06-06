@@ -1,9 +1,6 @@
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import describe_runtime_conversion
-from trainer.training_service import (
-    execute_training_run_from_submission,
-    parse_training_submission,
-)
+from trainer.training_service import execute_training_run, parse_training_submission
 
 
 def test_execute_training_run_uploads_replay_steps():
@@ -64,8 +61,12 @@ def test_execute_training_run_uploads_replay_steps():
             },
         }
 
-    execution = execute_training_run_from_submission(
-        submission={"scenario": scenario.model_dump(mode="json")},
+    inputs = parse_training_submission(
+        {"scenario": scenario.model_dump(mode="json")},
+    )
+
+    execution = execute_training_run(
+        inputs=inputs,
         model_bucket="model-bucket",
         submission_id="submission-1",
         train_model=train_model,
@@ -81,6 +82,9 @@ def test_execute_training_run_uploads_replay_steps():
 
 def test_parse_training_submission_uses_continuous_runtime_spec():
     scenario = ScenarioBundle()
+    scenario.training.n_envs = 4
+    scenario.training.cpu_count = 4
+    scenario.training.torch_num_threads = 1
 
     inputs = parse_training_submission({"scenario": scenario.model_dump(mode="json")})
 
@@ -90,3 +94,6 @@ def test_parse_training_submission_uses_continuous_runtime_spec():
     assert inputs.spec.goal.z == scenario.world.goal.position.z
     assert inputs.spec.robot_start.x == scenario.robot.start_pose.position.x
     assert inputs.spec.robot_start.z == scenario.robot.start_pose.position.z
+    assert inputs.training.n_envs == 4
+    assert inputs.training.cpu_count == 4
+    assert inputs.training.torch_num_threads == 1

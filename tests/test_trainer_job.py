@@ -24,7 +24,15 @@ def test_run_training_job_updates_result_to_completed():
     result_repository = FakeResultRepository()
     calls = []
 
-    def train_model(*, spec, training, model_output_path):
+    def train_model(
+        *,
+        spec,
+        training,
+        model_output_path,
+        progress_callback=None,
+        diagnostic_callback=None,
+    ):
+        assert progress_callback is not None
         calls.append(("train", spec, training, model_output_path))
         return {"score": 1.0}
 
@@ -117,6 +125,50 @@ def test_run_training_job_updates_result_to_completed():
     )
     assert calls[0][0] == "train"
     assert calls[1][0] == "upload"
+
+
+def test_run_training_job_writes_training_progress_updates():
+    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission_repository = FakeSubmissionRepository(
+        initial_submissions={"submission-1": submission},
+    )
+    result_repository = FakeResultRepository()
+    published_events = []
+
+    def train_model(
+        *,
+        spec,
+        training,
+        model_output_path,
+        progress_callback,
+        diagnostic_callback=None,
+    ):
+        progress_callback(10000, training.timesteps)
+        progress_callback(20000, training.timesteps)
+        return {"score": 1.0}
+
+    run_training_job(
+        _CONFIG,
+        create_db=lambda db_id: object(),
+        create_submission_repository=lambda db: submission_repository,
+        create_result_repository=lambda db: result_repository,
+        train_model=train_model,
+        upload_model=lambda **kwargs: {},
+        publish_event=lambda **kwargs: published_events.append(kwargs),
+    )
+
+    payloads = result_repository.payloads_for("submission-1")
+    running_steps = [
+        payload["data"]["progress"]["current_step"]
+        for payload in payloads
+        if payload["data"]["status"] == "running"
+    ]
+    assert running_steps == [0, 10000, 20000]
+    assert [
+        event["progress"].current_step
+        for event in published_events
+        if event["status"] == "running"
+    ] == [0, 10000, 20000]
 
 
 def test_run_training_job_marks_missing_submission_failed():

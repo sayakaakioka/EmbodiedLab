@@ -10,12 +10,26 @@ import torch
 from google.cloud import storage
 from stable_baselines3 import PPO
 
+from embodiedlab.continuous_navigation_env import (
+    IMAGE_OBSERVATION_CHANNELS,
+    IMAGE_OBSERVATION_HEIGHT,
+    IMAGE_OBSERVATION_WIDTH,
+    NUMERIC_OBSERVATION_SIZE,
+)
 from embodiedlab.result_models import ReplayLogStep, serialize_replay_log_jsonl
+from embodiedlab.training.navigation_final_policy import (
+    navigation_final_deterministic_action,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from stable_baselines3.common.policies import BasePolicy
+
+IMAGE_OBSERVATION_SIZE = (
+    IMAGE_OBSERVATION_CHANNELS * IMAGE_OBSERVATION_HEIGHT * IMAGE_OBSERVATION_WIDTH
+)
+SENTIS_OBSERVATION_SIZE = IMAGE_OBSERVATION_SIZE + NUMERIC_OBSERVATION_SIZE
 
 
 class OnnxableContinuousNavigationPolicy(torch.nn.Module):
@@ -28,20 +42,14 @@ class OnnxableContinuousNavigationPolicy(torch.nn.Module):
 
     def forward(
         self,
-        robot: torch.Tensor,
-        goal: torch.Tensor,
-        front_distance: torch.Tensor,
+        obs_0: torch.Tensor,
+        obs_1: torch.Tensor,
     ) -> torch.Tensor:
         """Return deterministic continuous action values for a batch."""
-        actions, _values, _log_prob = self.policy(
-            {
-                "robot": robot,
-                "goal": goal,
-                "front_distance": front_distance,
-            },
-            deterministic=True,
+        return navigation_final_deterministic_action(
+            self.policy,
+            {"obs_0": obs_0, "obs_1": obs_1},
         )
-        return actions
 
 
 class SentisContinuousNavigationPolicy(torch.nn.Module):
@@ -50,22 +58,21 @@ class SentisContinuousNavigationPolicy(torch.nn.Module):
     def __init__(self, policy: BasePolicy) -> None:
         """Store the trained Stable-Baselines3 policy."""
         super().__init__()
-        self.policy = policy
+        self.policy = OnnxableContinuousNavigationPolicy(policy)
 
     def forward(self, observation: torch.Tensor) -> torch.Tensor:
         """Return [forward, turn] actions for a compact observation tensor."""
-        robot = observation[:, 0:3]
-        goal = observation[:, 3:6]
-        front_distance = observation[:, 6:7]
-        actions, _values, _log_prob = self.policy(
-            {
-                "robot": robot,
-                "goal": goal,
-                "front_distance": front_distance,
-            },
-            deterministic=True,
+        obs_0 = observation[:, 0:IMAGE_OBSERVATION_SIZE].reshape(
+            -1,
+            IMAGE_OBSERVATION_CHANNELS,
+            IMAGE_OBSERVATION_HEIGHT,
+            IMAGE_OBSERVATION_WIDTH,
         )
-        return actions
+        obs_1 = observation[
+            :,
+            IMAGE_OBSERVATION_SIZE:SENTIS_OBSERVATION_SIZE,
+        ]
+        return self.policy(obs_0, obs_1)
 
 
 def export_model_to_onnx(local_model_base_path: str) -> str:
@@ -73,19 +80,25 @@ def export_model_to_onnx(local_model_base_path: str) -> str:
     model = PPO.load(local_model_base_path)
     onnx_path = f"{local_model_base_path}.onnx"
     onnxable_policy = OnnxableContinuousNavigationPolicy(model.policy)
-    dummy_robot = torch.zeros((1, 3), dtype=torch.float32)
-    dummy_goal = torch.zeros((1, 3), dtype=torch.float32)
-    dummy_front_distance = torch.zeros((1, 1), dtype=torch.float32)
+    dummy_obs_0 = torch.zeros(
+        (
+            1,
+            IMAGE_OBSERVATION_CHANNELS,
+            IMAGE_OBSERVATION_HEIGHT,
+            IMAGE_OBSERVATION_WIDTH,
+        ),
+        dtype=torch.float32,
+    )
+    dummy_obs_1 = torch.zeros((1, NUMERIC_OBSERVATION_SIZE), dtype=torch.float32)
     torch.onnx.export(
         onnxable_policy,
-        (dummy_robot, dummy_goal, dummy_front_distance),
+        (dummy_obs_0, dummy_obs_1),
         onnx_path,
-        input_names=["robot", "goal", "front_distance"],
+        input_names=["obs_0", "obs_1"],
         output_names=["action"],
         dynamic_axes={
-            "robot": {0: "batch"},
-            "goal": {0: "batch"},
-            "front_distance": {0: "batch"},
+            "obs_0": {0: "batch"},
+            "obs_1": {0: "batch"},
             "action": {0: "batch"},
         },
         opset_version=17,
@@ -99,7 +112,7 @@ def export_model_to_sentis_onnx(local_model_base_path: str) -> str:
     model = PPO.load(local_model_base_path)
     onnx_path = f"{local_model_base_path}.sentis.onnx"
     sentis_policy = SentisContinuousNavigationPolicy(model.policy)
-    dummy_observation = torch.zeros((1, 7), dtype=torch.float32)
+    dummy_observation = torch.zeros((1, SENTIS_OBSERVATION_SIZE), dtype=torch.float32)
 
     torch.onnx.export(
         sentis_policy,
@@ -168,21 +181,26 @@ def _sentis_metadata(*, bucket_name: str, path: str) -> dict:
         "opset_version": 15,
         "input": {
             "name": "observation",
-            "shape": [1, 7],
+            "shape": [1, SENTIS_OBSERVATION_SIZE],
             "dtype": "float32",
             "layout": [
-                "robot_x",
-                "robot_z",
-                "robot_rotation_y_degrees",
-                "goal_x",
-                "goal_z",
-                "goal_radius",
-                "front_distance",
+                (
+                    "obs_0_chw_"
+                    f"{IMAGE_OBSERVATION_CHANNELS}x"
+                    f"{IMAGE_OBSERVATION_HEIGHT}x"
+                    f"{IMAGE_OBSERVATION_WIDTH}"
+                ),
+                "obs_1_angle_degrees",
+                "obs_1_distance_meters",
             ],
         },
         "output": {
             "name": "action",
             "layout": ["forward", "turn"],
+            "action_mapping": {
+                "forward": "(policy_forward + 1) / 2",
+                "turn": "policy_turn",
+            },
         },
     }
 

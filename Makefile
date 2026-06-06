@@ -175,6 +175,9 @@ grant_runtime_roles: check_deps require_cloud_env
 	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
 		--role="roles/run.jobsExecutorWithOverrides"
+	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
+		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
+		--role="roles/run.viewer"
 	$(GCLOUD) storage buckets add-iam-policy-binding gs://$(MODEL_BUCKET) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
 		--role="roles/storage.objectCreator"
@@ -221,6 +224,9 @@ deploy_api: build_api
 		--set-env-vars DB_ID=$(DB_ID),REGION=$(REGION),TRAINER_JOB_NAME=$(TRAINER_JOB_NAME),PROJECT_ID=$(PROJECT_ID)
 
 TRAINER_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/trainer:latest
+TRAINER_CPU ?= 1
+TRAINER_MEMORY ?= 1Gi
+TRAINER_TASK_TIMEOUT ?= 24h
 
 build_trainer: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
@@ -236,13 +242,17 @@ deploy_trainer: build_trainer
 		--image $(TRAINER_IMAGE) \
 		--region $(REGION) \
 		--service-account $(RUNTIME_SA_EMAIL) \
-		--memory 1Gi \
+		--cpu $(TRAINER_CPU) \
+		--memory $(TRAINER_MEMORY) \
+		--task-timeout $(TRAINER_TASK_TIMEOUT) \
 		--update-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC) || \
 	$(GCLOUD) run jobs create $(TRAINER_JOB_NAME) \
 		--image $(TRAINER_IMAGE) \
 		--region $(REGION) \
 		--service-account $(RUNTIME_SA_EMAIL) \
-		--memory 1Gi \
+		--cpu $(TRAINER_CPU) \
+		--memory $(TRAINER_MEMORY) \
+		--task-timeout $(TRAINER_TASK_TIMEOUT) \
 		--set-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC)
 
 NOTIFICATION_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/notification:latest
@@ -259,9 +269,11 @@ deploy_notification: build_notification
 	$(GCLOUD) run deploy $(NOTIFICATION_SERVICE_NAME) \
 		--image $(NOTIFICATION_IMAGE) \
 		--region $(REGION) \
+		--service-account $(RUNTIME_SA_EMAIL) \
 		--allow-unauthenticated \
 		--min-instances 1 \
-		--max-instances 1
+		--max-instances 1 \
+		--set-env-vars DB_ID=$(DB_ID),PROJECT_ID=$(PROJECT_ID)
 
 
 ##### pubsub / notification #####

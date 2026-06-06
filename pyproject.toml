@@ -27,6 +27,7 @@ trainer = [
 ]
 notification = [
     "fastapi",
+    "google-cloud-firestore",
     "uvicorn[standard]",
     "websockets",
 ]

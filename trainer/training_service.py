@@ -23,6 +23,8 @@ from embodiedlab.training.training_converter import (
 )
 
 TrainModel = Callable[..., dict[str, Any]]
+TrainingProgressCallback = Callable[[int, int], None]
+TrainingDiagnosticCallback = Callable[[str, dict[str, object]], None]
 if TYPE_CHECKING:
     from embodiedlab.schemas import ScenarioBundle
 
@@ -70,22 +72,30 @@ def parse_training_submission(
     )
 
 
-def execute_training_run(
+def execute_training_run(  # noqa: PLR0913
     *,
     inputs: TrainingInputs,
     model_bucket: str,
     submission_id: str,
     train_model: TrainModel,
     upload_model: UploadModel,
+    progress_callback: TrainingProgressCallback | None = None,
+    diagnostic_callback: TrainingDiagnosticCallback | None = None,
 ) -> TrainingExecution:
     """Train and upload using already-validated runtime inputs."""
     with TemporaryDirectory() as tmpdir:
         model_base_path = str(Path(tmpdir) / "policy")
-        summary = train_model(
-            spec=inputs.spec,
-            training=inputs.training,
-            model_output_path=model_base_path,
-        )
+        train_kwargs = {
+            "spec": inputs.spec,
+            "training": inputs.training,
+            "model_output_path": model_base_path,
+        }
+        if progress_callback is not None:
+            train_kwargs["progress_callback"] = progress_callback
+        if diagnostic_callback is not None:
+            train_kwargs["diagnostic_callback"] = diagnostic_callback
+
+        summary = train_model(**train_kwargs)
         replay_payloads = summary.pop("replay_steps", [])
         replay_steps = [
             ReplayLogStep.model_validate(
@@ -127,21 +137,3 @@ def execute_training_run(
         result_bundle=result_bundle,
     )
 
-
-def execute_training_run_from_submission(
-    *,
-    submission: dict[str, Any],
-    model_bucket: str,
-    submission_id: str,
-    train_model: TrainModel,
-    upload_model: UploadModel,
-) -> TrainingExecution:
-    """Train a policy, upload the saved model, and return the resulting payloads."""
-    inputs = parse_training_submission(submission)
-    return execute_training_run(
-        inputs=inputs,
-        model_bucket=model_bucket,
-        submission_id=submission_id,
-        train_model=train_model,
-        upload_model=upload_model,
-    )

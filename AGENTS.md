@@ -21,14 +21,15 @@ Bundle, and Replay Log formats.
 ## Branch Notice
 
 This repository currently contains an early prototype rather than a production
-backend. The current implementation accepts grid-world training requests through
-a FastAPI service, stores submissions and results in Firestore, launches a Cloud
-Run Job for training, uploads model artifacts to GCS, and relays result events
-through Pub/Sub and a WebSocket notification service.
+backend. The current implementation accepts EnvForge Scenario Bundle training
+requests through a FastAPI service, stores submissions and results in Firestore,
+launches a Cloud Run Job for training, uploads ONNX/Sentis/replay artifacts to
+GCS, and relays result events through Pub/Sub and a WebSocket notification
+service.
 
-The current training path uses a Python/Gymnasium grid-world environment and
-Stable-Baselines3 PPO. EnvForge integration does not require EmbodiedLab to use
-Unity or ML-Agents directly. Prefer a cloud-suitable simulation and training
+The active training path uses a Python/Gymnasium continuous navigation runtime
+and Stable-Baselines3 PPO. EnvForge integration does not require EmbodiedLab to
+use Unity or ML-Agents directly. Prefer a cloud-suitable simulation and training
 stack when it can reproduce the scenario conditions defined by EnvForge.
 
 The shared Python package is located in `embodiedlab/`. Service entry points are

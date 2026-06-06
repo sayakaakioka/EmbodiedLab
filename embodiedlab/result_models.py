@@ -410,11 +410,11 @@ def starting_progress(total_steps: int) -> Progress:
     )
 
 
-def running_progress(total_steps: int) -> Progress:
+def running_progress(total_steps: int, current_step: int = 0) -> Progress:
     """Return the running-phase progress payload."""
     return build_progress(
         phase=ResultStatus.RUNNING,
-        current_step=0,
+        current_step=current_step,
         total_steps=total_steps,
         message="Training",
     )

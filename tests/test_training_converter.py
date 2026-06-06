@@ -81,12 +81,10 @@ def test_convert_scenario_to_continuous_runtime_spec():
                 },
                 {"name": "collision_penalty", "type": "collision", "weight": -12.0},
                 {"name": "step_penalty", "type": "per_step", "weight": -0.2},
-                {"name": "movement_reward", "type": "per_step", "weight": 0.03},
                 {"name": "wide_angle_penalty", "type": "per_step", "weight": -0.4},
                 {"name": "rear_angle_penalty", "type": "per_step", "weight": -7.0},
                 {"name": "inactive_penalty", "type": "per_step", "weight": -0.5},
                 {"name": "movement_threshold", "type": "per_step", "weight": 0.02},
-                {"name": "turn_activity_threshold", "type": "per_step", "weight": 0.4},
             ],
         },
     )
@@ -109,12 +107,10 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.reward_weights.goal_progress == 0.25
     assert spec.reward_weights.collision_penalty == -12.0
     assert spec.reward_weights.step_penalty == -0.2
-    assert spec.reward_weights.movement_reward == 0.03
     assert spec.reward_weights.wide_angle_penalty == -0.4
     assert spec.reward_weights.rear_angle_penalty == -7.0
     assert spec.reward_weights.inactive_penalty == -0.5
     assert spec.reward_weights.movement_threshold == 0.02
-    assert spec.reward_weights.turn_activity_threshold == 0.4
     assert [obstacle.obstacle_id for obstacle in spec.obstacles] == [
         "wall_001",
         "box_001",

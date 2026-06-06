@@ -20,6 +20,10 @@ class ConnectionRegistry:
         """Register a WebSocket for a submission."""
         self._connections[submission_id].add(websocket)
 
+    def count(self, submission_id: str) -> int:
+        """Return the number of active connections for a submission."""
+        return len(self._connections.get(submission_id, set()))
+
     def remove(self, submission_id: str, websocket: WebSocket) -> None:
         """Remove a WebSocket and clean up empty submission buckets."""
         if websocket in self._connections[submission_id]:
@@ -27,12 +31,14 @@ class ConnectionRegistry:
         if not self._connections[submission_id]:
             del self._connections[submission_id]
 
-    async def broadcast(self, submission_id: str, event: dict) -> None:
+    async def broadcast(self, submission_id: str, event: dict) -> dict[str, int]:
         """Send an event to all registered clients for the submission."""
         dead_connections: list[WebSocket] = []
+        sent_count = 0
         for websocket in list(self._connections.get(submission_id, [])):
             try:
                 await websocket.send_json(event)
+                sent_count += 1
             except Exception:  # noqa: BLE001
                 dead_connections.append(websocket)
 
@@ -41,3 +47,9 @@ class ConnectionRegistry:
 
         if submission_id in self._connections and not self._connections[submission_id]:
             del self._connections[submission_id]
+
+        return {
+            "sent": sent_count,
+            "dead": len(dead_connections),
+            "remaining": self.count(submission_id),
+        }
