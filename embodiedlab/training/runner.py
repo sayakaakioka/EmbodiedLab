@@ -15,9 +15,6 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecEnv
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
-from embodiedlab.training.navigation_final_expert import (
-    pretrain_navigation_final_policy,
-)
 from embodiedlab.training.navigation_final_policy import (
     NavigationFinalPolicy,
     navigation_final_deterministic_raw_action,
@@ -301,7 +298,6 @@ def _train_model(
     *,
     env: TrainingEnv,
     training: TrainingConfig,
-    spec: ContinuousNavigationSpec | None = None,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
 ) -> PPO:
@@ -338,12 +334,6 @@ def _train_model(
         n_envs=training.n_envs,
         torch_num_threads=torch.get_num_threads(),
     )
-    if spec is not None:
-        pretrain_navigation_final_policy(
-            model=model,
-            spec=spec,
-            diagnostic_callback=diagnostic_callback,
-        )
     callback = None
     if progress_callback is not None:
         callback = TrainingProgressReporter(
@@ -467,7 +457,6 @@ def run_continuous_navigation_training(
         model = _train_model(
             env=train_env,
             training=training,
-            spec=spec,
             progress_callback=progress_callback,
             diagnostic_callback=diagnostic_callback,
         )

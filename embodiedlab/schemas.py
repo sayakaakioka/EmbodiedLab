@@ -312,7 +312,7 @@ class TrainingSpec(BaseModel):
     batch_size: int = Field(default=32, ge=1)
     n_epochs: int = Field(default=3, ge=1)
     gamma: float = Field(default=0.99, gt=0.0, le=1.0)
-    learning_rate: float = Field(default=1e-6, gt=0.0)
+    learning_rate: float = Field(default=3e-4, gt=0.0)
     ent_coef: float = Field(default=0.0, ge=0.0)
     eval_episodes: int = Field(default=20, ge=1)
 

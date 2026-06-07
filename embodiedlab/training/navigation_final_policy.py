@@ -8,7 +8,6 @@ import torch
 from stable_baselines3.common.distributions import (
     DiagGaussianDistribution,
     Distribution,
-    SquashedDiagGaussianDistribution,
 )
 from stable_baselines3.common.policies import MultiInputActorCriticPolicy
 from stable_baselines3.common.preprocessing import get_action_dim
@@ -18,11 +17,13 @@ from torch import nn
 if TYPE_CHECKING:
     from gymnasium import spaces
 
-POLICY_ACTION_LOW = -1.0
-POLICY_ACTION_HIGH = 1.0
+POLICY_FORWARD_ACTION_LOW = -8.0
+POLICY_FORWARD_ACTION_HIGH = 8.0
+POLICY_TURN_ACTION_LOW = -3.0
+POLICY_TURN_ACTION_HIGH = 3.0
 NAVIGATION_FINAL_LOG_STD_MIN = -5.0
 NAVIGATION_FINAL_LOG_STD_MAX = 0.0
-NAVIGATION_FINAL_LOG_STD_INIT = -2.0
+NAVIGATION_FINAL_LOG_STD_INIT = 0.0
 
 
 class SigmoidGateLayer(nn.Module):
@@ -114,7 +115,7 @@ class NavigationFinalPolicy(MultiInputActorCriticPolicy):
         super().__init__(*args, **kwargs)
 
     def _build(self, lr_schedule) -> None:  # noqa: ANN001
-        self.action_dist = SquashedDiagGaussianDistribution(
+        self.action_dist = DiagGaussianDistribution(
             get_action_dim(self.action_space),
         )
         super()._build(lr_schedule)
@@ -137,9 +138,15 @@ class NavigationFinalPolicy(MultiInputActorCriticPolicy):
 
 def navigation_final_contract_action(raw_actions: torch.Tensor) -> torch.Tensor:
     """Map strict raw actions to EnvForge [forward, turn] values."""
-    bounded_actions = torch.clamp(raw_actions, POLICY_ACTION_LOW, POLICY_ACTION_HIGH)
-    forward = (bounded_actions[..., 0:1] + 1.0) * 0.5
-    turn = bounded_actions[..., 1:2]
+    forward = torch.sigmoid(raw_actions[..., 0:1])
+    turn = (
+        torch.clamp(
+            raw_actions[..., 1:2],
+            POLICY_TURN_ACTION_LOW,
+            POLICY_TURN_ACTION_HIGH,
+        )
+        / POLICY_TURN_ACTION_HIGH
+    )
     return torch.cat([forward, turn], dim=-1)
 
 

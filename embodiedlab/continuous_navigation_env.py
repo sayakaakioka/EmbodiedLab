@@ -10,8 +10,10 @@ import numpy as np
 from gymnasium import spaces
 
 from embodiedlab.training.navigation_final_policy import (
-    POLICY_ACTION_HIGH,
-    POLICY_ACTION_LOW,
+    POLICY_FORWARD_ACTION_HIGH,
+    POLICY_FORWARD_ACTION_LOW,
+    POLICY_TURN_ACTION_HIGH,
+    POLICY_TURN_ACTION_LOW,
 )
 
 if TYPE_CHECKING:
@@ -27,7 +29,8 @@ ACTION_SIZE = 2
 FORWARD_ACTION_INDEX = 0
 TURN_ACTION_INDEX = 1
 MOVEMENT_COLLISION_STEP_METERS = 0.005
-RAY_STEP_METERS = 0.05
+MIN_GOAL_PROGRESS_METERS = MOVEMENT_COLLISION_STEP_METERS
+RAY_STEP_METERS = MOVEMENT_COLLISION_STEP_METERS
 WIDE_ANGLE_DEGREES = 90.0
 REAR_ANGLE_DEGREES = 150.0
 CAMERA_FOV_DEGREES = 70.0
@@ -57,11 +60,11 @@ class ContinuousNavigationEnv(gym.Env):
         self.randomize_start = randomize_start
         self.action_space = spaces.Box(
             low=np.array(
-                [POLICY_ACTION_LOW, POLICY_ACTION_LOW],
+                [POLICY_FORWARD_ACTION_LOW, POLICY_TURN_ACTION_LOW],
                 dtype=np.float32,
             ),
             high=np.array(
-                [POLICY_ACTION_HIGH, POLICY_ACTION_HIGH],
+                [POLICY_FORWARD_ACTION_HIGH, POLICY_TURN_ACTION_HIGH],
                 dtype=np.float32,
             ),
             shape=(ACTION_SIZE,),
@@ -144,8 +147,8 @@ class ContinuousNavigationEnv(gym.Env):
         ).astype(np.float32)
         applied_action = np.array(
             [
-                (float(raw_action[FORWARD_ACTION_INDEX]) + 1.0) * 0.5,
-                float(raw_action[TURN_ACTION_INDEX]),
+                1.0 / (1.0 + np.exp(-float(raw_action[FORWARD_ACTION_INDEX]))),
+                float(raw_action[TURN_ACTION_INDEX]) / POLICY_TURN_ACTION_HIGH,
             ],
             dtype=np.float32,
         )
@@ -214,20 +217,28 @@ class ContinuousNavigationEnv(gym.Env):
         probes = start[None, :] + delta[None, :] * sample_ratios[:, None]
         return self._first_collision_id_for_points(probes[:, 0], probes[:, 1])
 
-    def _front_distance(self) -> float:
-        heading = self._heading_vector()
+    def _ray_hits(self, ray_degrees: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         max_range = self.spec.distance_sensor_range_meters
         sample_count = max(1, ceil(max_range / RAY_STEP_METERS))
         distances = np.minimum(
             np.arange(1, sample_count + 1, dtype=np.float32) * RAY_STEP_METERS,
             max_range,
         )
-        probe_x = self.robot_pos[0] + heading[0] * distances
-        probe_z = self.robot_pos[1] + heading[1] * distances
-        collision_indices = np.nonzero(self._collision_mask(probe_x, probe_z))[0]
-        if len(collision_indices) > 0:
-            return round(float(distances[int(collision_indices[0])]), 6)
-        return max_range
+        ray_radians = np.deg2rad(ray_degrees.astype(np.float32))
+        probe_x = self.robot_pos[0] + np.sin(ray_radians)[None, :] * distances[:, None]
+        probe_z = self.robot_pos[1] + np.cos(ray_radians)[None, :] * distances[:, None]
+        collision_mask = self._collision_mask(probe_x, probe_z)
+        has_hit = np.any(collision_mask, axis=0)
+        first_indices = np.argmax(collision_mask, axis=0)
+        hit_distances = np.full(ray_degrees.shape, max_range, dtype=np.float32)
+        hit_distances[has_hit] = distances[first_indices[has_hit]]
+        return hit_distances, has_hit
+
+    def _front_distance(self) -> float:
+        hit_distances, _has_hit = self._ray_hits(
+            np.asarray([self.robot_rotation_y_degrees], dtype=np.float32),
+        )
+        return round(float(hit_distances[0]), 6)
 
     def _get_obs(self) -> dict[str, np.ndarray]:
         return {
@@ -252,10 +263,11 @@ class ContinuousNavigationEnv(gym.Env):
         )
         distances = self._camera_row_distances()
         ray_degrees = self.robot_rotation_y_degrees + self._camera_column_angle_offsets
-        ray_radians = np.deg2rad(ray_degrees)
-        probe_x = self.robot_pos[0] + np.sin(ray_radians)[None, :] * distances[:, None]
-        probe_z = self.robot_pos[1] + np.cos(ray_radians)[None, :] * distances[:, None]
-        collision_mask = self._collision_mask(probe_x, probe_z)
+        hit_distances, has_hit = self._ray_hits(ray_degrees)
+        collision_mask = (
+            (distances[:, None] >= hit_distances[None, :])
+            & has_hit[None, :]
+        )
         image[1, :, :] = np.logical_not(collision_mask)
         image[2, :, :] = collision_mask
         return image
@@ -432,7 +444,7 @@ class ContinuousNavigationEnv(gym.Env):
         components: list[dict[str, float | str]] = [
             {"name": "step_penalty", "value": weights.step_penalty},
         ]
-        if distance_delta > 0.0:
+        if distance_delta >= MIN_GOAL_PROGRESS_METERS:
             components.append(
                 {"name": "goal_progress", "value": weights.goal_progress},
             )

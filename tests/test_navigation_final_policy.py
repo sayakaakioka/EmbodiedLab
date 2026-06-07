@@ -8,8 +8,10 @@ from embodiedlab.training.navigation_final_policy import (
     NAVIGATION_FINAL_LOG_STD_INIT,
     NAVIGATION_FINAL_LOG_STD_MAX,
     NAVIGATION_FINAL_LOG_STD_MIN,
-    POLICY_ACTION_HIGH,
-    POLICY_ACTION_LOW,
+    POLICY_FORWARD_ACTION_HIGH,
+    POLICY_FORWARD_ACTION_LOW,
+    POLICY_TURN_ACTION_HIGH,
+    POLICY_TURN_ACTION_LOW,
     NavigationFinalPolicy,
     navigation_final_contract_action,
 )
@@ -51,7 +53,7 @@ def test_navigation_final_policy_bounds_gaussian_std_before_action_mapping():
     )
 
 
-def test_navigation_final_policy_uses_small_initial_raw_action_std():
+def test_navigation_final_policy_uses_ml_agents_strict_initial_raw_action_std():
     spec = convert_submission_to_spec(ScenarioBundle())
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
     model = PPO(
@@ -68,90 +70,24 @@ def test_navigation_final_policy_uses_small_initial_raw_action_std():
     )
 
 
-def test_navigation_final_contract_action_maps_bounded_policy_action():
+def test_navigation_final_contract_action_matches_ml_agents_strict_mapping():
     raw_actions = torch.tensor(
-        [[POLICY_ACTION_LOW - 1.0, -1.5], [0.0, 0.0], [POLICY_ACTION_HIGH + 1.0, 1.5]],
+        [
+            [POLICY_FORWARD_ACTION_LOW, POLICY_TURN_ACTION_LOW - 1.0],
+            [0.0, 0.0],
+            [POLICY_FORWARD_ACTION_HIGH, POLICY_TURN_ACTION_HIGH + 1.0],
+        ],
         dtype=torch.float32,
     )
 
     action = navigation_final_contract_action(raw_actions)
 
-    assert torch.allclose(
-        action,
-        torch.tensor(
-            [
-                [0.0, -1.0],
-                [0.5, 0.0],
-                [1.0, 1.0],
-            ],
-            dtype=torch.float32,
-        ),
-    )
-
-
-def test_navigation_final_expert_actions_stay_inside_raw_policy_contract():
-    from embodiedlab.training.navigation_final_expert import (
-        _expert_raw_action_from_goal_angle,
-    )
-
-    raw_actions = np.asarray(
+    expected = torch.tensor(
         [
-            _expert_raw_action_from_goal_angle(0.0),
-            _expert_raw_action_from_goal_angle(90.0),
-            _expert_raw_action_from_goal_angle(-90.0),
+            [torch.sigmoid(torch.tensor(POLICY_FORWARD_ACTION_LOW)).item(), -1.0],
+            [0.5, 0.0],
+            [torch.sigmoid(torch.tensor(POLICY_FORWARD_ACTION_HIGH)).item(), 1.0],
         ],
-        dtype=np.float32,
+        dtype=torch.float32,
     )
-
-    assert np.all(raw_actions[:, 0] >= POLICY_ACTION_LOW)
-    assert np.all(raw_actions[:, 0] <= POLICY_ACTION_HIGH)
-    assert np.all(raw_actions[:, 1] >= POLICY_ACTION_LOW)
-    assert np.all(raw_actions[:, 1] <= POLICY_ACTION_HIGH)
-    np.testing.assert_allclose(raw_actions[0], [0.6, 0.0])
-    np.testing.assert_allclose(raw_actions[1], [-0.5, 1.0])
-    np.testing.assert_allclose(raw_actions[2], [-0.5, -1.0])
-
-
-def test_navigation_final_expert_reaches_goal_on_wall_corridor_regression_seeds():
-    from pathlib import Path
-
-    from embodiedlab.training.navigation_final_expert import _expert_rollout_samples
-
-    scenario = ScenarioBundle.model_validate_json(
-        Path(
-            "tests/fixtures/envforge/navigation_default_scenario_bundle.json"
-        ).read_text(),
-    )
-    spec = convert_submission_to_spec(scenario)
-    regression_seeds = [30, 37, 54, 71, 72, 77, 80, 88, 92, 94]
-
-    for seed in regression_seeds:
-        env = ContinuousNavigationEnv(
-            spec=spec,
-            max_steps=scenario.training.max_episode_steps,
-            randomize_start=True,
-        )
-        samples = _expert_rollout_samples(env=env, seed=seed)
-        env.close()
-
-        env = ContinuousNavigationEnv(
-            spec=spec,
-            max_steps=scenario.training.max_episode_steps,
-            randomize_start=True,
-        )
-        env.reset(seed=seed)
-        terminal_info = None
-        terminated = False
-        truncated = False
-        for _obs, action in samples:
-            _next_obs, _reward, terminated, truncated, terminal_info = env.step(
-                np.asarray(action, dtype=np.float32),
-            )
-            if terminated or truncated:
-                break
-        env.close()
-
-        assert terminated is True, seed
-        assert truncated is False, seed
-        assert terminal_info is not None
-        assert terminal_info["collision"] is False, seed
+    assert torch.allclose(action, expected)

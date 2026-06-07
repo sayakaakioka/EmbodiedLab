@@ -98,6 +98,7 @@ def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
     training = TrainingConfig(timesteps=1, n_steps=8, batch_size=4, n_epochs=3)
     captured = {}
+    events = []
 
     class FakePPO:
         def __init__(self, **kwargs):
@@ -109,11 +110,21 @@ def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
 
     monkeypatch.setattr("embodiedlab.training.runner.PPO", FakePPO)
 
-    model = _train_model(env=env, training=training)
+    model = _train_model(
+        env=env,
+        training=training,
+        diagnostic_callback=lambda event, fields: events.append((event, fields)),
+    )
 
     assert model is not None
     assert captured["n_epochs"] == 3
     assert captured["total_timesteps"] == 1
+    assert [event for event, _fields in events] == [
+        "ppo_model_construction_started",
+        "ppo_model_constructed",
+        "ppo_learn_started",
+        "ppo_learn_finished",
+    ]
 
 
 def test_build_continuous_replay_step_returns_envforge_replay_shape():

@@ -200,7 +200,7 @@
     "n_steps": 32,
     "batch_size": 32,
     "gamma": 0.99,
-    "learning_rate": 0.000001,
+    "learning_rate": 0.0003,
     "ent_coef": 0.0,
     "eval_episodes": 20
   }

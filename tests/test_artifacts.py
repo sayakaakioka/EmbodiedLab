@@ -89,8 +89,8 @@ class FakePolicy(torch.nn.Module):
         super().__init__()
         self.squash_output = False
         self.action_space = spaces.Box(
-            low=np.array([-1.0, -1.0], dtype=np.float32),
-            high=np.array([1.0, 1.0], dtype=np.float32),
+            low=np.array([-8.0, -3.0], dtype=np.float32),
+            high=np.array([8.0, 3.0], dtype=np.float32),
             dtype=np.float32,
         )
         self.share_features_extractor = True
@@ -207,8 +207,8 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
                 "name": "action",
                 "layout": ["forward", "turn"],
                 "action_mapping": {
-                    "forward": "(policy_forward + 1) / 2",
-                    "turn": "policy_turn",
+                    "forward": "sigmoid(policy_forward)",
+                    "turn": "clip(policy_turn, -3, 3) / 3",
                 },
             },
         },

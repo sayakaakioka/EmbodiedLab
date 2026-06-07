@@ -198,8 +198,8 @@ def _sentis_metadata(*, bucket_name: str, path: str) -> dict:
             "name": "action",
             "layout": ["forward", "turn"],
             "action_mapping": {
-                "forward": "(policy_forward + 1) / 2",
-                "turn": "policy_turn",
+                "forward": "sigmoid(policy_forward)",
+                "turn": "clip(policy_turn, -3, 3) / 3",
             },
         },
     }

@@ -73,8 +73,9 @@ training converter、training runner を含む shared library である。
 
 現在の API は EnvForge Scenario Bundle を受け取る。主経路の環境は、
 Gymnasium-compatible continuous navigation runtime である。action は PPO 内部では
-`[-1, 1]` の raw `[forward, turn]`、runtime 適用時は non-negative forward と
-turn に写像される。observation は `obs_0` の semantic camera
+raw `forward` と raw `turn` を分けて扱い、runtime 適用時は
+`forward=sigmoid(raw_forward)`、`turn=clip(raw_turn,-3,3)/3` に写像される。
+observation は `obs_0` の semantic camera
 `3 x 84 x 112` と、`obs_1` の `[goal_angle_degrees, goal_distance_meters]` である。
 旧 grid-world runtime は削除済みで、必要な履歴は Git history を参照する。
 
