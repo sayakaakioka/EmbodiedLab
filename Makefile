@@ -194,6 +194,7 @@ deploy_all: deploy_api deploy_trainer deploy_notification
 
 BUILDER_NAME := embodiedlab-builder
 BUILD_PLATFORM := linux/amd64
+BUILD_ATTESTATION_FLAGS := --provenance=false --sbom=false
 
 setup_builder:
 	@if ! docker buildx inspect $(BUILDER_NAME) >/dev/null 2>&1; then \
@@ -210,6 +211,7 @@ build_api: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
+		$(BUILD_ATTESTATION_FLAGS) \
 		-f server/Dockerfile \
 		-t $(API_IMAGE) \
 		--push .
@@ -232,6 +234,7 @@ build_trainer: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
+		$(BUILD_ATTESTATION_FLAGS) \
 		-f trainer/Dockerfile \
 		-t $(TRAINER_IMAGE) \
 		--push .
@@ -261,6 +264,7 @@ build_notification: check_deps require_cloud_env setup_builder
 	$(DOCKER) buildx build \
 		--builder $(BUILDER_NAME) \
 		--platform $(BUILD_PLATFORM) \
+		$(BUILD_ATTESTATION_FLAGS) \
 		-f notification/Dockerfile \
 		-t $(NOTIFICATION_IMAGE) \
 		--push .

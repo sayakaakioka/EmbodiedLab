@@ -78,7 +78,8 @@ Phase 0 は完了扱いとする。
 
 ## Phase 2: Reward Components
 
-continuous navigation runtime の reward を EnvForge Scenario Bundle の宣言的 reward component から構成する。
+continuous navigation runtime の reward を EnvForge Scenario Bundle の宣言的
+reward component から構成する。
 
 初期セットは小さく保つ。
 

@@ -23,9 +23,8 @@ def create_firestore_result_fetcher(db_id: str | None) -> ResultFetcher:
     if not db_id:
         return lambda _submission_id: None
 
-    db = firestore.Client(database=db_id)
-
     def fetch_result(submission_id: str) -> dict[str, Any] | None:
+        db = firestore.Client(database=db_id)
         result_snap = db.collection("results").document(submission_id).get()
         if not result_snap.exists:
             return None
