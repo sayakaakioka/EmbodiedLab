@@ -52,6 +52,31 @@ def test_pubsub_push_rejects_invalid_result_event():
     assert response.json() == {"detail": "Invalid result event"}
 
 
+def test_websocket_sends_latest_result_snapshot_on_connect():
+    latest_result = build_result_message(
+        submission_id="submission-1",
+        status=ResultStatus.RUNNING,
+        progress=running_progress(100).model_copy(update={"current_step": 20}),
+    )
+    client = TestClient(
+        create_app(
+            result_fetcher=lambda submission_id: (
+                latest_result if submission_id == "submission-1" else None
+            ),
+        ),
+    )
+
+    with client.websocket_connect("/ws/results/submission-1") as websocket:
+        connected_message = websocket.receive_json()
+        snapshot_message = websocket.receive_json()
+
+    assert connected_message == {
+        "type": "connected",
+        "submission_id": "submission-1",
+    }
+    assert snapshot_message == latest_result
+
+
 def test_pubsub_push_fans_out_to_matching_websocket():
     client = TestClient(create_app())
     event = build_result_message(

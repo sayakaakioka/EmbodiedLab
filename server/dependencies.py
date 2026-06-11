@@ -13,6 +13,10 @@ from server.repositories import (
     FirestoreResultRepository,
     FirestoreSubmissionRepository,
 )
+from server.services.execution_failures import (
+    ExecutionFailureFinder,
+    find_failed_execution_for_submission,
+)
 
 
 @lru_cache(maxsize=1)
@@ -43,3 +47,8 @@ def get_result_repository(
 ) -> FirestoreResultRepository:
     """Return the result repository bound to the shared Firestore client."""
     return FirestoreResultRepository(db)
+
+
+def get_execution_failure_finder() -> ExecutionFailureFinder:
+    """Return the Cloud Run execution failure lookup function."""
+    return find_failed_execution_for_submission

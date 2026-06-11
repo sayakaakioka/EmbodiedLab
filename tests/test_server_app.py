@@ -1,18 +1,27 @@
+import json
+from pathlib import Path
+
 import server.routes
 import trainer.job
 from server.config import ServerConfig
 from server.dependencies import (
     get_config,
+    get_execution_failure_finder,
     get_result_repository,
     get_submission_repository,
 )
 from server.main import create_app
+from server.services.execution_failures import ExecutionFailure
 from tests.fakes import FakeResultRepository, FakeSubmissionRepository
+
+FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
 def build_test_app(
     submission_repository: FakeSubmissionRepository,
     result_repository: FakeResultRepository,
+    *,
+    find_execution_failure=lambda _config, _submission_id: None,
 ):
     app = create_app()
     app.dependency_overrides[get_config] = lambda: ServerConfig(
@@ -22,6 +31,9 @@ def build_test_app(
     )
     app.dependency_overrides[get_submission_repository] = lambda: submission_repository
     app.dependency_overrides[get_result_repository] = lambda: result_repository
+    app.dependency_overrides[get_execution_failure_finder] = lambda: (
+        find_execution_failure
+    )
     return app
 
 
@@ -48,11 +60,33 @@ def test_create_submission_persists_default_payload():
     submission_id = response.json()["submission_id"]
     submission = submission_repository.fetch(submission_id)
     assert submission["submission_id"] == submission_id
-    assert submission["environment"]["size"] == [2, 2]
-    assert submission["environment"]["goal"] == {"x": 1, "y": 1}
-    assert submission["environment"]["robot_start"] == {"x": 0, "y": 0}
-    assert submission["robot"] == {"type": "simple"}
-    assert submission["training"]["algorithm"] == "ppo"
+    scenario = submission["scenario"]
+    assert scenario["schema_version"] == "scenario-bundle.v0"
+    assert scenario["world"]["goal"]["position"] == {"x": 8.5, "z": 8.5}
+    assert scenario["robot"]["type"] == "simple_robot"
+    assert scenario["robot"]["action_space"]["layout"] == ["forward", "turn"]
+    assert scenario["training"]["algorithm"] == "ppo"
+
+
+def test_create_submission_accepts_envforge_navigation_fixture():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+    fixture_path = FIXTURE_DIR / "envforge" / "navigation_default_scenario_bundle.json"
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    response = client.post("/submissions", json=payload)
+
+    assert response.status_code == 200
+    submission_id = response.json()["submission_id"]
+    submission = submission_repository.fetch(submission_id)
+    scenario = submission["scenario"]
+    assert scenario["scenario_id"] == "navigation_default"
+    assert scenario["world"]["bounds"]["min"] == {"x": -8.0, "z": -6.0}
+    assert scenario["robot"]["start_pose"]["position"] == {"x": -6.0, "z": -4.0}
+    assert scenario["training"]["max_episode_steps"] == 1000
 
 
 def test_train_queues_result_and_runs_job(monkeypatch):
@@ -127,6 +161,52 @@ def test_get_result_returns_existing_result():
     }
 
 
+def test_get_result_marks_active_result_failed_after_cloud_run_failure():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository(
+        initial_results={
+            "submission-1": {
+                "submission_id": "submission-1",
+                "status": "running",
+                "progress": {
+                    "phase": "running",
+                    "current_step": 0,
+                    "total_steps": 1500000,
+                    "message": "Training",
+                },
+            },
+        },
+    )
+
+    def find_execution_failure(config, submission_id):
+        assert submission_id == "submission-1"
+        assert config.job_path.endswith("/jobs/test-trainer")
+        return ExecutionFailure(
+            execution_name="test-trainer-abcde",
+            message="The configured timeout was reached.",
+        )
+
+    client = TestClient(
+        build_test_app(
+            submission_repository,
+            result_repository,
+            find_execution_failure=find_execution_failure,
+        ),
+    )
+
+    response = client.get("/results/submission-1")
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "failed"
+    assert result["progress"]["phase"] == "failed"
+    assert result["progress"]["total_steps"] == 1500000
+    assert "test-trainer-abcde" in result["error"]
+    assert "configured timeout" in result["error"]
+
+
 def test_get_result_returns_404_for_missing_result():
     from fastapi.testclient import TestClient
 
@@ -162,7 +242,7 @@ def test_submission_train_and_result_flow_integrates_with_trainer(monkeypatch):
             upload_model=lambda **kwargs: {
                 "model": {
                     "bucket": "model-bucket",
-                    "path": f"models/{submission_id}/policy.zip",
+                    "path": f"results/{submission_id}/model/policy.zip",
                 },
             },
             publish_event=lambda **kwargs: published_events.append(kwargs),
@@ -181,7 +261,17 @@ def test_submission_train_and_result_flow_integrates_with_trainer(monkeypatch):
     assert train_response.status_code == 200
     assert result_response.status_code == 200
     assert result_response.json()["status"] == "completed"
-    assert result_response.json()["summary"] == {"score": 1.0}
+    summary = result_response.json()["summary"]
+    assert summary["score"] == 1.0
+    assert summary["training_timesteps"] == 5000
+    assert summary["training_seed"] == 10
+    assert result_response.json()["result_bundle"]["summary"] == {
+        "training_timesteps": 5000,
+        "training_seed": 10,
+        "success_rate": None,
+        "average_episode_reward": None,
+        "average_episode_steps": None,
+    }
     assert result_response.json()["artifacts"]["model"]["bucket"] == "model-bucket"
     assert [event["status"].value for event in published_events] == [
         "starting",

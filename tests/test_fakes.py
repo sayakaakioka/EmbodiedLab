@@ -1,5 +1,5 @@
 from embodiedlab.result_models import failed_progress
-from embodiedlab.schemas import SubmitRequest
+from embodiedlab.schemas import ScenarioBundle
 from tests.fakes import FakeDb, FakeResultRepository, FakeSubmissionRepository
 
 
@@ -42,7 +42,7 @@ def test_fake_db_merge_recursively_updates_nested_documents():
 def test_fake_submission_repository_persists_and_fetches_submission():
     repository = FakeSubmissionRepository()
 
-    submission_id = repository.save(SubmitRequest())
+    submission_id = repository.save(ScenarioBundle())
 
     assert repository.exists(submission_id) is True
     assert repository.fetch(submission_id)["submission_id"] == submission_id

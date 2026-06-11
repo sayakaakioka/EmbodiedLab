@@ -9,12 +9,13 @@ from typing import Any
 from embodiedlab.repositories import ResultUpdateWriter, SubmissionReader
 from embodiedlab.result_models import (
     ResultStatus,
+    build_result_bundle,
     completed_progress,
     failed_progress,
     running_progress,
     starting_progress,
 )
-from embodiedlab.training.runner import run_gridworld_training
+from embodiedlab.training.runner import run_continuous_navigation_training
 from trainer.artifacts import upload_model_to_gcs
 from trainer.config import TrainerConfig
 from trainer.logging_utils import log_trainer_event
@@ -46,7 +47,7 @@ def run_training_job(  # noqa: PLR0913
         FirestoreSubmissionRepository
     ),
     create_result_repository: CreateResultRepository = FirestoreResultRepository,
-    train_model: TrainModel = run_gridworld_training,
+    train_model: TrainModel = run_continuous_navigation_training,
     upload_model: UploadModel = upload_model_to_gcs,
     publish_event: PublishEvent = publish_training_event,
 ) -> None:
@@ -78,10 +79,23 @@ def run_training_job(  # noqa: PLR0913
         return
 
     total_steps = 0
+    inputs = None
 
     try:
         inputs = parse_training_submission(submission)
         total_steps = inputs.training.timesteps
+        log_trainer_event(
+            "training_inputs_prepared",
+            submission_id=submission_id,
+            total_steps=total_steps,
+            n_envs=inputs.training.n_envs,
+            env_kind="single" if inputs.training.n_envs == 1 else "subproc_vec",
+            cpu_count=inputs.training.cpu_count,
+            torch_num_threads=inputs.training.torch_num_threads,
+            n_steps=inputs.training.n_steps,
+            batch_size=inputs.training.batch_size,
+            max_steps=inputs.training.max_steps,
+        )
 
         transitions.write(
             status=ResultStatus.STARTING,
@@ -93,12 +107,39 @@ def run_training_job(  # noqa: PLR0913
             progress=running_progress(total_steps),
         )
 
+        def report_training_progress(current_step: int, total_steps: int) -> None:
+            log_trainer_event(
+                "training_progress",
+                submission_id=submission_id,
+                current_step=current_step,
+                total_steps=total_steps,
+            )
+            transitions.write(
+                status=ResultStatus.RUNNING,
+                progress=running_progress(
+                    total_steps,
+                    current_step=current_step,
+                ),
+            )
+
+        def report_training_diagnostic(
+            event: str,
+            fields: dict[str, Any],
+        ) -> None:
+            log_trainer_event(
+                event,
+                submission_id=submission_id,
+                **fields,
+            )
+
         execution = execute_training_run(
             inputs=inputs,
             model_bucket=config.model_bucket,
             submission_id=submission_id,
             train_model=train_model,
             upload_model=upload_model,
+            progress_callback=report_training_progress,
+            diagnostic_callback=report_training_diagnostic,
         )
 
         transitions.write(
@@ -106,6 +147,7 @@ def run_training_job(  # noqa: PLR0913
             progress=completed_progress(total_steps),
             summary=execution.summary,
             artifacts=execution.artifacts,
+            result_bundle=execution.result_bundle,
         )
 
         log_trainer_event(
@@ -116,10 +158,19 @@ def run_training_job(  # noqa: PLR0913
 
     except Exception:
         error_message = traceback.format_exc()
+        failed_bundle = None
+        if inputs is not None:
+            failed_bundle = build_result_bundle(
+                scenario=inputs.scenario,
+                job_id=submission_id,
+                status=ResultStatus.FAILED,
+                error=error_message,
+            )
         transitions.write(
             status=ResultStatus.FAILED,
             progress=failed_progress("Training failed", total_steps=total_steps),
             error=error_message,
+            result_bundle=failed_bundle,
         )
         log_trainer_event(
             "trainer_job_failed",

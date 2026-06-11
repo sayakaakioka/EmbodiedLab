@@ -17,6 +17,7 @@ class TrainerConfig:
     pubsub_topic: str
     project_id: str
 
+
 def load_trainer_config() -> TrainerConfig:
     """Build TrainerConfig from environment variables."""
     return TrainerConfig(

@@ -1,18 +1,14 @@
 from copy import deepcopy
 
-from embodiedlab.result_models import build_result_update
-from embodiedlab.schemas import SubmitRequest, build_submission_document
+from embodiedlab.result_models import ResultBundle, build_result_update
+from embodiedlab.schemas import ScenarioBundle, build_submission_document
 
 
 def merge_dicts(existing: dict, update: dict) -> dict:
     """Recursively merge Firestore-style payloads into an existing document."""
     merged = deepcopy(existing)
     for key, value in update.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = merge_dicts(merged[key], value)
         else:
             merged[key] = deepcopy(value)
@@ -85,9 +81,12 @@ class FakeSubmissionRepository:
     def __init__(self, initial_submissions: dict[str, dict] | None = None):
         self.submissions = deepcopy(initial_submissions or {})
 
-    def save(self, req: SubmitRequest) -> str:
+    def save(self, scenario: ScenarioBundle) -> str:
         submission_id = f"submission-{len(self.submissions) + 1}"
-        self.submissions[submission_id] = build_submission_document(submission_id, req)
+        self.submissions[submission_id] = build_submission_document(
+            submission_id,
+            scenario,
+        )
         return submission_id
 
     def exists(self, submission_id: str) -> bool:
@@ -141,6 +140,7 @@ class FakeResultRepository:
         summary: dict | None = None,
         error: str | None = None,
         artifacts: dict | None = None,
+        result_bundle: dict | ResultBundle | None = None,
     ) -> None:
         payload = build_result_update(
             status=status,
@@ -148,6 +148,7 @@ class FakeResultRepository:
             summary=summary,
             error=error,
             artifacts=artifacts,
+            result_bundle=result_bundle,
         )
         existing = self.results.get(submission_id, {})
         self.results[submission_id] = merge_dicts(existing, payload)

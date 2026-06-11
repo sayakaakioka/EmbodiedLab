@@ -9,6 +9,7 @@ from google.cloud import pubsub_v1
 
 from embodiedlab.result_models import (
     Progress,
+    ResultBundle,
     ResultStatus,
     build_result_message,
 )
@@ -26,6 +27,7 @@ def publish_training_event(  # noqa: PLR0913
     summary: dict[str, Any] | None = None,
     error: str | None = None,
     artifacts: dict[str, Any] | None = None,
+    result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
     """Publish a training status event to the configured Pub/Sub topic."""
     message = build_result_message(
@@ -35,6 +37,7 @@ def publish_training_event(  # noqa: PLR0913
         summary=summary,
         error=error,
         artifacts=artifacts,
+        result_bundle=result_bundle,
     )
 
     publisher = pubsub_v1.PublisherClient(

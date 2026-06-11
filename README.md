@@ -1,13 +1,21 @@
 # EmbodiedLab
 
 EmbodiedLab is an experimental platform for embodied AI research. The current
-prototype accepts grid-world training requests through a Cloud Run API, starts a
+prototype accepts EnvForge Scenario Bundle submissions through a Cloud Run API,
+starts a
 Cloud Run Job to train a reinforcement learning policy, stores model artifacts
 in GCS, and streams status updates to clients over WebSockets.
 
 The project is intentionally small right now: it focuses on a minimal
 end-to-end loop from environment definition to training, artifact storage, and
 result streaming.
+
+## Documentation Notes
+
+Markdown files under `docs/` are primarily agent-facing project notes. They
+record the overall design, implementation decisions, work history, and
+phase-specific context so that coding agents and collaborators can resume work
+with the right background.
 
 ## Architecture
 
@@ -19,7 +27,7 @@ Client
       -> Firestore results/{submission_id} = queued
       -> Cloud Run Job with SUBMISSION_ID
           -> Firestore submission lookup
-          -> GridWorld PPO training
+          -> Continuous navigation PPO training
           -> GCS model upload
           -> Firestore result update
           -> Pub/Sub event
@@ -33,8 +41,8 @@ Client
 
 ```text
 embodiedlab/
-  Shared domain models, request schemas, result models, GridWorld environment,
-  and training logic.
+  Shared domain models, request schemas, result models, continuous navigation
+  environment, and training logic.
 
 server/
   FastAPI API service for accepting submissions, starting training jobs, and
@@ -70,8 +78,8 @@ uv run ruff check embodiedlab server trainer tests notification
 
 Detailed payload and config reference:
 
-- [docs/data-models.md](/workspaces/EmbodiedLab/docs/data-models.md)
-- [docs/development.md](/workspaces/EmbodiedLab/docs/development.md)
+- [docs/implementation/data-models.md](docs/implementation/data-models.md)
+- [docs/implementation/development.md](docs/implementation/development.md)
 
 ## Dependency Groups
 

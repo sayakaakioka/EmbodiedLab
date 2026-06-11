@@ -1,3 +1,1 @@
-"""Shared domain models, gridworld environment, and training logic."""
-
-from __future__ import annotations
+"""Shared domain models and continuous navigation training logic."""

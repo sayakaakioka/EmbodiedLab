@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from google.cloud import firestore
 
-from embodiedlab.result_models import Progress, ResultStatus, build_result_update
+from embodiedlab.result_models import (
+    Progress,
+    ResultBundle,
+    ResultStatus,
+    build_result_update,
+)
 
 
 def update_result(  # noqa: PLR0913
@@ -18,6 +23,7 @@ def update_result(  # noqa: PLR0913
     summary: dict[str, Any] | None = None,
     error: str | None = None,
     artifacts: dict[str, Any] | None = None,
+    result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
     """Merge a status/progress update into the result document."""
     payload = build_result_update(
@@ -26,5 +32,6 @@ def update_result(  # noqa: PLR0913
         summary=summary,
         error=error,
         artifacts=artifacts,
+        result_bundle=result_bundle,
     )
     result_ref.set(payload, merge=True)

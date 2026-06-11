@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from embodiedlab.result_models import Progress, ResultStatus
-    from embodiedlab.schemas import SubmitRequest
+    from embodiedlab.result_models import Progress, ResultBundle, ResultStatus
+    from embodiedlab.schemas import ScenarioBundle
 
 
 class SubmissionWriter(Protocol):
     """Write boundary for submission persistence."""
 
-    def save(self, req: SubmitRequest) -> str:
+    def save(self, scenario: ScenarioBundle) -> str:
         """Persist a new submission and return its ID."""
 
 
@@ -68,5 +68,6 @@ class ResultUpdateWriter(Protocol):
         summary: dict[str, Any] | None = None,
         error: str | None = None,
         artifacts: dict[str, Any] | None = None,
+        result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Persist a partial result update."""

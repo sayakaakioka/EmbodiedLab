@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from embodiedlab.repositories import ResultUpdateWriter
-    from embodiedlab.result_models import Progress, ResultStatus
+    from embodiedlab.result_models import Progress, ResultBundle, ResultStatus
     from trainer.config import TrainerConfig
     from trainer.job import PublishEvent
 
@@ -21,7 +21,7 @@ class TrainerResultTransitions:
     result_repository: ResultUpdateWriter
     publish_event: PublishEvent
 
-    def write(
+    def write(  # noqa: PLR0913
         self,
         *,
         status: ResultStatus,
@@ -29,6 +29,7 @@ class TrainerResultTransitions:
         summary: dict[str, Any] | None = None,
         error: str | None = None,
         artifacts: dict[str, Any] | None = None,
+        result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Persist a result transition and publish the corresponding event."""
         self.result_repository.write_update(
@@ -38,6 +39,7 @@ class TrainerResultTransitions:
             summary=summary,
             error=error,
             artifacts=artifacts,
+            result_bundle=result_bundle,
         )
         self.publish_event(
             config=self.config,
@@ -47,4 +49,5 @@ class TrainerResultTransitions:
             summary=summary,
             error=error,
             artifacts=artifacts,
+            result_bundle=result_bundle,
         )
