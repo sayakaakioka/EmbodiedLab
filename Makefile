@@ -226,8 +226,8 @@ deploy_api: build_api
 		--set-env-vars DB_ID=$(DB_ID),REGION=$(REGION),TRAINER_JOB_NAME=$(TRAINER_JOB_NAME),PROJECT_ID=$(PROJECT_ID)
 
 TRAINER_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/trainer:latest
-TRAINER_CPU ?= 1
-TRAINER_MEMORY ?= 1Gi
+TRAINER_CPU ?= 4
+TRAINER_MEMORY ?= 4Gi
 TRAINER_TASK_TIMEOUT ?= 24h
 
 build_trainer: check_deps require_cloud_env setup_builder

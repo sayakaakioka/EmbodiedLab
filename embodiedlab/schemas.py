@@ -120,6 +120,7 @@ class StaticWall(BaseModel):
     id: str = Field(min_length=1)
     center: Position2D
     size: Size2D
+    height: float = Field(default=2.0, gt=0)
     rotation_y_degrees: float = 0.0
 
 
@@ -130,6 +131,7 @@ class StaticObstacle(BaseModel):
     shape: Literal["box"] = "box"
     center: Position2D
     size: Size2D
+    height: float = Field(default=1.0, gt=0)
     rotation_y_degrees: float = 0.0
 
 
@@ -226,9 +228,14 @@ class ForwardCameraSensor(BaseModel):
 
     id: str = Field(min_length=1)
     type: Literal[SensorType.FORWARD_CAMERA] = SensorType.FORWARD_CAMERA
-    width: int = Field(default=84, ge=1)
+    width: int = Field(default=112, ge=1)
     height: int = Field(default=84, ge=1)
     semantic_mode: SemanticMode = SemanticMode.TRAVERSABLE_VS_BLOCKED
+    mount_height_meters: float = Field(default=0.6, gt=0)
+    pitch_degrees: float = Field(default=0.0)
+    vertical_fov_degrees: float = Field(default=60.0, gt=0, lt=180)
+    near_clip_meters: float = Field(default=0.05, gt=0)
+    far_clip_meters: float | None = Field(default=None, gt=0)
 
 
 class DistanceSensor(BaseModel):
