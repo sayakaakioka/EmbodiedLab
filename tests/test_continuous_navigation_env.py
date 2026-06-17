@@ -72,6 +72,8 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     assert spec.robot_start.x == 1.9
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
+    assert spec.camera.mount_height_min_meters == 0.6
+    assert spec.camera.mount_height_max_meters == 0.6
     assert [obstacle.obstacle_id for obstacle in spec.obstacles] == [
         "wall_001",
         "box_001",
@@ -434,9 +436,10 @@ def test_segmentation_observation_uses_object_height_in_camera_projection():
     obs, _info = env.reset()
 
     center_column = IMAGE_OBSERVATION_WIDTH // 2
-    assert obs["obs_0"][2, 0, center_column] == 0.0
-    assert obs["obs_0"][2, -1, center_column] == 1.0
-    assert 0.0 < obs["obs_0"][2].mean() < 0.2
+    assert obs["obs_0"][2, 0, center_column] == 1.0
+    assert obs["obs_0"][1].mean() > 0.1
+    assert obs["obs_0"][2].mean() > 0.1
+    assert np.all(obs["obs_0"][0] == 0.0)
 
 
 def test_segmentation_observation_renders_floor_and_background_without_hits():
@@ -468,10 +471,11 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
     obs, _info = env.reset()
 
     center_column = IMAGE_OBSERVATION_WIDTH // 2
-    assert np.all(obs["obs_0"][2] == 0.0)
-    assert obs["obs_0"][0, 0, center_column] == 1.0
+    assert np.all(obs["obs_0"][0] == 0.0)
+    assert obs["obs_0"][2, 0, center_column] == 1.0
     assert obs["obs_0"][1, -1, center_column] == 1.0
-    assert obs["obs_0"][0].mean() > obs["obs_0"][1].mean()
+    assert obs["obs_0"][2].mean() > 0.4
+    assert obs["obs_0"][1].mean() > 0.3
 
 
 def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
@@ -582,4 +586,29 @@ def test_continuous_env_randomizes_start_pose_when_enabled():
     assert second_info["robot_z"] == pytest.approx(info["robot_z"])
     assert second_info["robot_rotation_y_degrees"] == pytest.approx(
         info["robot_rotation_y_degrees"],
+    )
+
+
+def test_continuous_env_randomizes_camera_mount_height_per_episode():
+    scenario = ScenarioBundle(
+        sensors=[
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "mount_height_meters": 0.6,
+                "mount_height_min_meters": 0.1,
+                "mount_height_max_meters": 1.0,
+            },
+        ],
+    )
+    spec = convert_submission_to_spec(scenario)
+    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+
+    _obs, first_info = env.reset(seed=123)
+    _obs, second_info = env.reset()
+
+    assert 0.1 <= first_info["camera_mount_height_meters"] <= 1.0
+    assert 0.1 <= second_info["camera_mount_height_meters"] <= 1.0
+    assert second_info["camera_mount_height_meters"] != pytest.approx(
+        first_info["camera_mount_height_meters"],
     )

@@ -145,6 +145,7 @@ class ContinuousNavigationEnv(gym.Env):
         self._obstacle_cos = np.cos(obstacle_angles)
         self._obstacle_sin = np.sin(obstacle_angles)
         self._camera_ray_directions = self._build_camera_ray_directions()
+        self._camera_mount_height_meters = spec.camera.mount_height_meters
 
     def _map_raw_action(
         self,
@@ -284,9 +285,8 @@ class ContinuousNavigationEnv(gym.Env):
         )
         background_mask = ~(floor_mask | blocked_mask)
 
-        image[0, background_mask] = 1.0
         image[1, floor_mask] = 1.0
-        image[2, blocked_mask] = 1.0
+        image[2, blocked_mask | background_mask] = 1.0
         return image
 
     def _build_camera_ray_directions(self) -> np.ndarray:
@@ -336,12 +336,23 @@ class ContinuousNavigationEnv(gym.Env):
         world_z = -local[:, :, 0] * yaw_sin + local[:, :, 2] * yaw_cos
         return np.stack((world_x, world_y, world_z), axis=2).astype(np.float32)
 
+    def _sample_camera_mount_height_meters(self) -> float:
+        camera = self.spec.camera
+        if camera.mount_height_min_meters == camera.mount_height_max_meters:
+            return camera.mount_height_min_meters
+        return float(
+            self.np_random.uniform(
+                camera.mount_height_min_meters,
+                camera.mount_height_max_meters,
+            ),
+        )
+
     def _floor_intersection_distances(self, directions: np.ndarray) -> np.ndarray:
         camera = self.spec.camera
         dy = directions[:, :, 1]
         distances = np.full(dy.shape, np.inf, dtype=np.float32)
         downward = dy < -RAY_EPSILON
-        floor_distances = -camera.mount_height_meters / dy[downward]
+        floor_distances = -self._camera_mount_height_meters / dy[downward]
         valid = (
             (floor_distances >= camera.near_clip_meters)
             & (floor_distances <= camera.far_clip_meters)
@@ -414,7 +425,7 @@ class ContinuousNavigationEnv(gym.Env):
             box.half_x,
         )
         t_min_y, t_max_y, valid_y = self._axis_intersection_interval(
-            self.spec.camera.mount_height_meters,
+            self._camera_mount_height_meters,
             directions[:, :, 1],
             0.0,
             box.height,
@@ -625,6 +636,7 @@ class ContinuousNavigationEnv(gym.Env):
             "collision": collision_id is not None,
             "collision_id": collision_id,
             "front_distance": self._front_distance(),
+            "camera_mount_height_meters": self._camera_mount_height_meters,
             "robot_x": float(self.robot_pos[0]),
             "robot_z": float(self.robot_pos[1]),
             "robot_rotation_y_degrees": float(self.robot_rotation_y_degrees),
@@ -691,6 +703,7 @@ class ContinuousNavigationEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict]:
         """Reset the environment to the scenario start pose."""
         super().reset(seed=seed)
+        self._camera_mount_height_meters = self._sample_camera_mount_height_meters()
         if self.randomize_start:
             position, rotation_y_degrees = self._sample_random_start()
             self.robot_pos = position

@@ -49,15 +49,17 @@ class ContinuousRobotStart:
 
 @dataclass(frozen=True)
 class ContinuousCameraSpec:
-    """Fixed forward camera parameters for semantic 2.5D rendering."""
+    """Forward camera parameters for semantic 2.5D rendering."""
 
     width: int = 112
     height: int = 84
     mount_height_meters: float = 0.6
+    mount_height_min_meters: float = 0.6
+    mount_height_max_meters: float = 0.6
     pitch_degrees: float = 0.0
-    vertical_fov_degrees: float = 60.0
+    vertical_fov_degrees: float = 70.0
     near_clip_meters: float = 0.05
-    far_clip_meters: float = 5.0
+    far_clip_meters: float = 100.0
 
 
 @dataclass(frozen=True)

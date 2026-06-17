@@ -123,7 +123,34 @@ def test_scenario_bundle_accepts_documented_shape():
     assert scenario.sensors[0].width == 112
     assert scenario.sensors[0].height == 84
     assert scenario.sensors[0].mount_height_meters == 0.6
+    assert scenario.sensors[0].mount_height_min_meters is None
+    assert scenario.sensors[0].mount_height_max_meters is None
     assert isinstance(scenario.reward.components[0], DistanceDeltaRewardComponent)
+
+
+def test_forward_camera_mount_height_range_must_be_complete_and_ordered():
+    with pytest.raises(ValidationError, match="requires both min and max"):
+        ScenarioBundle(
+            sensors=[
+                {
+                    "id": "front_camera",
+                    "type": "forward_camera",
+                    "mount_height_min_meters": 0.1,
+                },
+            ],
+        )
+
+    with pytest.raises(ValidationError, match="min must be less than or equal"):
+        ScenarioBundle(
+            sensors=[
+                {
+                    "id": "front_camera",
+                    "type": "forward_camera",
+                    "mount_height_min_meters": 1.0,
+                    "mount_height_max_meters": 0.1,
+                },
+            ],
+        )
 
 
 def test_envforge_navigation_fixture_matches_scenario_bundle_contract():

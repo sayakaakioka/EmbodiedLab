@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import hypot
 
 from embodiedlab.schemas import (
     CollisionRewardComponent,
@@ -89,23 +88,24 @@ def _forward_camera_sensor(scenario: ScenarioBundle) -> ForwardCameraSensor:
     return ForwardCameraSensor(id="front_camera")
 
 
-def _default_camera_far_clip_meters(scenario: ScenarioBundle) -> float:
-    bounds = scenario.world.bounds
-    return hypot(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z)
-
-
 def _camera_spec(scenario: ScenarioBundle) -> ContinuousCameraSpec:
     camera = _forward_camera_sensor(scenario)
     far_clip_meters = camera.far_clip_meters
-    if far_clip_meters is None:
-        far_clip_meters = _default_camera_far_clip_meters(scenario)
     if camera.width != POLICY_CAMERA_WIDTH or camera.height != POLICY_CAMERA_HEIGHT:
         msg = "forward camera size must be 112x84 for the current policy network"
         raise ValueError(msg)
+    mount_height_min_meters = camera.mount_height_min_meters
+    if mount_height_min_meters is None:
+        mount_height_min_meters = camera.mount_height_meters
+    mount_height_max_meters = camera.mount_height_max_meters
+    if mount_height_max_meters is None:
+        mount_height_max_meters = camera.mount_height_meters
     return ContinuousCameraSpec(
         width=camera.width,
         height=camera.height,
         mount_height_meters=camera.mount_height_meters,
+        mount_height_min_meters=mount_height_min_meters,
+        mount_height_max_meters=mount_height_max_meters,
         pitch_degrees=camera.pitch_degrees,
         vertical_fov_degrees=camera.vertical_fov_degrees,
         near_clip_meters=camera.near_clip_meters,

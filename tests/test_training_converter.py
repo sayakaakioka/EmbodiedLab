@@ -73,6 +73,8 @@ def test_convert_scenario_to_continuous_runtime_spec():
                 "id": "front_camera",
                 "type": "forward_camera",
                 "mount_height_meters": 0.7,
+                "mount_height_min_meters": 0.1,
+                "mount_height_max_meters": 1.0,
                 "pitch_degrees": 5.0,
                 "vertical_fov_degrees": 55.0,
                 "near_clip_meters": 0.1,
@@ -114,6 +116,8 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
     assert spec.camera.mount_height_meters == 0.7
+    assert spec.camera.mount_height_min_meters == 0.1
+    assert spec.camera.mount_height_max_meters == 1.0
     assert spec.camera.pitch_degrees == 5.0
     assert spec.camera.vertical_fov_degrees == 55.0
     assert spec.camera.near_clip_meters == 0.1
@@ -135,7 +139,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.obstacles[1].rotation_y_degrees == 45.0
 
 
-def test_camera_far_clip_defaults_to_world_diagonal_when_unspecified():
+def test_camera_far_clip_uses_current_envforge_default_when_unspecified():
     scenario = ScenarioBundle(
         world={
             "bounds": {
@@ -152,7 +156,7 @@ def test_camera_far_clip_defaults_to_world_diagonal_when_unspecified():
     spec = convert_submission_to_spec(scenario)
 
     assert spec.distance_sensor_range_meters == 7.5
-    assert spec.camera.far_clip_meters == pytest.approx(((25.0**2) + (17.0**2)) ** 0.5)
+    assert spec.camera.far_clip_meters == pytest.approx(100.0)
 
 
 def test_parse_scenario_bundle_rejects_invalid_dict():
