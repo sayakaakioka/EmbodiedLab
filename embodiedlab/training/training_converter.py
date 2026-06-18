@@ -25,8 +25,10 @@ from embodiedlab.training.training_models import (
     ContinuousRobotStart,
 )
 
-POLICY_CAMERA_WIDTH = 112
-POLICY_CAMERA_HEIGHT = 84
+POLICY_CAMERA_WIDTH = ForwardCameraSensor(id="front_camera").width
+POLICY_CAMERA_HEIGHT = ForwardCameraSensor(id="front_camera").height
+POLICY_FORWARD_STEP_METERS = 0.2
+POLICY_TURN_DEGREES_PER_STEP = 15.0
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,7 @@ def _distance_sensor_range(scenario: ScenarioBundle) -> float:
     for sensor in scenario.sensors:
         if isinstance(sensor, DistanceSensor):
             return sensor.range_meters
-    return 5.0
+    return DistanceSensor(id="front_distance").range_meters
 
 
 def _forward_camera_sensor(scenario: ScenarioBundle) -> ForwardCameraSensor:
@@ -114,16 +116,9 @@ def _camera_spec(scenario: ScenarioBundle) -> ContinuousCameraSpec:
 
 
 def _reward_weights(scenario: ScenarioBundle) -> ContinuousRewardWeights:
-    weights = ContinuousRewardWeights()
     values = {
-        "goal_reached": weights.goal_reached,
-        "goal_progress": weights.goal_progress,
-        "collision_penalty": weights.collision_penalty,
-        "step_penalty": weights.step_penalty,
-        "wide_angle_penalty": weights.wide_angle_penalty,
-        "rear_angle_penalty": weights.rear_angle_penalty,
-        "inactive_penalty": weights.inactive_penalty,
-        "movement_threshold": weights.movement_threshold,
+        component.name: component.weight
+        for component in ScenarioBundle().reward.components
     }
     for component in scenario.reward.components:
         if (
@@ -206,4 +201,6 @@ def convert_submission_to_spec(
         distance_sensor_range_meters=distance_sensor_range_meters,
         camera=_camera_spec(scenario),
         reward_weights=_reward_weights(scenario),
+        forward_step_meters=POLICY_FORWARD_STEP_METERS,
+        turn_degrees_per_step=POLICY_TURN_DEGREES_PER_STEP,
     )
