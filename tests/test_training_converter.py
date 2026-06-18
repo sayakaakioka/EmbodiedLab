@@ -42,6 +42,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
                     "id": "wall_001",
                     "center": {"x": 0.0, "z": 4.0},
                     "size": {"x": 8.0, "z": 0.2},
+                    "height": 2.5,
                     "rotation_y_degrees": 90.0,
                 },
             ],
@@ -51,6 +52,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
                     "shape": "box",
                     "center": {"x": 4.75, "z": 5.25},
                     "size": {"x": 1.2, "z": 0.8},
+                    "height": 0.75,
                     "rotation_y_degrees": 45.0,
                 },
             ],
@@ -67,7 +69,17 @@ def test_convert_scenario_to_continuous_runtime_spec():
             },
         },
         sensors=[
-            {"id": "front_camera", "type": "forward_camera"},
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "mount_height_meters": 0.7,
+                "mount_height_min_meters": 0.1,
+                "mount_height_max_meters": 1.0,
+                "pitch_degrees": 5.0,
+                "vertical_fov_degrees": 55.0,
+                "near_clip_meters": 0.1,
+                "far_clip_meters": 6.5,
+            },
             {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
         ],
         reward={
@@ -103,6 +115,13 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.robot_start.x == 1.9
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
+    assert spec.camera.mount_height_meters == 0.7
+    assert spec.camera.mount_height_min_meters == 0.1
+    assert spec.camera.mount_height_max_meters == 1.0
+    assert spec.camera.pitch_degrees == 5.0
+    assert spec.camera.vertical_fov_degrees == 55.0
+    assert spec.camera.near_clip_meters == 0.1
+    assert spec.camera.far_clip_meters == 6.5
     assert spec.reward_weights.goal_reached == 101.0
     assert spec.reward_weights.goal_progress == 0.25
     assert spec.reward_weights.collision_penalty == -12.0
@@ -115,7 +134,29 @@ def test_convert_scenario_to_continuous_runtime_spec():
         "wall_001",
         "box_001",
     ]
+    assert spec.obstacles[0].height == 2.5
+    assert spec.obstacles[1].height == 0.75
     assert spec.obstacles[1].rotation_y_degrees == 45.0
+
+
+def test_camera_far_clip_uses_current_envforge_default_when_unspecified():
+    scenario = ScenarioBundle(
+        world={
+            "bounds": {
+                "min": {"x": -5.0, "z": -2.0},
+                "max": {"x": 20.0, "z": 15.0},
+            },
+        },
+        sensors=[
+            {"id": "front_camera", "type": "forward_camera"},
+            {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
+        ],
+    )
+
+    spec = convert_submission_to_spec(scenario)
+
+    assert spec.distance_sensor_range_meters == 7.5
+    assert spec.camera.far_clip_meters == pytest.approx(100.0)
 
 
 def test_parse_scenario_bundle_rejects_invalid_dict():

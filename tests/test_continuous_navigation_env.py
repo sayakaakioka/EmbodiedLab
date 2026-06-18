@@ -72,6 +72,8 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     assert spec.robot_start.x == 1.9
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
+    assert spec.camera.mount_height_min_meters == 0.6
+    assert spec.camera.mount_height_max_meters == 0.6
     assert [obstacle.obstacle_id for obstacle in spec.obstacles] == [
         "wall_001",
         "box_001",
@@ -341,25 +343,25 @@ def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
     assert next_info["collision"] is True
 
 
-def test_segmentation_observation_marks_pixels_behind_first_ray_hit_blocked():
+def test_segmentation_observation_renders_near_wall_as_large_blocked_surface():
     scenario = ScenarioBundle(
         world={
             "bounds": {
                 "min": {"x": -2.0, "z": -2.0},
-                "max": {"x": 2.0, "z": 2.0},
+                "max": {"x": 2.0, "z": 4.0},
             },
             "static_obstacles": [
                 {
-                    "id": "thin_wall",
+                    "id": "near_wall",
                     "shape": "box",
-                    "center": {"x": 0.0, "z": 0.8},
-                    "size": {"x": 1.0, "z": 0.02},
-                    "rotation_y_degrees": 0.0,
+                    "center": {"x": 0.0, "z": 0.4},
+                    "size": {"x": 3.0, "z": 0.02},
+                    "height": 2.0,
                 },
             ],
             "goal": {
                 "id": "goal_001",
-                "position": {"x": 1.5, "z": 1.5},
+                "position": {"x": 1.5, "z": 3.5},
                 "radius": 0.5,
             },
         },
@@ -370,7 +372,12 @@ def test_segmentation_observation_marks_pixels_behind_first_ray_hit_blocked():
             },
         },
         sensors=[
-            {"id": "front_camera", "type": "forward_camera"},
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "mount_height_meters": 0.6,
+                "far_clip_meters": 3.0,
+            },
             {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
         ],
     )
@@ -378,20 +385,64 @@ def test_segmentation_observation_marks_pixels_behind_first_ray_hit_blocked():
         spec=convert_submission_to_spec(scenario),
         max_steps=10,
     )
+
+    obs, _info = env.reset()
+
+    assert obs["obs_0"][2].mean() > 0.95
+    assert obs["obs_0"][2, 0, IMAGE_OBSERVATION_WIDTH // 2] == 1.0
+    assert obs["obs_0"][2, -1, IMAGE_OBSERVATION_WIDTH // 2] == 1.0
+
+
+def test_segmentation_observation_uses_object_height_in_camera_projection():
+    scenario = ScenarioBundle(
+        world={
+            "bounds": {
+                "min": {"x": -2.0, "z": -2.0},
+                "max": {"x": 2.0, "z": 4.0},
+            },
+            "static_obstacles": [
+                {
+                    "id": "low_box",
+                    "shape": "box",
+                    "center": {"x": 0.0, "z": 0.8},
+                    "size": {"x": 1.5, "z": 0.2},
+                    "height": 0.2,
+                },
+            ],
+            "goal": {
+                "id": "goal_001",
+                "position": {"x": 1.5, "z": 3.5},
+                "radius": 0.5,
+            },
+        },
+        robot={
+            "start_pose": {
+                "position": {"x": 0.0, "z": 0.0},
+                "rotation_y_degrees": 0.0,
+            },
+        },
+        sensors=[
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "mount_height_meters": 0.6,
+                "far_clip_meters": 3.0,
+            },
+            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+        ],
+    )
+    env = ContinuousNavigationEnv(spec=convert_submission_to_spec(scenario))
+
     obs, _info = env.reset()
 
     center_column = IMAGE_OBSERVATION_WIDTH // 2
-    distances = env._camera_row_distances()  # noqa: SLF001
-    hit_distance = env._front_distance()  # noqa: SLF001
-    first_blocked_row = int(np.nonzero(distances >= hit_distance)[0][-1])
-
-    assert hit_distance == pytest.approx(0.795)
-    assert obs["obs_0"][2, first_blocked_row, center_column] == 1.0
     assert obs["obs_0"][2, 0, center_column] == 1.0
-    assert obs["obs_0"][1, -1, center_column] == 1.0
+    assert obs["obs_0"][1].mean() > 0.1
+    assert obs["obs_0"][2].mean() > 0.1
+    assert np.all(obs["obs_0"][0] == 0.0)
 
 
-def test_segmentation_observation_keeps_no_hit_rays_free_at_max_range():
+def test_segmentation_observation_renders_floor_and_background_without_hits():
     scenario = ScenarioBundle(
         world={
             "bounds": {
@@ -411,7 +462,7 @@ def test_segmentation_observation_keeps_no_hit_rays_free_at_max_range():
             },
         },
         sensors=[
-            {"id": "front_camera", "type": "forward_camera"},
+            {"id": "front_camera", "type": "forward_camera", "far_clip_meters": 3.0},
             {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
         ],
     )
@@ -419,8 +470,12 @@ def test_segmentation_observation_keeps_no_hit_rays_free_at_max_range():
 
     obs, _info = env.reset()
 
-    assert np.all(obs["obs_0"][2] == 0.0)
-    assert np.all(obs["obs_0"][1] == 1.0)
+    center_column = IMAGE_OBSERVATION_WIDTH // 2
+    assert np.all(obs["obs_0"][0] == 0.0)
+    assert obs["obs_0"][2, 0, center_column] == 1.0
+    assert obs["obs_0"][1, -1, center_column] == 1.0
+    assert obs["obs_0"][2].mean() > 0.4
+    assert obs["obs_0"][1].mean() > 0.3
 
 
 def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
@@ -531,4 +586,29 @@ def test_continuous_env_randomizes_start_pose_when_enabled():
     assert second_info["robot_z"] == pytest.approx(info["robot_z"])
     assert second_info["robot_rotation_y_degrees"] == pytest.approx(
         info["robot_rotation_y_degrees"],
+    )
+
+
+def test_continuous_env_randomizes_camera_mount_height_per_episode():
+    scenario = ScenarioBundle(
+        sensors=[
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "mount_height_meters": 0.6,
+                "mount_height_min_meters": 0.1,
+                "mount_height_max_meters": 1.0,
+            },
+        ],
+    )
+    spec = convert_submission_to_spec(scenario)
+    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+
+    _obs, first_info = env.reset(seed=123)
+    _obs, second_info = env.reset()
+
+    assert 0.1 <= first_info["camera_mount_height_meters"] <= 1.0
+    assert 0.1 <= second_info["camera_mount_height_meters"] <= 1.0
+    assert second_info["camera_mount_height_meters"] != pytest.approx(
+        first_info["camera_mount_height_meters"],
     )

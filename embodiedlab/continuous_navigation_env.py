@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from math import atan2, ceil, cos, degrees, radians, sin, sqrt
+from dataclasses import dataclass
+from math import atan2, ceil, cos, degrees, radians, sin, sqrt, tan
 from typing import TYPE_CHECKING, ClassVar
 
 import gymnasium as gym
@@ -33,8 +34,22 @@ MIN_GOAL_PROGRESS_METERS = MOVEMENT_COLLISION_STEP_METERS
 RAY_STEP_METERS = MOVEMENT_COLLISION_STEP_METERS
 WIDE_ANGLE_DEGREES = 90.0
 REAR_ANGLE_DEGREES = 150.0
-CAMERA_FOV_DEGREES = 70.0
-CAMERA_NEAR_METERS = 0.05
+BOUNDARY_WALL_THICKNESS_METERS = 0.02
+RAY_EPSILON = 1e-6
+
+
+@dataclass(frozen=True)
+class CameraBox:
+    """Extruded box used by the semantic camera ray caster."""
+
+    center_x: float
+    center_z: float
+    half_x: float
+    half_z: float
+    height: float
+    rotation_cos: float = 1.0
+    rotation_sin: float = 0.0
+
 MAX_RANDOM_START_ATTEMPTS = 256
 RANDOM_START_CLEARANCE_RADIUS_METERS = 0.65
 RANDOM_START_CLEARANCE_PROBE_COUNT = 16
@@ -100,7 +115,6 @@ class ContinuousNavigationEnv(gym.Env):
         )
         self.robot_rotation_y_degrees = spec.robot_start.rotation_y_degrees
         self.steps = 0
-        self._camera_column_angle_offsets = self._build_camera_column_angle_offsets()
         self._obstacle_ids = tuple(obstacle.obstacle_id for obstacle in spec.obstacles)
         self._obstacle_center_x = np.array(
             [obstacle.center_x for obstacle in spec.obstacles],
@@ -118,6 +132,10 @@ class ContinuousNavigationEnv(gym.Env):
             [obstacle.size_z / 2.0 for obstacle in spec.obstacles],
             dtype=np.float32,
         )
+        self._obstacle_height = np.array(
+            [obstacle.height for obstacle in spec.obstacles],
+            dtype=np.float32,
+        )
         obstacle_angles = np.deg2rad(
             np.array(
                 [-obstacle.rotation_y_degrees for obstacle in spec.obstacles],
@@ -126,15 +144,8 @@ class ContinuousNavigationEnv(gym.Env):
         )
         self._obstacle_cos = np.cos(obstacle_angles)
         self._obstacle_sin = np.sin(obstacle_angles)
-
-    @staticmethod
-    def _build_camera_column_angle_offsets() -> np.ndarray:
-        column_ratios = (
-            np.arange(IMAGE_OBSERVATION_WIDTH, dtype=np.float32)
-            / max(1, IMAGE_OBSERVATION_WIDTH - 1)
-            - 0.5
-        )
-        return (column_ratios * CAMERA_FOV_DEGREES).astype(np.float32)
+        self._camera_ray_directions = self._build_camera_ray_directions()
+        self._camera_mount_height_meters = spec.camera.mount_height_meters
 
     def _map_raw_action(
         self,
@@ -145,11 +156,12 @@ class ContinuousNavigationEnv(gym.Env):
             self.action_space.low,
             self.action_space.high,
         ).astype(np.float32)
+        applied_forward = 1.0 / (
+            1.0 + np.exp(-float(raw_action[FORWARD_ACTION_INDEX]))
+        )
+        applied_turn = float(raw_action[TURN_ACTION_INDEX]) / POLICY_TURN_ACTION_HIGH
         applied_action = np.array(
-            [
-                1.0 / (1.0 + np.exp(-float(raw_action[FORWARD_ACTION_INDEX]))),
-                float(raw_action[TURN_ACTION_INDEX]) / POLICY_TURN_ACTION_HIGH,
-            ],
+            [applied_forward, applied_turn],
             dtype=np.float32,
         )
         return raw_action, applied_action
@@ -261,26 +273,235 @@ class ContinuousNavigationEnv(gym.Env):
             ),
             dtype=np.float32,
         )
-        distances = self._camera_row_distances()
-        ray_degrees = self.robot_rotation_y_degrees + self._camera_column_angle_offsets
-        hit_distances, has_hit = self._ray_hits(ray_degrees)
-        collision_mask = (
-            (distances[:, None] >= hit_distances[None, :])
-            & has_hit[None, :]
+        directions = self._world_camera_ray_directions()
+        floor_distances = self._floor_intersection_distances(directions)
+        blocked_distances = self._blocked_intersection_distances(directions)
+
+        floor_mask = np.isfinite(floor_distances) & (
+            floor_distances <= blocked_distances
         )
-        image[1, :, :] = np.logical_not(collision_mask)
-        image[2, :, :] = collision_mask
+        blocked_mask = np.isfinite(blocked_distances) & (
+            blocked_distances < floor_distances
+        )
+        background_mask = ~(floor_mask | blocked_mask)
+
+        image[1, floor_mask] = 1.0
+        image[2, blocked_mask | background_mask] = 1.0
         return image
 
-    def _camera_row_distances(self) -> np.ndarray:
-        row_ratios = 1.0 - (
-            np.arange(IMAGE_OBSERVATION_HEIGHT, dtype=np.float32)
-            / max(1, IMAGE_OBSERVATION_HEIGHT - 1)
+    def _build_camera_ray_directions(self) -> np.ndarray:
+        camera = self.spec.camera
+        if (
+            camera.width != IMAGE_OBSERVATION_WIDTH
+            or camera.height != IMAGE_OBSERVATION_HEIGHT
+        ):
+            msg = "camera dimensions must match the policy observation shape"
+            raise ValueError(msg)
+
+        vertical_fov_radians = radians(camera.vertical_fov_degrees)
+        aspect = IMAGE_OBSERVATION_WIDTH / IMAGE_OBSERVATION_HEIGHT
+        half_height = tan(vertical_fov_radians / 2.0)
+        half_width = half_height * aspect
+        x = (
+            (np.arange(IMAGE_OBSERVATION_WIDTH, dtype=np.float32) + 0.5)
+            / IMAGE_OBSERVATION_WIDTH
+            * 2.0
+            - 1.0
+        ) * half_width
+        y = (
+            1.0
+            - (np.arange(IMAGE_OBSERVATION_HEIGHT, dtype=np.float32) + 0.5)
+            / IMAGE_OBSERVATION_HEIGHT
+            * 2.0
+        ) * half_height
+        ray_x, ray_y = np.meshgrid(x, y)
+        ray_z = np.ones_like(ray_x, dtype=np.float32)
+
+        pitch = radians(camera.pitch_degrees)
+        pitch_cos = cos(pitch)
+        pitch_sin = sin(pitch)
+        pitched_y = ray_y * pitch_cos - ray_z * pitch_sin
+        pitched_z = ray_y * pitch_sin + ray_z * pitch_cos
+        directions = np.stack((ray_x, pitched_y, pitched_z), axis=2)
+        norms = np.linalg.norm(directions, axis=2, keepdims=True)
+        return (directions / norms).astype(np.float32)
+
+    def _world_camera_ray_directions(self) -> np.ndarray:
+        yaw = radians(self.robot_rotation_y_degrees)
+        yaw_cos = cos(yaw)
+        yaw_sin = sin(yaw)
+        local = self._camera_ray_directions
+        world_x = local[:, :, 0] * yaw_cos + local[:, :, 2] * yaw_sin
+        world_y = local[:, :, 1]
+        world_z = -local[:, :, 0] * yaw_sin + local[:, :, 2] * yaw_cos
+        return np.stack((world_x, world_y, world_z), axis=2).astype(np.float32)
+
+    def _sample_camera_mount_height_meters(self) -> float:
+        camera = self.spec.camera
+        if camera.mount_height_min_meters == camera.mount_height_max_meters:
+            return camera.mount_height_min_meters
+        return float(
+            self.np_random.uniform(
+                camera.mount_height_min_meters,
+                camera.mount_height_max_meters,
+            ),
         )
+
+    def _floor_intersection_distances(self, directions: np.ndarray) -> np.ndarray:
+        camera = self.spec.camera
+        dy = directions[:, :, 1]
+        distances = np.full(dy.shape, np.inf, dtype=np.float32)
+        downward = dy < -RAY_EPSILON
+        floor_distances = -self._camera_mount_height_meters / dy[downward]
+        valid = (
+            (floor_distances >= camera.near_clip_meters)
+            & (floor_distances <= camera.far_clip_meters)
+        )
+        downward_indices = np.nonzero(downward)
+        distances[downward_indices[0][valid], downward_indices[1][valid]] = (
+            floor_distances[valid]
+        )
+        return distances
+
+    def _blocked_intersection_distances(self, directions: np.ndarray) -> np.ndarray:
+        camera = self.spec.camera
+        distances = np.full(
+            (IMAGE_OBSERVATION_HEIGHT, IMAGE_OBSERVATION_WIDTH),
+            np.inf,
+            dtype=np.float32,
+        )
+        for index in range(len(self._obstacle_ids)):
+            obstacle_distances = self._box_intersection_distances(
+                directions,
+                CameraBox(
+                    center_x=float(self._obstacle_center_x[index]),
+                    center_z=float(self._obstacle_center_z[index]),
+                    half_x=float(self._obstacle_half_x[index]),
+                    half_z=float(self._obstacle_half_z[index]),
+                    height=float(self._obstacle_height[index]),
+                    rotation_cos=float(self._obstacle_cos[index]),
+                    rotation_sin=float(self._obstacle_sin[index]),
+                ),
+            )
+            distances = np.minimum(distances, obstacle_distances)
+
+        for boundary in self._boundary_boxes():
+            boundary_distances = self._box_intersection_distances(
+                directions,
+                boundary,
+            )
+            distances = np.minimum(distances, boundary_distances)
+
+        distances[
+            (distances < camera.near_clip_meters)
+            | (distances > camera.far_clip_meters)
+        ] = np.inf
+        return distances
+
+    def _box_intersection_distances(
+        self,
+        directions: np.ndarray,
+        box: CameraBox,
+    ) -> np.ndarray:
+        origin_x = float(self.robot_pos[0]) - box.center_x
+        origin_z = float(self.robot_pos[1]) - box.center_z
+        rotation_cos = box.rotation_cos
+        rotation_sin = box.rotation_sin
+        local_origin_x = origin_x * rotation_cos - origin_z * rotation_sin
+        local_origin_z = origin_x * rotation_sin + origin_z * rotation_cos
+        local_direction_x = (
+            directions[:, :, 0] * rotation_cos
+            - directions[:, :, 2] * rotation_sin
+        )
+        local_direction_z = (
+            directions[:, :, 0] * rotation_sin
+            + directions[:, :, 2] * rotation_cos
+        )
+
+        t_min_x, t_max_x, valid_x = self._axis_intersection_interval(
+            local_origin_x,
+            local_direction_x,
+            -box.half_x,
+            box.half_x,
+        )
+        t_min_y, t_max_y, valid_y = self._axis_intersection_interval(
+            self._camera_mount_height_meters,
+            directions[:, :, 1],
+            0.0,
+            box.height,
+        )
+        t_min_z, t_max_z, valid_z = self._axis_intersection_interval(
+            local_origin_z,
+            local_direction_z,
+            -box.half_z,
+            box.half_z,
+        )
+        t_enter = np.maximum(np.maximum(t_min_x, t_min_y), t_min_z)
+        t_exit = np.minimum(np.minimum(t_max_x, t_max_y), t_max_z)
+        valid = valid_x & valid_y & valid_z & (t_exit >= t_enter)
+        valid &= t_exit >= self.spec.camera.near_clip_meters
+        distances = np.full(t_enter.shape, np.inf, dtype=np.float32)
+        distances[valid] = np.maximum(
+            t_enter[valid],
+            self.spec.camera.near_clip_meters,
+        )
+        return distances
+
+    @staticmethod
+    def _axis_intersection_interval(
+        origin: float,
+        direction: np.ndarray,
+        min_value: float,
+        max_value: float,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        parallel = np.abs(direction) < RAY_EPSILON
+        valid = ~(parallel & ((origin < min_value) | (origin > max_value)))
+        safe_direction = np.where(parallel, 1.0, direction)
+        t1 = (min_value - origin) / safe_direction
+        t2 = (max_value - origin) / safe_direction
+        t_min = np.minimum(t1, t2).astype(np.float32)
+        t_max = np.maximum(t1, t2).astype(np.float32)
+        t_min[parallel] = -np.inf
+        t_max[parallel] = np.inf
+        return t_min, t_max, valid
+
+    def _boundary_boxes(self) -> tuple[CameraBox, ...]:
+        bounds = self.spec.bounds
+        span_x = bounds.max_x - bounds.min_x
+        span_z = bounds.max_z - bounds.min_z
+        center_x = (bounds.min_x + bounds.max_x) / 2.0
+        center_z = (bounds.min_z + bounds.max_z) / 2.0
+        height = max([2.0, *(float(value) for value in self._obstacle_height)])
         return (
-            CAMERA_NEAR_METERS
-            + row_ratios * (self.spec.distance_sensor_range_meters - CAMERA_NEAR_METERS)
-        ).astype(np.float32)
+            CameraBox(
+                center_x=bounds.min_x,
+                center_z=center_z,
+                half_x=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
+                half_z=span_z / 2.0,
+                height=height,
+            ),
+            CameraBox(
+                center_x=bounds.max_x,
+                center_z=center_z,
+                half_x=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
+                half_z=span_z / 2.0,
+                height=height,
+            ),
+            CameraBox(
+                center_x=center_x,
+                center_z=bounds.min_z,
+                half_x=span_x / 2.0,
+                half_z=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
+                height=height,
+            ),
+            CameraBox(
+                center_x=center_x,
+                center_z=bounds.max_z,
+                half_x=span_x / 2.0,
+                half_z=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
+                height=height,
+            ),
+        )
 
     def _valid_random_start_position(self, position: np.ndarray) -> bool:
         return (
@@ -415,6 +636,7 @@ class ContinuousNavigationEnv(gym.Env):
             "collision": collision_id is not None,
             "collision_id": collision_id,
             "front_distance": self._front_distance(),
+            "camera_mount_height_meters": self._camera_mount_height_meters,
             "robot_x": float(self.robot_pos[0]),
             "robot_z": float(self.robot_pos[1]),
             "robot_rotation_y_degrees": float(self.robot_rotation_y_degrees),
@@ -481,6 +703,7 @@ class ContinuousNavigationEnv(gym.Env):
     ) -> tuple[dict[str, np.ndarray], dict]:
         """Reset the environment to the scenario start pose."""
         super().reset(seed=seed)
+        self._camera_mount_height_meters = self._sample_camera_mount_height_meters()
         if self.randomize_start:
             position, rotation_y_degrees = self._sample_random_start()
             self.robot_pos = position

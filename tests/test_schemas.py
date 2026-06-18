@@ -83,9 +83,14 @@ def test_scenario_bundle_accepts_documented_shape():
                 {
                     "id": "front_camera",
                     "type": "forward_camera",
-                    "width": 84,
+                    "width": 112,
                     "height": 84,
                     "semantic_mode": "traversable_vs_blocked",
+                    "mount_height_meters": 0.6,
+                    "pitch_degrees": 0.0,
+                    "vertical_fov_degrees": 60.0,
+                    "near_clip_meters": 0.05,
+                    "far_clip_meters": 5.0,
                 },
                 {
                     "id": "front_distance",
@@ -115,7 +120,37 @@ def test_scenario_bundle_accepts_documented_shape():
 
     assert scenario.scenario_id == "scenario_custom"
     assert scenario.world.static_obstacles[0].id == "box_001"
+    assert scenario.sensors[0].width == 112
+    assert scenario.sensors[0].height == 84
+    assert scenario.sensors[0].mount_height_meters == 0.6
+    assert scenario.sensors[0].mount_height_min_meters is None
+    assert scenario.sensors[0].mount_height_max_meters is None
     assert isinstance(scenario.reward.components[0], DistanceDeltaRewardComponent)
+
+
+def test_forward_camera_mount_height_range_must_be_complete_and_ordered():
+    with pytest.raises(ValidationError, match="requires both min and max"):
+        ScenarioBundle(
+            sensors=[
+                {
+                    "id": "front_camera",
+                    "type": "forward_camera",
+                    "mount_height_min_meters": 0.1,
+                },
+            ],
+        )
+
+    with pytest.raises(ValidationError, match="min must be less than or equal"):
+        ScenarioBundle(
+            sensors=[
+                {
+                    "id": "front_camera",
+                    "type": "forward_camera",
+                    "mount_height_min_meters": 1.0,
+                    "mount_height_max_meters": 0.1,
+                },
+            ],
+        )
 
 
 def test_envforge_navigation_fixture_matches_scenario_bundle_contract():
