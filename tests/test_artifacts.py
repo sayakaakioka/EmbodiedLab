@@ -10,7 +10,6 @@ from embodiedlab.continuous_navigation_env import (
     IMAGE_OBSERVATION_WIDTH,
     NUMERIC_OBSERVATION_SIZE,
 )
-from embodiedlab.result_models import ReplayAction, ReplayLogStep, ReplayReward
 from trainer import artifacts
 
 IMAGE_OBSERVATION_SIZE = (
@@ -179,13 +178,6 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             "bucket": "model-bucket",
             "path": "results/submission-1/model/policy.onnx",
         },
-        "replay_log": {
-            "storage": "gcs",
-            "bucket": "model-bucket",
-            "path": "results/submission-1/replay/replay.jsonl",
-            "format": "jsonl",
-            "schema_version": "replay-log.v0",
-        },
         "sentis_model": {
             "storage": "gcs",
             "bucket": "model-bucket",
@@ -231,55 +223,43 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             "content_type": "application/octet-stream",
         },
     ]
-    replay_upload = bucket.blobs["results/submission-1/replay/replay.jsonl"].uploads[0]
-    assert replay_upload["content_type"] == "application/jsonl"
-    assert replay_upload["contents"] == ""
-
-
-def test_upload_replay_log_to_gcs_uploads_jsonl_metadata(monkeypatch):
+def test_upload_replay_bundle_to_gcs_uploads_manifest_and_chunks(
+    monkeypatch,
+    tmp_path,
+):
     bucket = FakeBucket()
     monkeypatch.setattr(
         artifacts.storage,
         "Client",
         lambda: FakeStorageClient(bucket),
     )
-    replay_steps = [
-        ReplayLogStep(
-            scenario_id="scenario_demo_001",
-            job_id="submission-1",
-            episode_id="episode_0001",
-            step_index=0,
-            time_seconds=0.0,
-            robot={
-                "position": {"x": 1.0, "z": 1.0},
-                "rotation_y_degrees": 0.0,
-            },
-            action=ReplayAction(
-                values=[
-                    {"name": "forward", "value": 0.0},
-                    {"name": "turn", "value": 0.0},
-                ],
-            ),
-            reward=ReplayReward(total=0.0),
-        ),
-    ]
+    replay_dir = tmp_path / "replay_bundle"
+    replay_dir.mkdir()
+    (replay_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    chunk_dir = replay_dir / "eval"
+    chunk_dir.mkdir()
+    (chunk_dir / "checkpoint_000001.jsonl.gz").write_bytes(b"gzip-bytes")
 
-    result = artifacts.upload_replay_log_to_gcs(
+    result = artifacts.upload_replay_bundle_to_gcs(
         bucket_name="model-bucket",
         submission_id="submission-1",
-        replay_steps=replay_steps,
+        replay_bundle_dir=str(replay_dir),
     )
 
     assert result == {
-        "replay_log": {
+        "replay_bundle": {
             "storage": "gcs",
             "bucket": "model-bucket",
-            "path": "results/submission-1/replay/replay.jsonl",
-            "format": "jsonl",
-            "schema_version": "replay-log.v0",
+            "path": "results/submission-1/replay/manifest.json",
+            "format": "json",
+            "schema_version": "replay-bundle.v0",
         },
     }
-    upload = bucket.blobs["results/submission-1/replay/replay.jsonl"].uploads[0]
-    assert upload["content_type"] == "application/jsonl"
-    assert '"schema_version":"replay-log.v0"' in upload["contents"]
-    assert upload["contents"].endswith("\n")
+    manifest_upload = bucket.blobs[
+        "results/submission-1/replay/manifest.json"
+    ].uploads[0]
+    chunk_upload = bucket.blobs[
+        "results/submission-1/replay/eval/checkpoint_000001.jsonl.gz"
+    ].uploads[0]
+    assert manifest_upload["content_type"] == "application/json"
+    assert chunk_upload["content_type"] == "application/gzip"

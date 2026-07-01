@@ -1,48 +1,29 @@
+from pathlib import Path
+
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import describe_runtime_conversion
 from trainer.training_service import execute_training_run, parse_training_submission
 
 
-def test_execute_training_run_uploads_replay_steps():
+def test_execute_training_run_uploads_replay_bundle():
     scenario = ScenarioBundle()
-    captured_replay_steps = []
+    captured = {}
 
-    def train_model(*, spec, training, model_output_path):
+    def train_model(*, spec, training, model_output_path, scenario_id, job_id):
+        replay_bundle_dir = Path(model_output_path).parent / "replay_bundle"
+        replay_bundle_dir.mkdir()
+        (replay_bundle_dir / "manifest.json").write_text(
+            '{"schema_version":"replay-bundle.v0","chunks":[]}',
+            encoding="utf-8",
+        )
+        captured["train"] = {
+            "scenario_id": scenario_id,
+            "job_id": job_id,
+        }
         return {
             "score": 1.0,
-            "replay_steps": [
-                {
-                    "episode_id": "episode_0001",
-                    "step_index": 0,
-                    "time_seconds": 0.0,
-                    "robot": {
-                        "position": {"x": 1.0, "z": 1.0},
-                        "rotation_y_degrees": 0.0,
-                    },
-                    "action": {
-                        "values": [
-                            {"name": "forward", "value": 1.0},
-                            {"name": "turn", "value": 0.0},
-                        ],
-                    },
-                    "reward": {
-                        "total": -0.2,
-                        "components": [
-                            {"name": "step_penalty", "value": -0.2},
-                        ],
-                    },
-                    "events": [],
-                    "sensors": [
-                        {
-                            "id": "front_distance",
-                            "type": "envforge_manhattan_distance_meters",
-                            "value": 14.0,
-                        },
-                    ],
-                    "terminated": False,
-                    "termination_reason": None,
-                },
-            ],
+            "replay_bundle_dir": str(replay_bundle_dir),
+            "replay_manifest": {"schema_version": "replay-bundle.v0"},
         }
 
     def upload_model(
@@ -50,14 +31,18 @@ def test_execute_training_run_uploads_replay_steps():
         local_model_base_path,
         bucket_name,
         submission_id,
-        replay_steps,
+        replay_bundle_dir,
     ):
-        captured_replay_steps.extend(replay_steps)
+        captured["upload"] = {
+            "bucket_name": bucket_name,
+            "submission_id": submission_id,
+            "replay_bundle_dir": replay_bundle_dir,
+        }
         return {
-            "replay_log": {
+            "replay_bundle": {
                 "bucket": bucket_name,
-                "path": f"results/{submission_id}/replay/replay.jsonl",
-                "format": "jsonl",
+                "path": f"results/{submission_id}/replay/manifest.json",
+                "format": "json",
             },
         }
 
@@ -73,11 +58,14 @@ def test_execute_training_run_uploads_replay_steps():
         upload_model=upload_model,
     )
 
-    assert "replay_steps" not in execution.summary
-    assert captured_replay_steps[0].schema_version == "replay-log.v0"
-    assert captured_replay_steps[0].scenario_id == "scenario_demo_001"
-    assert captured_replay_steps[0].job_id == "submission-1"
-    assert execution.result_bundle.artifacts.replay_log is not None
+    assert "replay_bundle_dir" not in execution.summary
+    assert "replay_manifest" not in execution.summary
+    assert captured["train"] == {
+        "scenario_id": "scenario_demo_001",
+        "job_id": "submission-1",
+    }
+    assert captured["upload"]["replay_bundle_dir"].endswith("replay_bundle")
+    assert execution.result_bundle.artifacts.replay_bundle is not None
 
 
 def test_parse_training_submission_uses_continuous_runtime_spec():

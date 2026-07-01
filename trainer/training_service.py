@@ -9,7 +9,6 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
 
 from embodiedlab.result_models import (
-    ReplayLogStep,
     ResultBundle,
     ResultStatus,
     build_result_bundle,
@@ -89,6 +88,8 @@ def execute_training_run(  # noqa: PLR0913
             "spec": inputs.spec,
             "training": inputs.training,
             "model_output_path": model_base_path,
+            "scenario_id": inputs.scenario.scenario_id,
+            "job_id": submission_id,
         }
         if progress_callback is not None:
             train_kwargs["progress_callback"] = progress_callback
@@ -96,23 +97,13 @@ def execute_training_run(  # noqa: PLR0913
             train_kwargs["diagnostic_callback"] = diagnostic_callback
 
         summary = train_model(**train_kwargs)
-        replay_payloads = summary.pop("replay_steps", [])
-        replay_steps = [
-            ReplayLogStep.model_validate(
-                {
-                    **payload,
-                    "schema_version": "replay-log.v0",
-                    "scenario_id": inputs.scenario.scenario_id,
-                    "job_id": submission_id,
-                },
-            )
-            for payload in replay_payloads
-        ]
+        replay_bundle_dir = summary.pop("replay_bundle_dir", None)
+        summary.pop("replay_manifest", None)
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
             submission_id=submission_id,
-            replay_steps=replay_steps,
+            replay_bundle_dir=replay_bundle_dir,
         )
 
     summary = {

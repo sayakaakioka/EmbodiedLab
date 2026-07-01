@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 
 import torch
@@ -16,14 +15,11 @@ from embodiedlab.continuous_navigation_env import (
     IMAGE_OBSERVATION_WIDTH,
     NUMERIC_OBSERVATION_SIZE,
 )
-from embodiedlab.result_models import ReplayLogStep, serialize_replay_log_jsonl
 from embodiedlab.training.navigation_final_policy import (
     navigation_final_deterministic_action,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from stable_baselines3.common.policies import BasePolicy
 
 IMAGE_OBSERVATION_SIZE = (
@@ -138,35 +134,43 @@ def upload_file(
     blob.upload_from_filename(local_path, content_type=content_type)
 
 
-def upload_replay_log_to_gcs(
+def upload_replay_bundle_to_gcs(
     *,
     bucket_name: str,
     submission_id: str,
-    replay_steps: Iterable[ReplayLogStep],
+    replay_bundle_dir: str,
 ) -> dict:
-    """Serialize replay steps as JSONL, upload them, and return artifact metadata."""
+    """Upload a Replay Bundle directory and return manifest artifact metadata."""
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
-    blob_path = f"results/{submission_id}/replay/replay.jsonl"
+    bundle_dir = Path(replay_bundle_dir)
+    manifest_path = bundle_dir / "manifest.json"
+    if not manifest_path.exists():
+        msg = f"Replay Bundle manifest not found: {manifest_path}"
+        raise FileNotFoundError(msg)
 
-    with TemporaryDirectory() as tmpdir:
-        local_path = Path(tmpdir) / "replay.jsonl"
-        with local_path.open("w", encoding="utf-8") as replay_file:
-            replay_file.write(serialize_replay_log_jsonl(replay_steps))
+    for local_path in bundle_dir.rglob("*"):
+        if not local_path.is_file():
+            continue
+        relative_path = local_path.relative_to(bundle_dir).as_posix()
+        blob_path = f"results/{submission_id}/replay/{relative_path}"
+        content_type = (
+            "application/gzip" if local_path.suffix == ".gz" else "application/json"
+        )
         upload_file(
             bucket=bucket,
             local_path=str(local_path),
             blob_path=blob_path,
-            content_type="application/jsonl",
+            content_type=content_type,
         )
 
     return {
-        "replay_log": {
+        "replay_bundle": {
             "storage": "gcs",
             "bucket": bucket_name,
-            "path": blob_path,
-            "format": "jsonl",
-            "schema_version": "replay-log.v0",
+            "path": f"results/{submission_id}/replay/manifest.json",
+            "format": "json",
+            "schema_version": "replay-bundle.v0",
         },
     }
 
@@ -210,7 +214,7 @@ def upload_model_to_gcs(
     local_model_base_path: str,
     bucket_name: str,
     submission_id: str,
-    replay_steps: Iterable[ReplayLogStep] = (),
+    replay_bundle_dir: str | None = None,
 ) -> dict:
     """Upload the saved model zip, ONNX exports, and replay log to GCS."""
     storage_client = storage.Client()
@@ -242,10 +246,14 @@ def upload_model_to_gcs(
         content_type="application/octet-stream",
     )
 
-    replay_artifact = upload_replay_log_to_gcs(
-        bucket_name=bucket_name,
-        submission_id=submission_id,
-        replay_steps=replay_steps,
+    replay_artifact = (
+        upload_replay_bundle_to_gcs(
+            bucket_name=bucket_name,
+            submission_id=submission_id,
+            replay_bundle_dir=replay_bundle_dir,
+        )
+        if replay_bundle_dir is not None
+        else {}
     )
     return {
         "model": {

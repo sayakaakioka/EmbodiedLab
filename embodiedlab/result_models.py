@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 RESULT_SCHEMA_VERSION = "result-bundle.v0"
 REPLAY_LOG_SCHEMA_VERSION = "replay-log.v0"
+REPLAY_BUNDLE_SCHEMA_VERSION = "replay-bundle.v0"
 
 
 class ResultStatus(StrEnum):
@@ -37,7 +38,9 @@ class ArtifactFormat(StrEnum):
     """Supported artifact formats."""
 
     ONNX = "onnx"
+    JSON = "json"
     JSONL = "jsonl"
+    JSONL_GZIP = "jsonl.gz"
     ZIP = "zip"
 
 
@@ -108,7 +111,7 @@ class ResultArtifacts(BaseModel):
     model: ArtifactLocation | None = None
     onnx_model: ArtifactLocation | None = None
     sentis_model: ModelArtifactLocation | None = None
-    replay_log: ArtifactLocation | None = None
+    replay_bundle: ArtifactLocation | None = None
 
 
 class ErrorReport(BaseModel):
@@ -187,6 +190,10 @@ class ReplayLogStep(BaseModel):
     schema_version: str = REPLAY_LOG_SCHEMA_VERSION
     scenario_id: str = Field(min_length=1)
     job_id: str = Field(min_length=1)
+    phase: str = Field(min_length=1)
+    checkpoint_step: int = Field(ge=0)
+    env_index: int = Field(ge=0)
+    policy_mode: str = Field(min_length=1)
     episode_id: str = Field(min_length=1)
     step_index: int = Field(ge=0)
     time_seconds: float = Field(ge=0.0)
@@ -357,9 +364,9 @@ def build_result_bundle(  # noqa: PLR0913
                 artifacts.get("sentis_model"),
                 default_format=ArtifactFormat.ONNX,
             ),
-            replay_log=_artifact_from_payload(
-                artifacts.get("replay_log"),
-                default_format=ArtifactFormat.JSONL,
+            replay_bundle=_artifact_from_payload(
+                artifacts.get("replay_bundle"),
+                default_format=ArtifactFormat.JSON,
             ),
         ),
         error=result_error,

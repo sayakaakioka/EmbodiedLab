@@ -7,6 +7,7 @@ from embodiedlab.training.runner import (
     _predict_navigation_final_raw_action,
     _train_model,
     build_continuous_replay_step,
+    evaluate_continuous_policy,
 )
 from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import convert_submission_to_spec
@@ -139,6 +140,7 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
             "collision": True,
             "collision_id": "box_001",
             "front_distance": 1.25,
+            "camera_mount_height_meters": 0.42,
             "robot_x": 3.0,
             "robot_z": 4.0,
             "robot_rotation_y_degrees": 45.0,
@@ -155,7 +157,11 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
         truncated=False,
     )
 
-    assert step["episode_id"] == "episode_0001"
+    assert step["phase"] == "eval"
+    assert step["checkpoint_step"] == 0
+    assert step["env_index"] == 0
+    assert step["policy_mode"] == "deterministic"
+    assert step["episode_id"] == "eval_env_00_episode_000001"
     assert step["robot"]["position"] == {"x": 3.0, "z": 4.0}
     assert step["robot"]["rotation_y_degrees"] == 45.0
     assert step["action"]["values"] == [
@@ -183,4 +189,74 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
             "type": "envforge_distance_sensor_meters",
             "value": 1.25,
         },
+        {
+            "id": "camera_mount_height",
+            "type": "envforge_camera_mount_height_meters",
+            "value": 0.42,
+        },
     ]
+
+
+def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
+    class FakeEnv:
+        def __init__(self):
+            self.episode_index = -1
+            self.step_index = 0
+
+        def reset(self, seed=None):
+            self.episode_index += 1
+            self.step_index = 0
+            obs = {
+                "obs_0": np.zeros((1,), dtype=np.float32),
+                "obs_1": np.zeros((2,), dtype=np.float32),
+            }
+            return obs, {}
+
+        def step(self, action):
+            self.step_index += 1
+            terminated = self.step_index >= 2
+            info = {
+                "front_distance": 5.0,
+                "camera_mount_height_meters": 0.6,
+                "robot_x": float(self.episode_index),
+                "robot_z": float(self.step_index),
+                "robot_rotation_y_degrees": 0.0,
+                "collision": False,
+                "reward_components": [{"name": "step_penalty", "value": -0.01}],
+            }
+            return (
+                {
+                    "obs_0": np.zeros((1,), dtype=np.float32),
+                    "obs_1": np.zeros((2,), dtype=np.float32),
+                },
+                1.0,
+                terminated,
+                False,
+                info,
+            )
+
+    monkeypatch.setattr(
+        "embodiedlab.training.runner._predict_navigation_final_raw_action",
+        lambda model, obs: np.array([0.5, 0.0], dtype=np.float32),
+    )
+
+    result = evaluate_continuous_policy(
+        model=object(),
+        env=FakeEnv(),
+        training=TrainingConfig(eval_episodes=3),
+    )
+
+    assert result["episodes"] == 3
+    assert result["success_rate"] == 1.0
+    assert [step["episode_id"] for step in result["replay_steps"]] == [
+        "eval_env_00_episode_000001",
+        "eval_env_00_episode_000001",
+        "eval_env_00_episode_000002",
+        "eval_env_00_episode_000002",
+        "eval_env_00_episode_000003",
+        "eval_env_00_episode_000003",
+    ]
+    assert {step["phase"] for step in result["replay_steps"]} == {"eval"}
+    assert {step["policy_mode"] for step in result["replay_steps"]} == {
+        "deterministic",
+    }
