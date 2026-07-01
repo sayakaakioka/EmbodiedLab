@@ -30,3 +30,5 @@ class TrainingConfig(BaseModel):
     learning_rate: float = Field(default=3e-4, gt=0.0)
     ent_coef: float = Field(default=0.0, ge=0.0)
     eval_episodes: int = Field(default=20, ge=1)
+    replay_eval_interval_steps: int = Field(default=1_000_000, ge=0)
+    replay_train_chunk_steps: int = Field(default=10_000, ge=1)

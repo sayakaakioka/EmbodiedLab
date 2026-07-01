@@ -134,10 +134,10 @@ def test_result_bundle_serializes_envforge_artifacts():
                     "layout": ["forward", "turn"],
                 },
             ),
-            replay_log=ArtifactLocation(
+            replay_bundle=ArtifactLocation(
                 bucket="embodiedlab-models",
-                path="results/job_001/replay/replay.jsonl",
-                format="jsonl",
+                path="results/job_001/replay/manifest.json",
+                format="json",
             ),
         ),
     )
@@ -150,14 +150,18 @@ def test_result_bundle_serializes_envforge_artifacts():
     assert payload["artifacts"]["onnx_model"]["path"].endswith("policy.onnx")
     assert payload["artifacts"]["sentis_model"]["target"] == "unity-sentis"
     assert payload["artifacts"]["sentis_model"]["input"]["shape"] == [1, 7]
-    assert payload["artifacts"]["replay_log"]["format"] == "jsonl"
+    assert payload["artifacts"]["replay_bundle"]["format"] == "json"
 
 
 def test_replay_log_step_serializes_jsonl_row():
     step = ReplayLogStep(
         scenario_id="scenario_demo_001",
         job_id="job_001",
-        episode_id="episode_0001",
+        phase="eval",
+        checkpoint_step=1000,
+        env_index=0,
+        policy_mode="deterministic",
+        episode_id="eval_env_00_episode_000001",
         step_index=1,
         time_seconds=0.1,
         robot={
@@ -186,6 +190,11 @@ def test_replay_log_step_serializes_jsonl_row():
                 type="distance_meters",
                 value=5.0,
             ),
+            ReplaySensorSummary(
+                id="camera_mount_height",
+                type="envforge_camera_mount_height_meters",
+                value=0.42,
+            ),
         ],
     )
 
@@ -203,6 +212,11 @@ def test_replay_log_step_serializes_jsonl_row():
         "type": "distance_meters",
         "value": 5.0,
     }
+    assert payload["sensors"][1] == {
+        "id": "camera_mount_height",
+        "type": "envforge_camera_mount_height_meters",
+        "value": 0.42,
+    }
     assert payload["terminated"] is False
 
 
@@ -210,7 +224,11 @@ def test_serialize_replay_log_jsonl_returns_json_lines():
     step = ReplayLogStep(
         scenario_id="scenario_demo_001",
         job_id="job_001",
-        episode_id="episode_0001",
+        phase="train",
+        checkpoint_step=0,
+        env_index=1,
+        policy_mode="stochastic",
+        episode_id="train_env_01_episode_000001",
         step_index=0,
         time_seconds=0.0,
         robot={
@@ -241,7 +259,7 @@ def test_envforge_navigation_replay_fixture_matches_contract():
     assert steps[1].sensors[0].id == "front_distance"
 
 
-def test_build_result_bundle_maps_replay_log_artifact_metadata():
+def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
     bundle = build_result_bundle(
         scenario=ScenarioBundle(),
         job_id="job_001",
@@ -256,11 +274,11 @@ def test_build_result_bundle_maps_replay_log_artifact_metadata():
                 "bucket": "embodiedlab-models",
                 "path": "results/job_001/model/policy.onnx",
             },
-            "replay_log": {
+            "replay_bundle": {
                 "storage": "gcs",
                 "bucket": "embodiedlab-models",
-                "path": "results/job_001/replay/replay.jsonl",
-                "format": "jsonl",
+                "path": "results/job_001/replay/manifest.json",
+                "format": "json",
             },
         },
     )
@@ -273,9 +291,9 @@ def test_build_result_bundle_maps_replay_log_artifact_metadata():
         "path": "results/job_001/model/policy.onnx",
         "format": "onnx",
     }
-    assert payload["artifacts"]["replay_log"] == {
+    assert payload["artifacts"]["replay_bundle"] == {
         "storage": "gcs",
         "bucket": "embodiedlab-models",
-        "path": "results/job_001/replay/replay.jsonl",
-        "format": "jsonl",
+        "path": "results/job_001/replay/manifest.json",
+        "format": "json",
     }

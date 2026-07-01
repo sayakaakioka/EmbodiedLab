@@ -19,6 +19,7 @@ from embodiedlab.training.navigation_final_policy import (
     NavigationFinalPolicy,
     navigation_final_deterministic_raw_action,
 )
+from embodiedlab.training.replay_bundle import ReplayBundleWriter
 from embodiedlab.training.training_config import (
     TrainingAlgorithm,
     TrainingConfig,
@@ -35,25 +36,34 @@ TrainingEnv = ContinuousNavigationEnv | VecEnv
 
 
 class TrainingProgressReporter(BaseCallback):
-    """Report SB3 training progress at a fixed step interval."""
+    """Report progress and record replay timeline data during SB3 training."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         total_steps: int,
-        progress_callback: TrainingProgressCallback,
+        progress_callback: TrainingProgressCallback | None,
         interval_steps: int = PROGRESS_LOG_INTERVAL_STEPS,
         diagnostic_callback: TrainingDiagnosticCallback | None = None,
+        replay_writer: ReplayBundleWriter | None = None,
+        training: TrainingConfig | None = None,
+        eval_spec: ContinuousNavigationSpec | None = None,
     ) -> None:
-        """Initialize the reporter with the total training budget."""
+        """Initialize the reporter with progress and replay recording settings."""
         super().__init__()
         self._total_steps = total_steps
         self._progress_callback = progress_callback
         self._interval_steps = interval_steps
         self._diagnostic_callback = diagnostic_callback
+        self._replay_writer = replay_writer
+        self._training = training
+        self._eval_spec = eval_spec
         self._last_reported_step = 0
+        self._next_eval_step = 0
         self._reported_first_rollout = False
         self._reported_first_step = False
+        self._episode_indices: list[int] = []
+        self._episode_steps: list[int] = []
 
     def _emit_diagnostic(self, event: str, **fields: object) -> None:
         if self._diagnostic_callback is None:
@@ -68,6 +78,14 @@ class TrainingProgressReporter(BaseCallback):
         )
 
     def _on_training_start(self) -> None:
+        env_count = max(1, self.training_env.num_envs)
+        self._episode_indices = [0 for _ in range(env_count)]
+        self._episode_steps = [0 for _ in range(env_count)]
+        self._next_eval_step = (
+            self._training.replay_eval_interval_steps
+            if self._training is not None
+            else self._total_steps
+        )
         self._emit_diagnostic("sb3_training_started")
 
     def _on_rollout_start(self) -> None:
@@ -81,10 +99,88 @@ class TrainingProgressReporter(BaseCallback):
         if not self._reported_first_step:
             self._reported_first_step = True
             self._emit_diagnostic("sb3_first_step")
+        self._record_training_replay(current_step)
         if current_step - self._last_reported_step >= self._interval_steps:
             self._last_reported_step = current_step
-            self._progress_callback(current_step, self._total_steps)
+            if self._progress_callback is not None:
+                self._progress_callback(current_step, self._total_steps)
+        self._record_checkpoint_eval_if_needed(current_step)
         return True
+
+    def _record_training_replay(self, current_step: int) -> None:
+        if self._replay_writer is None:
+            return
+        actions = np.asarray(self.locals.get("actions", []), dtype=np.float32)
+        rewards = np.asarray(self.locals.get("rewards", []), dtype=np.float32)
+        dones = np.asarray(self.locals.get("dones", []), dtype=bool)
+        infos = list(self.locals.get("infos", []))
+        if len(infos) == 0:
+            return
+        for env_index, info in enumerate(infos):
+            if env_index >= len(self._episode_indices):
+                continue
+            action = actions[env_index] if actions.ndim > 1 else actions
+            reward = float(rewards[env_index]) if rewards.size > env_index else 0.0
+            done = bool(dones[env_index]) if dones.size > env_index else False
+            step = build_continuous_replay_step(
+                episode_index=self._episode_indices[env_index],
+                step_index=self._episode_steps[env_index],
+                action=action,
+                obs={},
+                reward=reward,
+                info=info,
+                terminated=done and not bool(info.get("TimeLimit.truncated", False)),
+                truncated=done and bool(info.get("TimeLimit.truncated", False)),
+                phase="train",
+                checkpoint_step=current_step,
+                env_index=env_index,
+                policy_mode="stochastic",
+            )
+            self._replay_writer.record_train_step(step)
+            self._episode_steps[env_index] += 1
+            if done:
+                self._episode_indices[env_index] += 1
+                self._episode_steps[env_index] = 0
+
+    def _record_checkpoint_eval_if_needed(self, current_step: int) -> None:
+        if (
+            self._replay_writer is None
+            or self._training is None
+            or self._eval_spec is None
+            or self._training.replay_eval_interval_steps <= 0
+            or current_step < self._next_eval_step
+            or current_step >= self._total_steps
+        ):
+            return
+        eval_env = ContinuousNavigationEnv(
+            spec=self._eval_spec,
+            max_steps=self._training.max_steps,
+            randomize_start=True,
+        )
+        try:
+            evaluation = evaluate_continuous_policy(
+                model=self.model,
+                env=eval_env,
+                training=self._training,
+                phase="eval",
+                checkpoint_step=current_step,
+            )
+        finally:
+            eval_env.close()
+        self._replay_writer.write_eval_checkpoint(
+            checkpoint_step=current_step,
+            steps=evaluation["replay_steps"],
+            success_rate=evaluation["success_rate"],
+            avg_reward=evaluation["avg_reward"],
+            avg_steps=evaluation["avg_steps"],
+        )
+        self._emit_diagnostic(
+            "checkpoint_evaluation_finished",
+            checkpoint_step=current_step,
+            success_rate=evaluation["success_rate"],
+            avg_steps=evaluation["avg_steps"],
+        )
+        self._next_eval_step += self._training.replay_eval_interval_steps
 
 
 def _termination_reason(
@@ -112,6 +208,10 @@ def build_continuous_replay_step(  # noqa: PLR0913
     info: dict[str, Any],
     terminated: bool,
     truncated: bool,
+    phase: str = "eval",
+    checkpoint_step: int = 0,
+    env_index: int = 0,
+    policy_mode: str = "deterministic",
 ) -> dict[str, Any]:
     """Build a replay row directly from the continuous EnvForge runtime."""
     _ = obs
@@ -158,7 +258,11 @@ def build_continuous_replay_step(  # noqa: PLR0913
         )
 
     return {
-        "episode_id": f"episode_{episode_index + 1:04d}",
+        "phase": phase,
+        "checkpoint_step": checkpoint_step,
+        "env_index": env_index,
+        "policy_mode": policy_mode,
+        "episode_id": f"{phase}_env_{env_index:02d}_episode_{episode_index + 1:06d}",
         "step_index": step_index,
         "time_seconds": round(step_index * 0.1, 6),
         "robot": {
@@ -191,6 +295,11 @@ def build_continuous_replay_step(  # noqa: PLR0913
                 "type": "envforge_distance_sensor_meters",
                 "value": float(info["front_distance"]),
             },
+            {
+                "id": "camera_mount_height",
+                "type": "envforge_camera_mount_height_meters",
+                "value": float(info["camera_mount_height_meters"]),
+            },
         ],
         "terminated": terminated or truncated,
         "termination_reason": _termination_reason(
@@ -205,6 +314,9 @@ def evaluate_continuous_policy(
     model: PPO,
     env: ContinuousNavigationEnv,
     training: TrainingConfig,
+    *,
+    phase: str = "eval",
+    checkpoint_step: int = 0,
 ) -> dict:
     """Run deterministic continuous-navigation rollouts and return statistics."""
     rewards: list[float] = []
@@ -226,19 +338,22 @@ def evaluate_continuous_policy(
             episode_reward += reward
             episode_steps += 1
             done = terminated or truncated
-            if episode_index == 0:
-                replay_steps.append(
-                    build_continuous_replay_step(
-                        episode_index=episode_index,
-                        step_index=episode_steps - 1,
-                        action=action_array,
-                        obs=obs,
-                        reward=reward,
-                        info=_info,
-                        terminated=terminated,
-                        truncated=truncated,
-                    ),
-                )
+            replay_steps.append(
+                build_continuous_replay_step(
+                    episode_index=episode_index,
+                    step_index=episode_steps - 1,
+                    action=action_array,
+                    obs=obs,
+                    reward=reward,
+                    info=_info,
+                    terminated=terminated,
+                    truncated=truncated,
+                    phase=phase,
+                    checkpoint_step=checkpoint_step,
+                    env_index=0,
+                    policy_mode="deterministic",
+                ),
+            )
 
         if terminated and not bool(_info.get("collision")):
             successes += 1
@@ -294,12 +409,14 @@ def _configure_torch_threads(
     )
 
 
-def _train_model(
+def _train_model(  # noqa: PLR0913
     *,
     env: TrainingEnv,
     training: TrainingConfig,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
+    replay_writer: ReplayBundleWriter | None = None,
+    eval_spec: ContinuousNavigationSpec | None = None,
 ) -> PPO:
     if training.algorithm != TrainingAlgorithm.PPO:
         msg = f"Unsupported algorithm: {training.algorithm}"
@@ -334,13 +451,14 @@ def _train_model(
         n_envs=training.n_envs,
         torch_num_threads=torch.get_num_threads(),
     )
-    callback = None
-    if progress_callback is not None:
-        callback = TrainingProgressReporter(
-            total_steps=training.timesteps,
-            progress_callback=progress_callback,
-            diagnostic_callback=diagnostic_callback,
-        )
+    callback = TrainingProgressReporter(
+        total_steps=training.timesteps,
+        progress_callback=progress_callback,
+        diagnostic_callback=diagnostic_callback,
+        replay_writer=replay_writer,
+        training=training,
+        eval_spec=eval_spec,
+    )
 
     _emit_training_diagnostic(
         diagnostic_callback,
@@ -422,12 +540,14 @@ def _save_model(model: PPO, model_output_path: str | None) -> None:
     model.save(str(output_path))
 
 
-def run_continuous_navigation_training(
+def run_continuous_navigation_training(  # noqa: PLR0913
     spec: ContinuousNavigationSpec,
     training: TrainingConfig,
     model_output_path: str | None = None,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
+    scenario_id: str = "unknown_scenario",
+    job_id: str = "unknown_job",
 ) -> dict:
     """Train a PPO policy on the continuous navigation spec and evaluate it."""
     _emit_training_diagnostic(
@@ -440,6 +560,18 @@ def run_continuous_navigation_training(
         timesteps=training.timesteps,
     )
     _configure_torch_threads(training, diagnostic_callback)
+    replay_root = (
+        Path(model_output_path).parent / "replay_bundle"
+        if model_output_path
+        else Path.cwd() / "replay_bundle"
+    )
+    replay_writer = ReplayBundleWriter(
+        root_dir=replay_root,
+        job_id=job_id,
+        scenario_id=scenario_id,
+        total_timesteps=training.timesteps,
+        train_chunk_steps=training.replay_train_chunk_steps,
+    )
     train_env = _build_training_env(
         spec=spec,
         training=training,
@@ -459,13 +591,25 @@ def run_continuous_navigation_training(
             training=training,
             progress_callback=progress_callback,
             diagnostic_callback=diagnostic_callback,
+            replay_writer=replay_writer,
+            eval_spec=spec,
         )
         _emit_training_diagnostic(diagnostic_callback, "evaluation_started")
         evaluation = evaluate_continuous_policy(
             model=model,
             env=eval_env,
             training=training,
+            phase="eval",
+            checkpoint_step=training.timesteps,
         )
+        replay_writer.write_eval_checkpoint(
+            checkpoint_step=training.timesteps,
+            steps=evaluation["replay_steps"],
+            success_rate=evaluation["success_rate"],
+            avg_reward=evaluation["avg_reward"],
+            avg_steps=evaluation["avg_steps"],
+        )
+        replay_manifest = replay_writer.finish()
         _emit_training_diagnostic(
             diagnostic_callback,
             "evaluation_finished",
@@ -498,7 +642,8 @@ def run_continuous_navigation_training(
             "avg_steps": evaluation["avg_steps"],
             "training_timesteps": training.timesteps,
             "training_seed": training.seed,
-            "replay_steps": evaluation["replay_steps"],
+            "replay_bundle_dir": str(replay_writer.root_dir),
+            "replay_manifest": replay_manifest,
         }
 
     finally:

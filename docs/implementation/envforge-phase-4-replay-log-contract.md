@@ -60,3 +60,17 @@ adapter である。Replay Log の robot position は Scenario Bundle の `bound
 - collision/contact event の詳細 schema。
 - 数値以外の sensor summary を扱う場合の型別 schema。
 - 長い Replay Log の圧縮、分割、部分読み込み。
+
+## Replay Bundle への移行
+
+現在の主契約では、単一の `replay_log` artifact ではなく Replay Bundle を返す。
+`replay/manifest.json` が gzip JSONL chunk を列挙し、各 chunk は train / eval、
+policy mode、checkpoint step、step 数、episode 数を metadata として持つ。
+
+EmbodiedLab trainer は SB3 callback 内で実際の学習 transition を train chunk として
+記録し、指定 interval と最終評価で deterministic eval checkpoint chunk を記録する。
+`result_bundle.artifacts.replay_bundle` は manifest を指す artifact metadata であり、
+EnvForge は manifest から chunk を取得する。
+
+旧 `replay_log` artifact は主経路では使わない。行単位の `ReplayLogStep` schema は
+EnvForge の ReplayPlayer が JSONL chunk を読むための step schema として残す。

@@ -24,27 +24,39 @@ def test_run_training_job_updates_result_to_completed():
     result_repository = FakeResultRepository()
     calls = []
 
-    def train_model(
+    def train_model(  # noqa: PLR0913
         *,
         spec,
         training,
         model_output_path,
         progress_callback=None,
         diagnostic_callback=None,
+        scenario_id=None,
+        job_id=None,
     ):
         assert progress_callback is not None
-        calls.append(("train", spec, training, model_output_path))
-        return {"score": 1.0}
+        calls.append(("train", spec, training, model_output_path, scenario_id, job_id))
+        return {
+            "score": 1.0,
+            "replay_bundle_dir": str(model_output_path) + "_replay",
+        }
 
     def upload_model(
         *,
         local_model_base_path,
         bucket_name,
         submission_id,
-        replay_steps,
+        replay_bundle_dir=None,
     ):
-        calls.append(("upload", local_model_base_path, bucket_name, submission_id))
-        replay_steps = list(replay_steps)
+        calls.append(
+            (
+                "upload",
+                local_model_base_path,
+                bucket_name,
+                submission_id,
+                replay_bundle_dir,
+            ),
+        )
         return {
             "model": {
                 "bucket": bucket_name,
@@ -58,11 +70,10 @@ def test_run_training_job_updates_result_to_completed():
                 "bucket": bucket_name,
                 "path": f"results/{submission_id}/model/policy.sentis.onnx",
             },
-            "replay_log": {
+            "replay_bundle": {
                 "bucket": bucket_name,
-                "path": f"results/{submission_id}/replay/replay.jsonl",
-                "format": "jsonl",
-                "step_count": len(replay_steps),
+                "path": f"results/{submission_id}/replay/manifest.json",
+                "format": "json",
             },
         }
 
@@ -94,8 +105,8 @@ def test_run_training_job_updates_result_to_completed():
         == "results/submission-1/model/policy.sentis.onnx"
     )
     assert (
-        payloads[-1]["data"]["artifacts"]["replay_log"]["path"]
-        == "results/submission-1/replay/replay.jsonl"
+        payloads[-1]["data"]["artifacts"]["replay_bundle"]["path"]
+        == "results/submission-1/replay/manifest.json"
     )
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
@@ -120,11 +131,13 @@ def test_run_training_job_updates_result_to_completed():
         == "results/submission-1/model/policy.sentis.onnx"
     )
     assert (
-        payloads[-1]["data"]["result_bundle"]["artifacts"]["replay_log"]["path"]
-        == "results/submission-1/replay/replay.jsonl"
+        payloads[-1]["data"]["result_bundle"]["artifacts"]["replay_bundle"]["path"]
+        == "results/submission-1/replay/manifest.json"
     )
     assert calls[0][0] == "train"
+    assert calls[0][4:] == ("scenario_demo_001", "submission-1")
     assert calls[1][0] == "upload"
+    assert calls[1][4].endswith("_replay")
 
 
 def test_run_training_job_writes_training_progress_updates():
@@ -135,13 +148,15 @@ def test_run_training_job_writes_training_progress_updates():
     result_repository = FakeResultRepository()
     published_events = []
 
-    def train_model(
+    def train_model(  # noqa: PLR0913
         *,
         spec,
         training,
         model_output_path,
         progress_callback,
         diagnostic_callback=None,
+        scenario_id=None,
+        job_id=None,
     ):
         progress_callback(10000, training.timesteps)
         progress_callback(20000, training.timesteps)
