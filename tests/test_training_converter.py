@@ -63,6 +63,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
             },
         },
         robot={
+            "radius": 0.3,
             "start_pose": {
                 "position": {"x": 1.9, "z": 2.1},
                 "rotation_y_degrees": 90.0,
@@ -113,6 +114,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.goal.goal_id == "goal_001"
     assert spec.goal.radius == 0.75
     assert spec.robot_start.x == 1.9
+    assert spec.robot_radius == 0.3
     assert spec.robot_start.rotation_y_degrees == 90.0
     assert spec.distance_sensor_range_meters == 7.5
     assert spec.camera.mount_height_meters == 0.7

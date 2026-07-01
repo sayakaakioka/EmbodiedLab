@@ -9,6 +9,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCENARIO_SCHEMA_VERSION = "scenario-bundle.v0"
+ROBOT_VERSION = "simple_robot.v1"
+DEFAULT_ROBOT_RADIUS_METERS = 0.45
 
 
 class CoordinateSystem(StrEnum):
@@ -74,7 +76,7 @@ class Compatibility(BaseModel):
     """Compatibility metadata required by EnvForge and EmbodiedLab."""
 
     envforge_min_version: str = Field(default="0.1.0", min_length=1)
-    robot_version: str = Field(default="simple_robot.v0", min_length=1)
+    robot_version: str = Field(default=ROBOT_VERSION, min_length=1)
     sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
 
 
@@ -214,6 +216,7 @@ class RobotSpec(BaseModel):
     """Robot descriptor for an EnvForge scenario."""
 
     type: RobotType = RobotType.SIMPLE_ROBOT
+    radius: float = Field(default=DEFAULT_ROBOT_RADIUS_METERS, gt=0)
     start_pose: Pose2D = Field(
         default_factory=lambda: Pose2D(
             position=Position2D(x=1.0, z=1.0),

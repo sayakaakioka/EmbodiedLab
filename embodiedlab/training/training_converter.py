@@ -198,6 +198,7 @@ def convert_submission_to_spec(
             rotation_y_degrees=start_pose.rotation_y_degrees,
         ),
         robot_type=scenario.robot.type.value,
+        robot_radius=scenario.robot.radius,
         distance_sensor_range_meters=distance_sensor_range_meters,
         camera=_camera_spec(scenario),
         reward_weights=_reward_weights(scenario),

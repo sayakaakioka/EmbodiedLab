@@ -637,6 +637,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
                 "rotation_y_degrees": spec.robot_start.rotation_y_degrees,
             },
             "robot_type": spec.robot_type,
+            "robot_radius": spec.robot_radius,
             "success_rate": evaluation["success_rate"],
             "avg_reward": evaluation["avg_reward"],
             "avg_steps": evaluation["avg_steps"],

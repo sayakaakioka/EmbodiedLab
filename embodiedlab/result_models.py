@@ -84,7 +84,7 @@ class ResultCompatibility(BaseModel):
 
     scenario_schema_version: str = Field(default="scenario-bundle.v0", min_length=1)
     envforge_min_version: str = Field(default="0.1.0", min_length=1)
-    robot_version: str = Field(default="simple_robot.v0", min_length=1)
+    robot_version: str = Field(default="simple_robot.v1", min_length=1)
     sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
     action_layout: list[str] = Field(default_factory=lambda: ["forward", "turn"])
     observation_layout: list[str] = Field(
