@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from embodiedlab.result_models import ReplayBundleManifest
+
 DEFAULT_TRAIN_CHUNK_STEPS = 10_000
 
 
@@ -91,13 +93,12 @@ class ReplayBundleWriter:
     def finish(self) -> dict[str, Any]:
         """Close pending chunks and write the Replay Bundle manifest."""
         self._close_train_chunk()
-        manifest = {
-            "schema_version": "replay-bundle.v0",
-            "job_id": self.job_id,
-            "scenario_id": self.scenario_id,
-            "total_timesteps": self.total_timesteps,
-            "chunks": self._chunks,
-        }
+        manifest = ReplayBundleManifest(
+            job_id=self.job_id,
+            scenario_id=self.scenario_id,
+            total_timesteps=self.total_timesteps,
+            chunks=self._chunks,
+        ).model_dump(mode="json", exclude_none=True)
         (self.root_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2),
             encoding="utf-8",

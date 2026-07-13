@@ -1,0 +1,780 @@
+{
+  "$defs": {
+    "ActionSpace": {
+      "description": "Robot action layout expected by the policy.",
+      "properties": {
+        "layout": {
+          "items": {
+            "enum": [
+              "forward",
+              "turn"
+            ],
+            "type": "string"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "title": "Layout",
+          "type": "array"
+        },
+        "type": {
+          "$ref": "#/$defs/ActionSpaceType",
+          "default": "continuous"
+        }
+      },
+      "title": "ActionSpace",
+      "type": "object"
+    },
+    "ActionSpaceType": {
+      "description": "Supported robot action space families.",
+      "enum": [
+        "continuous"
+      ],
+      "title": "ActionSpaceType",
+      "type": "string"
+    },
+    "Bounds2D": {
+      "description": "Axis-aligned world bounds on the x/z plane.",
+      "properties": {
+        "max": {
+          "$ref": "#/$defs/Position2D"
+        },
+        "min": {
+          "$ref": "#/$defs/Position2D"
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "title": "Bounds2D",
+      "type": "object"
+    },
+    "CollisionRewardComponent": {
+      "description": "Reward component emitted on collisions.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "collision",
+          "default": "collision",
+          "title": "Type",
+          "type": "string"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "weight"
+      ],
+      "title": "CollisionRewardComponent",
+      "type": "object"
+    },
+    "Compatibility": {
+      "description": "Compatibility metadata required by EnvForge and EmbodiedLab.",
+      "properties": {
+        "envforge_min_version": {
+          "default": "0.1.0",
+          "minLength": 1,
+          "title": "Envforge Min Version",
+          "type": "string"
+        },
+        "robot_version": {
+          "default": "simple_robot.v1",
+          "minLength": 1,
+          "title": "Robot Version",
+          "type": "string"
+        },
+        "sensor_version": {
+          "default": "basic_sensors.v0",
+          "minLength": 1,
+          "title": "Sensor Version",
+          "type": "string"
+        }
+      },
+      "title": "Compatibility",
+      "type": "object"
+    },
+    "CoordinateSystem": {
+      "description": "Supported world coordinate systems for scenario bundles.",
+      "enum": [
+        "envforge_xz_meters"
+      ],
+      "title": "CoordinateSystem",
+      "type": "string"
+    },
+    "CreatedBy": {
+      "description": "Metadata about the tool that created a scenario bundle.",
+      "properties": {
+        "tool": {
+          "default": "EnvForge",
+          "minLength": 1,
+          "title": "Tool",
+          "type": "string"
+        },
+        "version": {
+          "default": "0.1.0",
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "CreatedBy",
+      "type": "object"
+    },
+    "DistanceDeltaRewardComponent": {
+      "description": "Reward based on distance progress toward a target object.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "target": {
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
+        },
+        "type": {
+          "const": "distance_delta",
+          "default": "distance_delta",
+          "title": "Type",
+          "type": "string"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "target",
+        "weight"
+      ],
+      "title": "DistanceDeltaRewardComponent",
+      "type": "object"
+    },
+    "DistanceSensor": {
+      "description": "Forward distance sensor configuration.",
+      "properties": {
+        "direction": {
+          "$ref": "#/$defs/SensorDirection",
+          "default": "forward"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "range_meters": {
+          "default": 5.0,
+          "exclusiveMinimum": 0,
+          "title": "Range Meters",
+          "type": "number"
+        },
+        "type": {
+          "const": "distance_sensor",
+          "default": "distance_sensor",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DistanceSensor",
+      "type": "object"
+    },
+    "ForwardCameraSensor": {
+      "description": "Forward semantic camera sensor configuration.",
+      "properties": {
+        "far_clip_meters": {
+          "default": 100.0,
+          "exclusiveMinimum": 0,
+          "title": "Far Clip Meters",
+          "type": "number"
+        },
+        "height": {
+          "default": 84,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "mount_height_max_meters": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mount Height Max Meters"
+        },
+        "mount_height_meters": {
+          "default": 0.6,
+          "exclusiveMinimum": 0,
+          "title": "Mount Height Meters",
+          "type": "number"
+        },
+        "mount_height_min_meters": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mount Height Min Meters"
+        },
+        "near_clip_meters": {
+          "default": 0.05,
+          "exclusiveMinimum": 0,
+          "title": "Near Clip Meters",
+          "type": "number"
+        },
+        "pitch_degrees": {
+          "default": 0.0,
+          "title": "Pitch Degrees",
+          "type": "number"
+        },
+        "semantic_mode": {
+          "$ref": "#/$defs/SemanticMode",
+          "default": "traversable_vs_blocked"
+        },
+        "type": {
+          "const": "forward_camera",
+          "default": "forward_camera",
+          "title": "Type",
+          "type": "string"
+        },
+        "vertical_fov_degrees": {
+          "default": 70.0,
+          "exclusiveMaximum": 180,
+          "exclusiveMinimum": 0,
+          "title": "Vertical Fov Degrees",
+          "type": "number"
+        },
+        "width": {
+          "default": 112,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ForwardCameraSensor",
+      "type": "object"
+    },
+    "GoalSpec": {
+      "description": "Goal region used for navigation training.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/Position2D"
+        },
+        "radius": {
+          "exclusiveMinimum": 0,
+          "title": "Radius",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "position",
+        "radius"
+      ],
+      "title": "GoalSpec",
+      "type": "object"
+    },
+    "PerStepRewardComponent": {
+      "description": "Reward component emitted at each simulation step.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "per_step",
+          "default": "per_step",
+          "title": "Type",
+          "type": "string"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "weight"
+      ],
+      "title": "PerStepRewardComponent",
+      "type": "object"
+    },
+    "Pose2D": {
+      "description": "Robot pose on the x/z plane.",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/Position2D"
+        },
+        "rotation_y_degrees": {
+          "default": 0.0,
+          "title": "Rotation Y Degrees",
+          "type": "number"
+        }
+      },
+      "required": [
+        "position"
+      ],
+      "title": "Pose2D",
+      "type": "object"
+    },
+    "Position2D": {
+      "description": "A point on the EnvForge horizontal x/z plane.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "z"
+      ],
+      "title": "Position2D",
+      "type": "object"
+    },
+    "RewardSpec": {
+      "description": "Declarative reward configuration for training.",
+      "properties": {
+        "components": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "collision": "#/$defs/CollisionRewardComponent",
+                "distance_delta": "#/$defs/DistanceDeltaRewardComponent",
+                "per_step": "#/$defs/PerStepRewardComponent",
+                "terminal_reward": "#/$defs/TerminalRewardComponent"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/TerminalRewardComponent"
+              },
+              {
+                "$ref": "#/$defs/DistanceDeltaRewardComponent"
+              },
+              {
+                "$ref": "#/$defs/CollisionRewardComponent"
+              },
+              {
+                "$ref": "#/$defs/PerStepRewardComponent"
+              }
+            ]
+          },
+          "title": "Components",
+          "type": "array"
+        }
+      },
+      "title": "RewardSpec",
+      "type": "object"
+    },
+    "RobotSpec": {
+      "description": "Robot descriptor for an EnvForge scenario.",
+      "properties": {
+        "action_space": {
+          "$ref": "#/$defs/ActionSpace"
+        },
+        "radius": {
+          "default": 0.45,
+          "exclusiveMinimum": 0,
+          "title": "Radius",
+          "type": "number"
+        },
+        "start_pose": {
+          "$ref": "#/$defs/Pose2D"
+        },
+        "type": {
+          "$ref": "#/$defs/RobotType",
+          "default": "simple_robot"
+        }
+      },
+      "title": "RobotSpec",
+      "type": "object"
+    },
+    "RobotType": {
+      "description": "Robot archetypes supported by the first EnvForge integration.",
+      "enum": [
+        "simple_robot"
+      ],
+      "title": "RobotType",
+      "type": "string"
+    },
+    "SemanticMode": {
+      "description": "Supported semantic camera encodings.",
+      "enum": [
+        "traversable_vs_blocked"
+      ],
+      "title": "SemanticMode",
+      "type": "string"
+    },
+    "SensorDirection": {
+      "description": "Supported distance sensor directions.",
+      "enum": [
+        "forward"
+      ],
+      "title": "SensorDirection",
+      "type": "string"
+    },
+    "Size2D": {
+      "description": "A positive x/z footprint size in meters.",
+      "properties": {
+        "x": {
+          "exclusiveMinimum": 0,
+          "title": "X",
+          "type": "number"
+        },
+        "z": {
+          "exclusiveMinimum": 0,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "z"
+      ],
+      "title": "Size2D",
+      "type": "object"
+    },
+    "StaticObstacle": {
+      "description": "A fixed obstacle in the scenario.",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/Position2D"
+        },
+        "height": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "rotation_y_degrees": {
+          "default": 0.0,
+          "title": "Rotation Y Degrees",
+          "type": "number"
+        },
+        "shape": {
+          "const": "box",
+          "default": "box",
+          "title": "Shape",
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/Size2D"
+        }
+      },
+      "required": [
+        "id",
+        "center",
+        "size"
+      ],
+      "title": "StaticObstacle",
+      "type": "object"
+    },
+    "StaticWall": {
+      "description": "A fixed wall segment in the scenario.",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/Position2D"
+        },
+        "height": {
+          "default": 2.0,
+          "exclusiveMinimum": 0,
+          "title": "Height",
+          "type": "number"
+        },
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "rotation_y_degrees": {
+          "default": 0.0,
+          "title": "Rotation Y Degrees",
+          "type": "number"
+        },
+        "size": {
+          "$ref": "#/$defs/Size2D"
+        }
+      },
+      "required": [
+        "id",
+        "center",
+        "size"
+      ],
+      "title": "StaticWall",
+      "type": "object"
+    },
+    "TerminalRewardComponent": {
+      "description": "Terminal reward paid when the task succeeds.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "terminal_reward",
+          "default": "terminal_reward",
+          "title": "Type",
+          "type": "string"
+        },
+        "weight": {
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "weight"
+      ],
+      "title": "TerminalRewardComponent",
+      "type": "object"
+    },
+    "TrainingAlgorithm": {
+      "description": "Supported training algorithms for EnvForge scenarios.",
+      "enum": [
+        "ppo"
+      ],
+      "title": "TrainingAlgorithm",
+      "type": "string"
+    },
+    "TrainingSpec": {
+      "description": "Training request parameters for EnvForge scenario bundles.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/TrainingAlgorithm",
+          "default": "ppo"
+        },
+        "batch_size": {
+          "default": 32,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "cpu_count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Count"
+        },
+        "ent_coef": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Ent Coef",
+          "type": "number"
+        },
+        "eval_episodes": {
+          "default": 20,
+          "minimum": 1,
+          "title": "Eval Episodes",
+          "type": "integer"
+        },
+        "gamma": {
+          "default": 0.99,
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Gamma",
+          "type": "number"
+        },
+        "learning_rate": {
+          "default": 0.0003,
+          "exclusiveMinimum": 0.0,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "max_episode_steps": {
+          "default": 512,
+          "minimum": 1,
+          "title": "Max Episode Steps",
+          "type": "integer"
+        },
+        "n_envs": {
+          "default": 1,
+          "minimum": 1,
+          "title": "N Envs",
+          "type": "integer"
+        },
+        "n_epochs": {
+          "default": 3,
+          "minimum": 1,
+          "title": "N Epochs",
+          "type": "integer"
+        },
+        "n_steps": {
+          "default": 32,
+          "minimum": 1,
+          "title": "N Steps",
+          "type": "integer"
+        },
+        "seed": {
+          "default": 10,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "timesteps": {
+          "default": 5000,
+          "minimum": 1,
+          "title": "Timesteps",
+          "type": "integer"
+        },
+        "torch_num_threads": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Torch Num Threads"
+        }
+      },
+      "title": "TrainingSpec",
+      "type": "object"
+    },
+    "WorldSpec": {
+      "description": "Static world geometry for the first EnvForge contract.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/$defs/Bounds2D"
+        },
+        "coordinate_system": {
+          "$ref": "#/$defs/CoordinateSystem",
+          "default": "envforge_xz_meters"
+        },
+        "goal": {
+          "$ref": "#/$defs/GoalSpec"
+        },
+        "static_obstacles": {
+          "items": {
+            "$ref": "#/$defs/StaticObstacle"
+          },
+          "title": "Static Obstacles",
+          "type": "array"
+        },
+        "static_walls": {
+          "items": {
+            "$ref": "#/$defs/StaticWall"
+          },
+          "title": "Static Walls",
+          "type": "array"
+        }
+      },
+      "title": "WorldSpec",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Top-level request body for POST /submissions.",
+  "properties": {
+    "compatibility": {
+      "$ref": "#/$defs/Compatibility"
+    },
+    "created_by": {
+      "$ref": "#/$defs/CreatedBy"
+    },
+    "reward": {
+      "$ref": "#/$defs/RewardSpec"
+    },
+    "robot": {
+      "$ref": "#/$defs/RobotSpec"
+    },
+    "scenario_id": {
+      "default": "scenario_demo_001",
+      "minLength": 1,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "scenario-bundle.v0",
+      "default": "scenario-bundle.v0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensors": {
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "distance_sensor": "#/$defs/DistanceSensor",
+            "forward_camera": "#/$defs/ForwardCameraSensor"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ForwardCameraSensor"
+          },
+          {
+            "$ref": "#/$defs/DistanceSensor"
+          }
+        ]
+      },
+      "minItems": 1,
+      "title": "Sensors",
+      "type": "array"
+    },
+    "training": {
+      "$ref": "#/$defs/TrainingSpec"
+    },
+    "world": {
+      "$ref": "#/$defs/WorldSpec"
+    }
+  },
+  "title": "ScenarioBundle",
+  "type": "object"
+}

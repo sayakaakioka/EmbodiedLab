@@ -1,0 +1,453 @@
+{
+  "$defs": {
+    "ArtifactFormat": {
+      "description": "Supported artifact formats.",
+      "enum": [
+        "onnx",
+        "json",
+        "jsonl",
+        "jsonl.gz",
+        "zip"
+      ],
+      "title": "ArtifactFormat",
+      "type": "string"
+    },
+    "ArtifactLocation": {
+      "description": "Location and format of a result artifact.",
+      "properties": {
+        "bucket": {
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ArtifactFormat"
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "storage": {
+          "$ref": "#/$defs/ArtifactStorage",
+          "default": "gcs"
+        }
+      },
+      "required": [
+        "bucket",
+        "path",
+        "format"
+      ],
+      "title": "ArtifactLocation",
+      "type": "object"
+    },
+    "ArtifactStorage": {
+      "description": "Supported artifact storage backends.",
+      "enum": [
+        "gcs"
+      ],
+      "title": "ArtifactStorage",
+      "type": "string"
+    },
+    "ErrorReport": {
+      "description": "Structured failure details for failed result bundles.",
+      "properties": {
+        "details": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Details"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "ErrorReport",
+      "type": "object"
+    },
+    "ModelArtifactLocation": {
+      "description": "Model artifact location with Unity compatibility metadata.",
+      "properties": {
+        "bucket": {
+          "minLength": 1,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ArtifactFormat"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelInput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "opset_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Opset Version"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelOutput"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "storage": {
+          "$ref": "#/$defs/ArtifactStorage",
+          "default": "gcs"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        }
+      },
+      "required": [
+        "bucket",
+        "path",
+        "format"
+      ],
+      "title": "ModelArtifactLocation",
+      "type": "object"
+    },
+    "ModelInput": {
+      "description": "Input metadata for an EnvForge-loadable model artifact.",
+      "properties": {
+        "dtype": {
+          "minLength": 1,
+          "title": "Dtype",
+          "type": "string"
+        },
+        "layout": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Layout",
+          "type": "array"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "shape": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "dtype"
+      ],
+      "title": "ModelInput",
+      "type": "object"
+    },
+    "ModelOutput": {
+      "description": "Output metadata for an EnvForge-loadable model artifact.",
+      "properties": {
+        "action_mapping": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action Mapping"
+        },
+        "layout": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Layout",
+          "type": "array"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ModelOutput",
+      "type": "object"
+    },
+    "ResultArtifacts": {
+      "description": "Artifacts produced by a training run.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "onnx_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replay_bundle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sentis_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelArtifactLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ResultArtifacts",
+      "type": "object"
+    },
+    "ResultCompatibility": {
+      "description": "Compatibility metadata needed by EnvForge when loading a result.",
+      "properties": {
+        "action_layout": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Action Layout",
+          "type": "array"
+        },
+        "envforge_min_version": {
+          "default": "0.1.0",
+          "minLength": 1,
+          "title": "Envforge Min Version",
+          "type": "string"
+        },
+        "observation_layout": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observation Layout",
+          "type": "array"
+        },
+        "robot_version": {
+          "default": "simple_robot.v1",
+          "minLength": 1,
+          "title": "Robot Version",
+          "type": "string"
+        },
+        "scenario_schema_version": {
+          "default": "scenario-bundle.v0",
+          "minLength": 1,
+          "title": "Scenario Schema Version",
+          "type": "string"
+        },
+        "sensor_version": {
+          "default": "basic_sensors.v0",
+          "minLength": 1,
+          "title": "Sensor Version",
+          "type": "string"
+        }
+      },
+      "title": "ResultCompatibility",
+      "type": "object"
+    },
+    "ResultStatus": {
+      "description": "Lifecycle states of a training result.",
+      "enum": [
+        "queued",
+        "starting",
+        "running",
+        "completed",
+        "failed"
+      ],
+      "title": "ResultStatus",
+      "type": "string"
+    },
+    "TrainingSummary": {
+      "description": "High-level metrics from a completed training run.",
+      "properties": {
+        "average_episode_reward": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Average Episode Reward"
+        },
+        "average_episode_steps": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Average Episode Steps"
+        },
+        "success_rate": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Rate"
+        },
+        "training_seed": {
+          "title": "Training Seed",
+          "type": "integer"
+        },
+        "training_timesteps": {
+          "minimum": 0,
+          "title": "Training Timesteps",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "training_timesteps",
+        "training_seed"
+      ],
+      "title": "TrainingSummary",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "description": "EnvForge-facing training result bundle.",
+  "properties": {
+    "artifacts": {
+      "$ref": "#/$defs/ResultArtifacts"
+    },
+    "compatibility": {
+      "$ref": "#/$defs/ResultCompatibility"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ErrorReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "job_id": {
+      "minLength": 1,
+      "title": "Job Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "minLength": 1,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "result-bundle.v0",
+      "default": "result-bundle.v0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/ResultStatus"
+    },
+    "summary": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TrainingSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "scenario_id",
+    "job_id",
+    "status"
+  ],
+  "title": "ResultBundle",
+  "type": "object"
+}

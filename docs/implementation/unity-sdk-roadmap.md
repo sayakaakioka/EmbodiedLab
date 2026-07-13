@@ -66,6 +66,21 @@ seed、制約を表現できる最小範囲から設計する。選択結果は 
 
 ユーザ提供の C# や Python の任意コード実行は、このロードマップの対象外とする。
 
+## Contract 生成方針
+
+EmbodiedLab の Pydantic model を wire contract の正本とし、versioned JSON Schema を
+`contracts/v0` へ決定的に出力する。Scenario Bundle、Result Document、Result Bundle、
+Replay Bundle、Replay Log と API response を対象とする。
+
+`EmbodiedLab.Unity` はこの JSON Schema から C# DTO を生成する。生成済み DTO は
+UPM package に含め、package 利用者に generator の実行を要求しない。通信と job lifecycle
+を扱う公開 API は手書きとし、生成された REST client をそのまま公開 API にしない。
+canonical fixture は code generation 後も cross-repository の適合 test として維持する。
+contract の再生成と差分検査には次を使う。
+
+    uv run python -m tools.export_contract_schemas
+    uv run python -m tools.export_contract_schemas --check
+
 ## 実装順序
 
 1. EmbodiedLab API と現在の EnvForge client の動作を fixture と test で固定する。
@@ -93,11 +108,13 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 
 - Issue #24 で、SDK が読む completed Result Document と Replay Bundle manifest の
   canonical fixture を追加し、現行 wire format を test で固定した。
+- Issue #26 で、現行 API response と Replay Bundle を Pydantic model に結び付け、
+  Unity DTO 生成元となる versioned JSON Schema の公開に着手した。
 
 ## 保留事項
 
 - SDK repository の公開範囲、release、tag、package distribution の運用。
-- JSON Schema / OpenAPI から Unity DTO を生成するか、fixture 適合 test を正本とするか。
+- C# DTO generator の固定方法と、生成差分を SDK 側で検証する CI。
 - 認証導入後の token storage と signed artifact URL。
 - job cancellation、quota、cost control。
 - `generated` mode の最初の schema と、生成結果を Replay のどこへ記録するか。

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -124,7 +124,9 @@ class ErrorReport(BaseModel):
 class ResultBundle(BaseModel):
     """EnvForge-facing training result bundle."""
 
-    schema_version: str = RESULT_SCHEMA_VERSION
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: Literal[RESULT_SCHEMA_VERSION] = RESULT_SCHEMA_VERSION
     scenario_id: str = Field(min_length=1)
     job_id: str = Field(min_length=1)
     status: ResultStatus
@@ -187,7 +189,7 @@ class ReplaySensorSummary(BaseModel):
 class ReplayLogStep(BaseModel):
     """One JSON Lines row in an EnvForge replay log."""
 
-    schema_version: str = REPLAY_LOG_SCHEMA_VERSION
+    schema_version: Literal[REPLAY_LOG_SCHEMA_VERSION] = REPLAY_LOG_SCHEMA_VERSION
     scenario_id: str = Field(min_length=1)
     job_id: str = Field(min_length=1)
     phase: str = Field(min_length=1)
@@ -204,6 +206,33 @@ class ReplayLogStep(BaseModel):
     sensors: list[ReplaySensorSummary] = Field(default_factory=list)
     terminated: bool = False
     termination_reason: str | None = None
+
+
+class ReplayBundleChunk(BaseModel):
+    """One compressed train or evaluation chunk in a Replay Bundle."""
+
+    phase: Literal["train", "eval"]
+    policy_mode: Literal["stochastic", "deterministic"]
+    checkpoint_step: int = Field(ge=0)
+    start_step: int | None = Field(default=None, ge=0)
+    end_step: int | None = Field(default=None, ge=0)
+    path: str = Field(min_length=1)
+    format: Literal["jsonl.gz"]
+    step_count: int = Field(ge=0)
+    episode_count: int | None = Field(default=None, ge=0)
+    success_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+    avg_reward: float | None = None
+    avg_steps: float | None = Field(default=None, ge=0.0)
+
+
+class ReplayBundleManifest(BaseModel):
+    """Manifest describing the chunks in one Replay Bundle."""
+
+    schema_version: Literal[REPLAY_BUNDLE_SCHEMA_VERSION] = REPLAY_BUNDLE_SCHEMA_VERSION
+    job_id: str = Field(min_length=1)
+    scenario_id: str = Field(min_length=1)
+    total_timesteps: int = Field(ge=0)
+    chunks: list[ReplayBundleChunk] = Field(default_factory=list)
 
 
 def utc_now_iso() -> str:
@@ -223,13 +252,15 @@ class Progress(BaseModel):
 class ResultDocument(BaseModel):
     """Full result document written to Firestore."""
 
-    submission_id: str
+    model_config = ConfigDict(extra="allow")
+
+    submission_id: str = Field(min_length=1)
     status: ResultStatus
-    progress: Progress
+    progress: Progress | None = None
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
-    result_bundle: dict[str, Any] | ResultBundle | None = None
+    result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
 
@@ -242,7 +273,7 @@ class ResultMessage(BaseModel):
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
-    result_bundle: dict[str, Any] | ResultBundle | None = None
+    result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
 
@@ -254,7 +285,7 @@ class ResultUpdate(BaseModel):
     summary: dict[str, Any] | None = None
     error: str | None = None
     artifacts: dict[str, Any] | None = None
-    result_bundle: dict[str, Any] | ResultBundle | None = None
+    result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
 
