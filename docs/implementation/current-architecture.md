@@ -107,21 +107,26 @@ artifact location と input/output layout metadata を含める。
 - Pub/Sub と WebSocket の status update path が存在する。
 - Repository protocols と fake repositories により core flow が testable である。
 
-## EnvForge 連携に向けた不足
+## 現在の連携状態と次の不足
 
-Phase 4 の準備として、ContinuousNavigationEnv を追加した。
-この runtime は EnvForge の x/z meter 座標、Y 回転、連続 action
-forward/turn、goal radius、static walls、static obstacles、
-回転付き box collision、距離センサ range を表現する。
+現在の production training path は `ContinuousNavigationEnv` と
+`run_continuous_navigation_training` を使う。この runtime は EnvForge の x/z meter
+座標、Y 回転、連続 action forward/turn、goal radius、static walls、
+static obstacles、回転付き box collision、距離センサ range を表現する。
+Replay Bundle は continuous runtime の実座標と実 action から生成する。
 
-現在の production training path は ContinuousNavigationEnv と
-run_continuous_navigation_training を使う。Replay Log は continuous runtime の
-実座標と実 action から生成する。
+Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge からのジョブ投入、
+進捗監視、artifact download、Replay 再生、ONNX Runtime 推論の主導線は実装済みである。
 
-- Scenario Bundle contract がない。
-- Result Bundle contract がない。
-- ONNX/Sentis export は continuous 主経路と Result Bundle metadata に
-  接続済みだが、EnvForge 側の Sentis runtime inference 検証はまだである。
+次に不足しているものは以下である。
+
+- Unity 向け API client、状態監視、artifact 取得、bundle DTO が EnvForge 内にあり、
+  ほかの Unity フロントエンドから再利用できない。
+- `EmbodiedLab.Unity` と EmbodiedLab API の version compatibility を検証する仕組みがない。
+- 現在の Scenario Bundle は固定マップを表し、episode ごとの宣言的な環境生成規則を
+  表現できない。
+- ONNX export は continuous 主経路と Result Bundle metadata に接続済みだが、
+  複数の Unity フロントエンドで同じ互換性検査を再利用する層がない。
 - reward component の主要 weight は Scenario Bundle から continuous runtime へ
   反映する。現時点では `goal_reached`、`goal_progress`、
   `collision_penalty`、`step_penalty`、
@@ -130,3 +135,7 @@ run_continuous_navigation_training を使う。Replay Log は continuous runtime
 - robot と sensor descriptor が最小限である。
 - forward camera observation はまだ抽象化されたままである。
 - artifact access が public-read 前提である。
+
+固定マップは今後も既定動作として維持する。episode ごとの環境生成は明示的な
+`generated` mode として追加し、ユーザ提供の任意コードではなく、検証可能な宣言的
+schema と seed に基づいて EmbodiedLab runtime が実行する。
