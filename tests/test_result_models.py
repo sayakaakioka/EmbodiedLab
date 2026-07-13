@@ -11,6 +11,7 @@ from embodiedlab.result_models import (
     ResultArtifacts,
     ResultBundle,
     ResultCompatibility,
+    ResultDocument,
     ResultStatus,
     TrainingSummary,
     build_queued_result_document,
@@ -151,6 +152,21 @@ def test_result_bundle_serializes_envforge_artifacts():
     assert payload["artifacts"]["sentis_model"]["target"] == "unity-sentis"
     assert payload["artifacts"]["sentis_model"]["input"]["shape"] == [1, 7]
     assert payload["artifacts"]["replay_bundle"]["format"] == "json"
+
+
+def test_completed_result_document_fixture_matches_contract():
+    fixture_path = (
+        FIXTURE_DIR / "envforge" / "navigation_completed_result_document.json"
+    )
+    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+    document = ResultDocument.model_validate(payload)
+    result_bundle = ResultBundle.model_validate(document.result_bundle)
+
+    assert document.model_dump(mode="json") == payload
+    assert result_bundle.model_dump(mode="json") == payload["result_bundle"]
+    assert result_bundle.artifacts.model is not None
+    assert result_bundle.artifacts.replay_bundle is not None
 
 
 def test_replay_log_step_serializes_jsonl_row():
