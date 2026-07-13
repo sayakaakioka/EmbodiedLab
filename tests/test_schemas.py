@@ -22,7 +22,9 @@ def test_scenario_bundle_defaults_are_valid():
     assert scenario.scenario_id == "scenario_demo_001"
     assert scenario.world.coordinate_system == "envforge_xz_meters"
     assert scenario.world.goal.position.x == 8.5
+    assert scenario.compatibility.robot_version == "simple_robot.v1"
     assert scenario.robot.type == "simple_robot"
+    assert scenario.robot.radius == 0.45
     assert scenario.robot.action_space.layout == ["forward", "turn"]
     assert [sensor.id for sensor in scenario.sensors] == [
         "front_camera",
@@ -41,7 +43,9 @@ def test_build_submission_document_returns_firestore_payload():
     assert isinstance(payload["created_at"], str)
     assert payload["scenario"]["schema_version"] == "scenario-bundle.v0"
     assert payload["scenario"]["scenario_id"] == "scenario_demo_001"
+    assert payload["scenario"]["compatibility"]["robot_version"] == "simple_robot.v1"
     assert payload["scenario"]["robot"]["type"] == "simple_robot"
+    assert payload["scenario"]["robot"]["radius"] == 0.45
     assert payload["scenario"]["training"]["algorithm"] == "ppo"
 
 
@@ -70,6 +74,7 @@ def test_scenario_bundle_accepts_documented_shape():
                 },
             },
             "robot": {
+                "radius": 0.3,
                 "start_pose": {
                     "position": {"x": 1.0, "z": 1.0},
                     "rotation_y_degrees": 0.0,
@@ -120,6 +125,7 @@ def test_scenario_bundle_accepts_documented_shape():
 
     assert scenario.scenario_id == "scenario_custom"
     assert scenario.world.static_obstacles[0].id == "box_001"
+    assert scenario.robot.radius == 0.3
     assert scenario.sensors[0].width == 112
     assert scenario.sensors[0].height == 84
     assert scenario.sensors[0].mount_height_meters == 0.6

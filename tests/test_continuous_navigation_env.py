@@ -314,6 +314,42 @@ def test_continuous_env_blocks_rotated_obstacle_collision():
     assert reward < -1.0
 
 
+def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
+    scenario = ScenarioBundle(
+        robot={
+            "radius": 0.45,
+            "start_pose": {
+                "position": {"x": 1.0, "z": 1.0},
+                "rotation_y_degrees": 0.0,
+            },
+        },
+        world={
+            "static_obstacles": [
+                {
+                    "id": "wall_001",
+                    "shape": "box",
+                    "center": {"x": 1.0, "z": 1.7},
+                    "size": {"x": 1.0, "z": 0.2},
+                },
+            ],
+        },
+        sensors=[
+            {"id": "front_camera", "type": "forward_camera"},
+            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+        ],
+    )
+    env = ContinuousNavigationEnv(
+        spec=convert_submission_to_spec(scenario),
+        max_steps=10,
+    )
+    _obs, info = env.reset()
+
+    assert info["front_distance"] == pytest.approx(0.605, abs=0.01)
+    assert (
+        env._collision_id(np.array([1.0, 1.2], dtype=np.float32)) == "wall_001"  # noqa: SLF001
+    )
+
+
 def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
     scenario = ScenarioBundle(
         world={

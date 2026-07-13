@@ -85,6 +85,7 @@ class ContinuousNavigationSpec:
     goal: ContinuousGoal
     robot_start: ContinuousRobotStart
     robot_type: str
+    robot_radius: float
     distance_sensor_range_meters: float
     camera: ContinuousCameraSpec
     reward_weights: ContinuousRewardWeights

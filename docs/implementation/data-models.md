@@ -92,7 +92,7 @@ request model: `embodiedlab.schemas.ScenarioBundle`
   },
   "compatibility": {
     "envforge_min_version": "0.1.0",
-    "robot_version": "simple_robot.v0",
+    "robot_version": "simple_robot.v1",
     "sensor_version": "basic_sensors.v0"
   },
   "world": {
@@ -111,6 +111,7 @@ request model: `embodiedlab.schemas.ScenarioBundle`
   },
   "robot": {
     "type": "simple_robot",
+    "radius": 0.45,
     "start_pose": {
       "position": { "x": 1.0, "z": 1.0 },
       "rotation_y_degrees": 0.0

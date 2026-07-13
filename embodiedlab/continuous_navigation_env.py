@@ -115,6 +115,7 @@ class ContinuousNavigationEnv(gym.Env):
         )
         self.robot_rotation_y_degrees = spec.robot_start.rotation_y_degrees
         self.steps = 0
+        self._robot_radius = float(spec.robot_radius)
         self._obstacle_ids = tuple(obstacle.obstacle_id for obstacle in spec.obstacles)
         self._obstacle_center_x = np.array(
             [obstacle.center_x for obstacle in spec.obstacles],
@@ -132,6 +133,8 @@ class ContinuousNavigationEnv(gym.Env):
             [obstacle.size_z / 2.0 for obstacle in spec.obstacles],
             dtype=np.float32,
         )
+        self._obstacle_collision_half_x = self._obstacle_half_x + self._robot_radius
+        self._obstacle_collision_half_z = self._obstacle_half_z + self._robot_radius
         self._obstacle_height = np.array(
             [obstacle.height for obstacle in spec.obstacles],
             dtype=np.float32,
@@ -191,8 +194,12 @@ class ContinuousNavigationEnv(gym.Env):
 
     def _inside_bounds(self, position: np.ndarray) -> bool:
         return bool(
-            self.spec.bounds.min_x <= position[0] <= self.spec.bounds.max_x
-            and self.spec.bounds.min_z <= position[1] <= self.spec.bounds.max_z,
+            self.spec.bounds.min_x + self._robot_radius
+            <= position[0]
+            <= self.spec.bounds.max_x - self._robot_radius
+            and self.spec.bounds.min_z + self._robot_radius
+            <= position[1]
+            <= self.spec.bounds.max_z - self._robot_radius,
         )
 
     def _collision_id(self, position: np.ndarray) -> str | None:
@@ -207,8 +214,8 @@ class ContinuousNavigationEnv(gym.Env):
         local_x = translated_x * self._obstacle_cos - translated_z * self._obstacle_sin
         local_z = translated_x * self._obstacle_sin + translated_z * self._obstacle_cos
         hits = np.nonzero(
-            (np.abs(local_x) <= self._obstacle_half_x)
-            & (np.abs(local_z) <= self._obstacle_half_z),
+            (np.abs(local_x) <= self._obstacle_collision_half_x)
+            & (np.abs(local_z) <= self._obstacle_collision_half_z),
         )[0]
         if len(hits) > 0:
             return self._obstacle_ids[int(hits[0])]
@@ -598,10 +605,10 @@ class ContinuousNavigationEnv(gym.Env):
         probe_z: np.ndarray,
     ) -> str | None:
         out_of_bounds = (
-            (probe_x < self.spec.bounds.min_x)
-            | (probe_x > self.spec.bounds.max_x)
-            | (probe_z < self.spec.bounds.min_z)
-            | (probe_z > self.spec.bounds.max_z)
+            (probe_x < self.spec.bounds.min_x + self._robot_radius)
+            | (probe_x > self.spec.bounds.max_x - self._robot_radius)
+            | (probe_z < self.spec.bounds.min_z + self._robot_radius)
+            | (probe_z > self.spec.bounds.max_z - self._robot_radius)
         )
         if len(self._obstacle_ids) == 0:
             return "world_bounds" if np.any(out_of_bounds) else None
@@ -610,8 +617,8 @@ class ContinuousNavigationEnv(gym.Env):
         translated_z = probe_z[:, None] - self._obstacle_center_z
         local_x = translated_x * self._obstacle_cos - translated_z * self._obstacle_sin
         local_z = translated_x * self._obstacle_sin + translated_z * self._obstacle_cos
-        obstacle_mask = (np.abs(local_x) <= self._obstacle_half_x) & (
-            np.abs(local_z) <= self._obstacle_half_z
+        obstacle_mask = (np.abs(local_x) <= self._obstacle_collision_half_x) & (
+            np.abs(local_z) <= self._obstacle_collision_half_z
         )
         for point_index in range(len(probe_x)):
             if out_of_bounds[point_index]:
