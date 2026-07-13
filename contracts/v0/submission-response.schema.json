@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Response returned after accepting a submission or training request.",
+  "properties": {
+    "status": {
+      "const": "accepted",
+      "title": "Status",
+      "type": "string"
+    },
+    "submission_id": {
+      "minLength": 1,
+      "title": "Submission Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "submission_id"
+  ],
+  "title": "SubmissionResponse",
+  "type": "object"
+}

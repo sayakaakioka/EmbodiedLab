@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from embodiedlab.result_models import ReplayBundleManifest
 from embodiedlab.training.replay_bundle import ReplayBundleWriter
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -28,13 +29,13 @@ def test_replay_bundle_writer_matches_canonical_manifest(tmp_path):
     )
 
     manifest = writer.finish()
-    fixture_path = (
-        FIXTURE_DIR / "envforge" / "navigation_replay_bundle_manifest.json"
-    )
+    fixture_path = FIXTURE_DIR / "envforge" / "navigation_replay_bundle_manifest.json"
     expected = json.loads(fixture_path.read_text(encoding="utf-8"))
     written = json.loads(
         (writer.root_dir / "manifest.json").read_text(encoding="utf-8"),
     )
+    validated = ReplayBundleManifest.model_validate(expected)
 
     assert manifest == expected
     assert written == expected
+    assert validated.model_dump(mode="json", exclude_none=True) == expected

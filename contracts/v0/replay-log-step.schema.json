@@ -1,0 +1,271 @@
+{
+  "$defs": {
+    "ReplayAction": {
+      "description": "Action values emitted for a replay step.",
+      "properties": {
+        "values": {
+          "items": {
+            "$ref": "#/$defs/ReplayNamedValue"
+          },
+          "title": "Values",
+          "type": "array"
+        }
+      },
+      "title": "ReplayAction",
+      "type": "object"
+    },
+    "ReplayEvent": {
+      "description": "A compact event emitted during replay.",
+      "properties": {
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "object_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Object Id"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "ReplayEvent",
+      "type": "object"
+    },
+    "ReplayNamedValue": {
+      "description": "A named scalar value in a JsonUtility-friendly replay payload.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "ReplayNamedValue",
+      "type": "object"
+    },
+    "ReplayPosition": {
+      "description": "A continuous replay position on the x/z plane.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "z": {
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "z"
+      ],
+      "title": "ReplayPosition",
+      "type": "object"
+    },
+    "ReplayReward": {
+      "description": "Reward values emitted for a replay step.",
+      "properties": {
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ReplayNamedValue"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "total": {
+          "title": "Total",
+          "type": "number"
+        }
+      },
+      "required": [
+        "total"
+      ],
+      "title": "ReplayReward",
+      "type": "object"
+    },
+    "ReplayRobotState": {
+      "description": "Robot state emitted in a replay step.",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/ReplayPosition"
+        },
+        "rotation_y_degrees": {
+          "title": "Rotation Y Degrees",
+          "type": "number"
+        }
+      },
+      "required": [
+        "position",
+        "rotation_y_degrees"
+      ],
+      "title": "ReplayRobotState",
+      "type": "object"
+    },
+    "ReplaySensorSummary": {
+      "description": "A compact sensor summary emitted during replay.",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "value"
+      ],
+      "title": "ReplaySensorSummary",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One JSON Lines row in an EnvForge replay log.",
+  "properties": {
+    "action": {
+      "$ref": "#/$defs/ReplayAction"
+    },
+    "checkpoint_step": {
+      "minimum": 0,
+      "title": "Checkpoint Step",
+      "type": "integer"
+    },
+    "env_index": {
+      "minimum": 0,
+      "title": "Env Index",
+      "type": "integer"
+    },
+    "episode_id": {
+      "minLength": 1,
+      "title": "Episode Id",
+      "type": "string"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/ReplayEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "job_id": {
+      "minLength": 1,
+      "title": "Job Id",
+      "type": "string"
+    },
+    "phase": {
+      "minLength": 1,
+      "title": "Phase",
+      "type": "string"
+    },
+    "policy_mode": {
+      "minLength": 1,
+      "title": "Policy Mode",
+      "type": "string"
+    },
+    "reward": {
+      "$ref": "#/$defs/ReplayReward"
+    },
+    "robot": {
+      "$ref": "#/$defs/ReplayRobotState"
+    },
+    "scenario_id": {
+      "minLength": 1,
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "replay-log.v0",
+      "default": "replay-log.v0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "sensors": {
+      "items": {
+        "$ref": "#/$defs/ReplaySensorSummary"
+      },
+      "title": "Sensors",
+      "type": "array"
+    },
+    "step_index": {
+      "minimum": 0,
+      "title": "Step Index",
+      "type": "integer"
+    },
+    "terminated": {
+      "default": false,
+      "title": "Terminated",
+      "type": "boolean"
+    },
+    "termination_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Termination Reason"
+    },
+    "time_seconds": {
+      "minimum": 0.0,
+      "title": "Time Seconds",
+      "type": "number"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "job_id",
+    "phase",
+    "checkpoint_step",
+    "env_index",
+    "policy_mode",
+    "episode_id",
+    "step_index",
+    "time_seconds",
+    "robot",
+    "reward"
+  ],
+  "title": "ReplayLogStep",
+  "type": "object"
+}

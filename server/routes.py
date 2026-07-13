@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from embodiedlab.api_models import SubmissionResponse
 from embodiedlab.repositories import (
     ResultFailureWriter,
     ResultQueueWriter,
@@ -13,6 +14,7 @@ from embodiedlab.repositories import (
     SubmissionExistenceChecker,
     SubmissionWriter,
 )
+from embodiedlab.result_models import ResultDocument
 from embodiedlab.schemas import ScenarioBundle
 from server.config import ServerConfig
 from server.dependencies import (
@@ -42,14 +44,11 @@ def create_submission(
         SubmissionWriter,
         Depends(get_submission_repository),
     ],
-) -> dict[str, str]:
+) -> SubmissionResponse:
     """Create a new submission and persist it to Firestore."""
     submission_id = submission_repository.save(scenario)
 
-    return {
-        "status": "accepted",
-        "submission_id": submission_id,
-    }
+    return SubmissionResponse(status="accepted", submission_id=submission_id)
 
 
 @router.post("/submissions/{submission_id}/train")
@@ -64,7 +63,7 @@ def train(
         ResultQueueWriter | ResultFailureWriter,
         Depends(get_result_repository),
     ],
-) -> dict[str, str]:
+) -> SubmissionResponse:
     """Queue a result document and trigger the trainer job."""
     try:
         start_training_for_submission(
@@ -82,13 +81,14 @@ def train(
             detail=exc.message,
         ) from exc
 
-    return {
-        "status": "accepted",
-        "submission_id": submission_id,
-    }
+    return SubmissionResponse(status="accepted", submission_id=submission_id)
 
 
-@router.get("/results/{submission_id}")
+@router.get(
+    "/results/{submission_id}",
+    response_model=ResultDocument,
+    response_model_exclude_unset=True,
+)
 def get_result(
     submission_id: str,
     server_config: Annotated[ServerConfig, Depends(get_config)],
@@ -100,16 +100,18 @@ def get_result(
         ExecutionFailureFinder,
         Depends(get_execution_failure_finder),
     ],
-) -> dict[str, Any]:
+) -> ResultDocument:
     """Return the latest result document for the submission."""
     result = result_repository.fetch(submission_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Result not found")
 
-    return reconcile_result_with_execution_failure(
-        config=server_config,
-        submission_id=submission_id,
-        result_repository=result_repository,
-        result=result,
-        find_failed_execution=find_execution_failure,
+    return ResultDocument.model_validate(
+        reconcile_result_with_execution_failure(
+            config=server_config,
+            submission_id=submission_id,
+            result_repository=result_repository,
+            result=result,
+            find_failed_execution=find_execution_failure,
+        ),
     )
