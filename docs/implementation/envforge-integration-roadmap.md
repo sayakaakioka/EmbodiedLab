@@ -33,11 +33,13 @@ Pub/Sub event、WebSocket fan-out を持つ。
 
 ## Target Integration Shape
 
-EnvForge は Unity build ではなく Scenario Bundle を送信する。
-EmbodiedLab はそれを検証し、クラウド向きの学習環境へ変換し、
+EnvForge などの Unity frontend は Unity build ではなく Scenario Bundle を送信する。
+共通のジョブ投入、進捗監視、成果物取得には独立した `EmbodiedLab.Unity` package を
+利用する。EmbodiedLab は Scenario Bundle を検証し、クラウド向きの学習環境へ変換し、
 学習を実行し、Result Bundle を返す。
 
-    EnvForge
+    EnvForge / another Unity frontend
+      -> EmbodiedLab.Unity
       -> Scenario Bundle
       -> EmbodiedLab API
       -> Training Job
@@ -70,11 +72,13 @@ Phase 0 は完了扱いとする。
 
 各契約には schema version と compatibility metadata を含める。
 
-推奨する source-of-truth の分担は以下である。
+source-of-truth の分担は以下とする。
 
-- EnvForge は user-facing scenario と replay semantics を主に持つ。
-- EmbodiedLab は backend runtime representation と job result document を持つ。
-- 両リポジトリは shared contract を検証する tests を持つ。
+- EmbodiedLab は外部 API contract、backend runtime representation、
+  job result document を持つ。
+- `EmbodiedLab.Unity` は contract の Unity DTO、serializer、compatibility check を持つ。
+- EnvForge は user-facing scenario editor と replay visualization semantics を持つ。
+- 各リポジトリは canonical fixture による contract 適合 test を持つ。
 
 ## Phase 2: Reward Components
 
@@ -293,11 +297,32 @@ EnvForge 推論挙動を確認してから行う。
 この Phase では、学習負荷を下げるために sensor や camera を省略する最適化は行わない。
 必要な観測を同じ意味で生成しつつ、実装と実行形態を高速化する。
 
+## Phase 7: Unity SDK 分離
+
+EnvForge 内の汎用 client 機能を、独立した `EmbodiedLab.Unity` リポジトリの
+UPM package へ移す。対象は bundle DTO、HTTP API client、WebSocket result stream、
+HTTP 再同期、artifact download、Replay Bundle の取得と parse、互換性検査である。
+
+EnvForge には world editor、Scenario Bundle 構築、UI、ユーザ向け job history、
+Replay の scene 表示、ONNX Runtime 推論を残す。詳細は
+`docs/implementation/unity-sdk-roadmap.md` に記録する。
+
+## Phase 8: Episode Environment Generation
+
+既存の固定マップを `fixed` mode の既定動作として維持し、明示的に選択した場合だけ
+`generated` mode を使う。`generated` mode は versioned な宣言的生成規則、seed、
+制約から episode ごとの環境を構成する。
+
+マップを複数領域へ分割し、領域ごとに候補の壁パーツをランダム選択する方式は一例であり、
+特定の 4 分割方式を契約そのものにはしない。生成結果は Replay または関連 metadata に
+記録し、episode を再現できるようにする。ユーザ提供の任意コード実行は対象外とする。
+
 ## Open Issues
 
-- Scenario Bundle schema をどちらのリポジトリで管理するか。
-- 共有 package を作るか。
-- Replay Log をどう圧縮・分割するか。
+- API contract の正本から Unity DTO を生成するか、fixture 適合 test で同期するか。
+- `EmbodiedLab.Unity` の release、tag、package distribution をどう運用するか。
+- `generated` mode の最初の schema と生成結果の記録先。
+- Replay Bundle の巨大 chunk を全結合せずに読む streaming load。
 - user-specific result を導入した後の GCS access をどうするか。
 - public-read model artifact をいつまで許容するか。
 - WSL2 `aarch64` 開発と Cloud Run `linux/amd64` deploy の差をどう扱うか。
