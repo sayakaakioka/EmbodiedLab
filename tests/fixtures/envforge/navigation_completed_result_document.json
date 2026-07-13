@@ -1,0 +1,132 @@
+{
+  "submission_id": "submission-1",
+  "status": "completed",
+  "progress": {
+    "phase": "completed",
+    "current_step": 5000,
+    "total_steps": 5000,
+    "message": "Training completed"
+  },
+  "summary": {
+    "training_timesteps": 5000,
+    "training_seed": 10,
+    "success_rate": 0.82,
+    "avg_reward": 6.4,
+    "avg_steps": 118.5
+  },
+  "error": null,
+  "artifacts": {
+    "model": {
+      "storage": "gcs",
+      "bucket": "embodiedlab-models",
+      "path": "results/submission-1/model/policy.zip"
+    },
+    "onnx_model": {
+      "storage": "gcs",
+      "bucket": "embodiedlab-models",
+      "path": "results/submission-1/model/policy.onnx"
+    },
+    "sentis_model": {
+      "storage": "gcs",
+      "bucket": "embodiedlab-models",
+      "path": "results/submission-1/model/policy.sentis.onnx",
+      "format": "onnx",
+      "target": "unity-sentis",
+      "opset_version": 15,
+      "input": {
+        "name": "observation",
+        "shape": [1, 28226],
+        "dtype": "float32",
+        "layout": [
+          "obs_0_chw_3x84x112",
+          "obs_1_angle_degrees",
+          "obs_1_distance_meters"
+        ]
+      },
+      "output": {
+        "name": "action",
+        "layout": ["forward", "turn"],
+        "action_mapping": {
+          "forward": "sigmoid(policy_forward)",
+          "turn": "clip(policy_turn, -3, 3) / 3"
+        }
+      }
+    },
+    "replay_bundle": {
+      "storage": "gcs",
+      "bucket": "embodiedlab-models",
+      "path": "results/submission-1/replay/manifest.json",
+      "format": "json",
+      "schema_version": "replay-bundle.v0"
+    }
+  },
+  "result_bundle": {
+    "schema_version": "result-bundle.v0",
+    "scenario_id": "navigation_default",
+    "job_id": "submission-1",
+    "status": "completed",
+    "compatibility": {
+      "scenario_schema_version": "scenario-bundle.v0",
+      "envforge_min_version": "0.1.0",
+      "robot_version": "simple_robot.v1",
+      "sensor_version": "basic_sensors.v0",
+      "action_layout": ["forward", "turn"],
+      "observation_layout": ["front_camera", "front_distance"]
+    },
+    "summary": {
+      "training_timesteps": 5000,
+      "training_seed": 10,
+      "success_rate": 0.82,
+      "average_episode_reward": 6.4,
+      "average_episode_steps": 118.5
+    },
+    "artifacts": {
+      "model": {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/submission-1/model/policy.onnx",
+        "format": "onnx"
+      },
+      "onnx_model": {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/submission-1/model/policy.onnx",
+        "format": "onnx"
+      },
+      "sentis_model": {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/submission-1/model/policy.sentis.onnx",
+        "format": "onnx",
+        "target": "unity-sentis",
+        "opset_version": 15,
+        "input": {
+          "name": "observation",
+          "shape": [1, 28226],
+          "dtype": "float32",
+          "layout": [
+            "obs_0_chw_3x84x112",
+            "obs_1_angle_degrees",
+            "obs_1_distance_meters"
+          ]
+        },
+        "output": {
+          "name": "action",
+          "layout": ["forward", "turn"],
+          "action_mapping": {
+            "forward": "sigmoid(policy_forward)",
+            "turn": "clip(policy_turn, -3, 3) / 3"
+          }
+        }
+      },
+      "replay_bundle": {
+        "storage": "gcs",
+        "bucket": "embodiedlab-models",
+        "path": "results/submission-1/replay/manifest.json",
+        "format": "json"
+      }
+    },
+    "error": null
+  },
+  "updated_at": "2026-07-13T00:00:00+00:00"
+}

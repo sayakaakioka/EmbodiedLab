@@ -89,6 +89,11 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 2. SDK の最小公開 API と contract versioning。
 3. EnvForge 移行後の操作と end-to-end 結果。
 
+## 進行状況
+
+- Issue #24 で、SDK が読む completed Result Document と Replay Bundle manifest の
+  canonical fixture を追加し、現行 wire format を test で固定した。
+
 ## 保留事項
 
 - SDK repository の公開範囲、release、tag、package distribution の運用。

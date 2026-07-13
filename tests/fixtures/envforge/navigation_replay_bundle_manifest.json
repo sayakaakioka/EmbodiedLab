@@ -1,0 +1,30 @@
+{
+  "schema_version": "replay-bundle.v0",
+  "job_id": "submission-1",
+  "scenario_id": "navigation_default",
+  "total_timesteps": 5000,
+  "chunks": [
+    {
+      "phase": "train",
+      "policy_mode": "stochastic",
+      "checkpoint_step": 2,
+      "start_step": 1,
+      "end_step": 2,
+      "path": "train/chunk_000000.jsonl.gz",
+      "format": "jsonl.gz",
+      "step_count": 2
+    },
+    {
+      "phase": "eval",
+      "policy_mode": "deterministic",
+      "checkpoint_step": 5000,
+      "path": "eval/checkpoint_00005000.jsonl.gz",
+      "format": "jsonl.gz",
+      "step_count": 2,
+      "episode_count": 1,
+      "success_rate": 1.0,
+      "avg_reward": 82.4,
+      "avg_steps": 118.5
+    }
+  ]
+}
