@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from embodiedlab.api_models import SubmissionResponse
+from embodiedlab.api_models import SubmissionResponse, TrainingResponse
 from embodiedlab.result_models import (
     ReplayBundleManifest,
     ReplayLogStep,
@@ -26,6 +26,7 @@ JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 CONTRACT_MODELS: tuple[tuple[str, type[BaseModel]], ...] = (
     ("scenario-bundle.schema.json", ScenarioBundle),
     ("submission-response.schema.json", SubmissionResponse),
+    ("training-response.schema.json", TrainingResponse),
     ("result-document.schema.json", ResultDocument),
     ("result-bundle.schema.json", ResultBundle),
     ("replay-bundle-manifest.schema.json", ReplayBundleManifest),

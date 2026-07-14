@@ -1,12 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "Response returned after accepting a new submission.",
+  "description": "Response returned after accepting a training request.",
   "properties": {
-    "cancel_token": {
-      "minLength": 32,
-      "title": "Cancel Token",
-      "type": "string"
-    },
     "status": {
       "const": "accepted",
       "title": "Status",
@@ -20,9 +15,8 @@
   },
   "required": [
     "status",
-    "submission_id",
-    "cancel_token"
+    "submission_id"
   ],
-  "title": "SubmissionResponse",
+  "title": "TrainingResponse",
   "type": "object"
 }

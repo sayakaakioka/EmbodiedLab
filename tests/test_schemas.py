@@ -37,7 +37,11 @@ def test_scenario_bundle_defaults_are_valid():
 def test_build_submission_document_returns_firestore_payload():
     scenario = ScenarioBundle()
 
-    payload = build_submission_document("submission-1", scenario)
+    payload = build_submission_document(
+        "submission-1",
+        scenario,
+        cancel_token_hash="a" * 64,
+    )
 
     assert payload["submission_id"] == "submission-1"
     assert isinstance(payload["created_at"], str)
@@ -47,6 +51,10 @@ def test_build_submission_document_returns_firestore_payload():
     assert payload["scenario"]["robot"]["type"] == "simple_robot"
     assert payload["scenario"]["robot"]["radius"] == 0.45
     assert payload["scenario"]["training"]["algorithm"] == "ppo"
+    assert payload["control"] == {
+        "cancel_token_hash": "a" * 64,
+        "execution_name": None,
+    }
 
 
 def test_scenario_bundle_accepts_documented_shape():

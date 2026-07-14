@@ -325,6 +325,8 @@
         "queued",
         "starting",
         "running",
+        "cancelling",
+        "cancelled",
         "completed",
         "failed"
       ],

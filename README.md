@@ -22,7 +22,7 @@ with the right background.
 ```text
 Client
   -> POST /submissions
-      -> Firestore submissions/{submission_id}
+      -> Firestore submissions/{submission_id} with a hashed cancel capability
   -> POST /submissions/{submission_id}/train
       -> Firestore results/{submission_id} = queued
       -> Cloud Run Job with SUBMISSION_ID
@@ -33,6 +33,9 @@ Client
           -> Pub/Sub event
               -> notification service push endpoint
                   -> WebSocket subscribers
+  -> POST /submissions/{submission_id}/cancel
+      -> cancel the exact stored Cloud Run Execution
+      -> Pub/Sub cancelling/cancelled events
   -> GET /results/{submission_id}
   -> WebSocket /ws/results/{submission_id}
 ```
@@ -45,8 +48,8 @@ embodiedlab/
   environment, and training logic.
 
 server/
-  FastAPI API service for accepting submissions, starting training jobs, and
-  serving result documents.
+  FastAPI API service for accepting submissions, starting or cancelling
+  training jobs, and serving result documents.
 
 trainer/
   Cloud Run Job for loading a submission, running PPO training, uploading
@@ -65,7 +68,7 @@ tests/
 The repository currently has automated coverage for:
 
 - shared schemas and result models
-- API submission, training trigger, and result lookup routes
+- API submission, training trigger, cancellation, and result lookup routes
 - trainer job state transitions, failure handling, and artifact flow
 - notification Pub/Sub push validation and WebSocket fan-out
 
@@ -114,14 +117,26 @@ Example payload:
 
 ```json
 {
-  "environment": {
-    "size": [4, 4],
-    "obstacles": [{"x": 1, "y": 1}],
-    "goal": {"x": 3, "y": 3},
-    "robot_start": {"x": 0, "y": 0}
+  "schema_version": "scenario-bundle.v0",
+  "scenario_id": "navigation-demo",
+  "world": {
+    "bounds": {
+      "min": {"x": 0.0, "z": 0.0},
+      "max": {"x": 10.0, "z": 10.0}
+    },
+    "goal": {
+      "id": "goal-1",
+      "position": {"x": 8.5, "z": 8.5},
+      "radius": 0.5
+    }
   },
   "robot": {
-    "type": "simple"
+    "type": "simple_robot",
+    "radius": 0.45,
+    "start_pose": {
+      "position": {"x": 1.0, "z": 1.0},
+      "rotation_y_degrees": 0.0
+    }
   },
   "training": {
     "algorithm": "ppo",
@@ -135,9 +150,14 @@ Response:
 ```json
 {
   "status": "accepted",
-  "submission_id": "..."
+  "submission_id": "...",
+  "cancel_token": "..."
 }
 ```
+
+The cancellation capability is returned only in this response. Persist it if
+the client must be able to cancel the job after restarting. The server stores
+only its SHA-256 digest.
 
 ### Start Training
 
@@ -148,6 +168,17 @@ POST /submissions/{submission_id}/train
 This creates or replaces `results/{submission_id}` with `queued` status, then
 starts the configured Cloud Run Job with `SUBMISSION_ID`.
 
+### Cancel Training
+
+```http
+POST /submissions/{submission_id}/cancel
+Authorization: Bearer {cancel_token}
+```
+
+Cancellation targets the exact Cloud Run Execution recorded when training was
+started. The response is the latest result document and is idempotent after the
+job reaches `cancelled`.
+
 ### Get Result
 
 ```http
@@ -156,7 +187,8 @@ GET /results/{submission_id}
 
 Result documents include:
 
-- `status`: `queued`, `starting`, `running`, `completed`, or `failed`
+- `status`: `queued`, `starting`, `running`, `cancelling`, `cancelled`,
+  `completed`, or `failed`
 - `progress`: phase, current step, total steps, and message
 - `summary`: training and evaluation summary when completed
 - `artifacts`: GCS model location when completed
@@ -187,6 +219,7 @@ Required API variables:
 - `DB_ID`
 - `REGION`
 - `PROJECT_ID`
+- `PUBSUB_TOPIC`
 - `TRAINER_JOB_NAME`
 
 Required trainer variables:
@@ -316,12 +349,13 @@ make get_result_ws
 
 The current implementation supports:
 
-- Grid-world environment definitions
+- Continuous navigation Scenario Bundle definitions
 - A simple robot descriptor
 - PPO training through Stable-Baselines3
 - Firestore-backed submissions and results
 - GCS model artifact upload
 - Pub/Sub-backed result notifications
+- capability-protected Cloud Run job cancellation
 - Cloud Run API, Cloud Run Job, and WebSocket relay deployment
 
 ## Non-Goals For Now

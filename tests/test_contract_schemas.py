@@ -25,10 +25,14 @@ def test_openapi_exposes_typed_sdk_responses():
     training_response = openapi["paths"]["/submissions/{submission_id}/train"]["post"][
         "responses"
     ]["200"]["content"]["application/json"]["schema"]
+    cancellation_response = openapi["paths"]["/submissions/{submission_id}/cancel"][
+        "post"
+    ]["responses"]["200"]["content"]["application/json"]["schema"]
     result_response = openapi["paths"]["/results/{submission_id}"]["get"]["responses"][
         "200"
     ]["content"]["application/json"]["schema"]
 
     assert submission_response == {"$ref": "#/components/schemas/SubmissionResponse"}
-    assert training_response == {"$ref": "#/components/schemas/SubmissionResponse"}
+    assert training_response == {"$ref": "#/components/schemas/TrainingResponse"}
+    assert cancellation_response == {"$ref": "#/components/schemas/ResultDocument"}
     assert result_response == {"$ref": "#/components/schemas/ResultDocument"}

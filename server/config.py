@@ -14,6 +14,8 @@ class ServerConfig:
     db_id: str
     region: str
     job_path: str
+    project_id: str
+    pubsub_topic: str
 
 
 def load_server_config() -> ServerConfig:
@@ -26,4 +28,6 @@ def load_server_config() -> ServerConfig:
         db_id=get_required_env("DB_ID"),
         region=region,
         job_path=f"projects/{project_id}/locations/{region}/jobs/{trainer_job_name}",
+        project_id=project_id,
+        pubsub_topic=get_required_env("PUBSUB_TOPIC"),
     )

@@ -11,12 +11,13 @@ from server.config import ServerConfig
 
 if TYPE_CHECKING:
     from embodiedlab.repositories import (
-        ResultFailureWriter,
         ResultQueueWriter,
+        ResultUpdateWriter,
+        SubmissionExecutionWriter,
         SubmissionExistenceChecker,
     )
 
-TriggerTrainingJob = Callable[[ServerConfig, str], None]
+TriggerTrainingJob = Callable[[ServerConfig, str], str]
 
 
 class SubmissionNotFoundError(Exception):
@@ -39,12 +40,12 @@ class TrainingStartError(Exception):
 
 def start_training_for_submission(
     *,
-    submission_repository: SubmissionExistenceChecker,
-    result_repository: ResultQueueWriter | ResultFailureWriter,
+    submission_repository: SubmissionExistenceChecker | SubmissionExecutionWriter,
+    result_repository: ResultQueueWriter | ResultUpdateWriter,
     config: ServerConfig,
     submission_id: str,
     trigger_job: TriggerTrainingJob,
-) -> None:
+) -> str:
     """Queue result tracking and trigger the configured trainer job."""
     if not submission_repository.exists(submission_id):
         raise SubmissionNotFoundError(submission_id)
@@ -52,12 +53,17 @@ def start_training_for_submission(
     result_repository.create_queued(submission_id)
 
     try:
-        trigger_job(config, submission_id)
+        execution_name = trigger_job(config, submission_id)
+        submission_repository.set_execution_name(submission_id, execution_name)
     except Exception as exc:
         error_message = TrainingStartError.DEFAULT_MESSAGE
-        result_repository.mark_failed(
+        progress = failed_progress(error_message)
+        result_repository.write_update(
             submission_id,
-            failed_progress(error_message),
-            error_message,
+            status=progress.phase,
+            progress=progress,
+            error=error_message,
         )
         raise TrainingStartError from exc
+
+    return execution_name

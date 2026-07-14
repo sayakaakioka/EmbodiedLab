@@ -42,20 +42,32 @@ def test_fake_db_merge_recursively_updates_nested_documents():
 def test_fake_submission_repository_persists_and_fetches_submission():
     repository = FakeSubmissionRepository()
 
-    submission_id = repository.save(ScenarioBundle())
+    submission_id = repository.save(ScenarioBundle(), cancel_token_hash="a" * 64)
 
     assert repository.exists(submission_id) is True
     assert repository.fetch(submission_id)["submission_id"] == submission_id
+    assert repository.fetch_control(submission_id).cancel_token_hash == "a" * 64
+
+    repository.set_execution_name(
+        submission_id,
+        "projects/test/locations/test/executions/test-trainer-abcde",
+    )
+
+    assert repository.fetch_control(submission_id).execution_name.endswith(
+        "/executions/test-trainer-abcde",
+    )
 
 
 def test_fake_result_repository_tracks_payload_history():
     repository = FakeResultRepository()
 
     repository.create_queued("submission-1")
-    repository.mark_failed(
+    progress = failed_progress("boom")
+    repository.write_update(
         "submission-1",
-        failed_progress("boom"),
-        "boom",
+        status=progress.phase,
+        progress=progress,
+        error="boom",
     )
 
     payloads = repository.payloads_for("submission-1")
