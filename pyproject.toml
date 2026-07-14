@@ -13,6 +13,7 @@ server = [
     "fastapi",
     "uvicorn[standard]",
     "google-cloud-firestore",
+    "google-cloud-pubsub",
     "google-cloud-run",
 ]
 trainer = [

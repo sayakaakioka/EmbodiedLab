@@ -110,11 +110,19 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
   canonical fixture を追加し、現行 wire format を test で固定した。
 - Issue #26 で、現行 API response と Replay Bundle を Pydantic model に結び付け、
   Unity DTO 生成元となる versioned JSON Schema の公開に着手した。
+- Issue #28 で、合意した `T-B2 + C-B` の前提となる capability token 付き
+  クラウドジョブキャンセル、正確な Cloud Run Execution name の保存、
+  `cancelling` / `cancelled` 契約と WebSocket 通知を実装する。
+
+状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
+HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
+行わない。ジョブ作成、学習開始、キャンセル、artifact download は一回性の
+request/response として HTTP を使う。
 
 ## 保留事項
 
 - SDK repository の公開範囲、release、tag、package distribution の運用。
 - C# DTO generator の固定方法と、生成差分を SDK 側で検証する CI。
-- 認証導入後の token storage と signed artifact URL。
-- job cancellation、quota、cost control。
+- 一般ユーザ認証導入後の token storage と signed artifact URL。
+- quota、cost control。
 - `generated` mode の最初の schema と、生成結果を Replay のどこへ記録するか。

@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from embodiedlab.result_models import Progress, ResultBundle, ResultStatus
-    from embodiedlab.schemas import ScenarioBundle
+    from embodiedlab.schemas import ScenarioBundle, SubmissionControl
 
 
 class SubmissionWriter(Protocol):
     """Write boundary for submission persistence."""
 
-    def save(self, scenario: ScenarioBundle) -> str:
+    def save(self, scenario: ScenarioBundle, *, cancel_token_hash: str) -> str:
         """Persist a new submission and return its ID."""
 
 
@@ -30,6 +30,20 @@ class SubmissionReader(Protocol):
         """Fetch a submission payload by ID."""
 
 
+class SubmissionControlReader(Protocol):
+    """Read boundary for private submission control data."""
+
+    def fetch_control(self, submission_id: str) -> SubmissionControl | None:
+        """Fetch cancellation and execution control data."""
+
+
+class SubmissionExecutionWriter(Protocol):
+    """Write boundary for the Cloud Run execution assigned to a submission."""
+
+    def set_execution_name(self, submission_id: str, execution_name: str) -> None:
+        """Persist the exact Cloud Run Execution resource name."""
+
+
 class ResultReader(Protocol):
     """Read boundary for result lookup."""
 
@@ -42,18 +56,6 @@ class ResultQueueWriter(Protocol):
 
     def create_queued(self, submission_id: str) -> None:
         """Create a queued result document for a submission."""
-
-
-class ResultFailureWriter(Protocol):
-    """Write boundary for failed result transitions."""
-
-    def mark_failed(
-        self,
-        submission_id: str,
-        progress: Progress,
-        message: str,
-    ) -> None:
-        """Mark a result document as failed."""
 
 
 class ResultUpdateWriter(Protocol):

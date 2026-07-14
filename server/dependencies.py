@@ -3,20 +3,28 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
 from google.cloud import firestore
 
+from embodiedlab.result_events import publish_result_event
 from server.config import ServerConfig, load_server_config
 from server.repositories import (
     FirestoreResultRepository,
     FirestoreSubmissionRepository,
 )
-from server.services.execution_failures import (
-    ExecutionFailureFinder,
-    find_failed_execution_for_submission,
+from server.services.execution_reconciliation import (
+    ExecutionOutcomeReader,
+    read_execution_outcome,
 )
+from server.services.jobs import request_training_cancellation
+
+if TYPE_CHECKING:
+    from server.services.cancellations import (
+        CancellationRequester,
+        ResultEventPublisher,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -49,6 +57,16 @@ def get_result_repository(
     return FirestoreResultRepository(db)
 
 
-def get_execution_failure_finder() -> ExecutionFailureFinder:
-    """Return the Cloud Run execution failure lookup function."""
-    return find_failed_execution_for_submission
+def get_execution_outcome_reader() -> ExecutionOutcomeReader:
+    """Return the exact Cloud Run execution outcome reader."""
+    return read_execution_outcome
+
+
+def get_cancellation_requester() -> CancellationRequester:
+    """Return the Cloud Run execution cancellation requester."""
+    return request_training_cancellation
+
+
+def get_result_event_publisher() -> ResultEventPublisher:
+    """Return the shared ordered result event publisher."""
+    return publish_result_event

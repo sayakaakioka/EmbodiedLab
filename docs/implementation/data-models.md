@@ -14,6 +14,7 @@
 | `DB_ID` | string | Firestore database ID |
 | `REGION` | string | Cloud Run region |
 | `PROJECT_ID` | string | GCP project ID |
+| `PUBSUB_TOPIC` | string | Topic for cancellation and reconciled result events |
 | `TRAINER_JOB_NAME` | string | Cloud Run Job name |
 
 Makefile の `deploy_trainer` は `TRAINER_TASK_TIMEOUT` を読み、Cloud Run Job の
@@ -25,7 +26,9 @@ resolved runtime shape:
 {
   "db_id": "my-firestore-db",
   "region": "asia-northeast1",
-  "job_path": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job"
+  "job_path": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job",
+  "project_id": "my-project",
+  "pubsub_topic": "trainer-results"
 }
 ```
 
@@ -159,9 +162,14 @@ response:
 ```json
 {
   "status": "accepted",
-  "submission_id": "submission-123"
+  "submission_id": "submission-123",
+  "cancel_token": "one-time-plaintext-capability"
 }
 ```
+
+`cancel_token` はこの response で一度だけ返す。server は平文を保存せず、
+`submissions/{submission_id}.control.cancel_token_hash` に SHA-256 digest だけを保存する。
+Unity client が再起動後もキャンセルする必要がある場合、client 側が token を保持する。
 
 ### `POST /submissions/{submission_id}/train`
 
@@ -176,7 +184,10 @@ successful response:
 }
 ```
 
-failure responses:
+学習開始時に Cloud Run `jobs.run` の Operation metadata から正確な Execution resource
+name を取得し、submission の private control data に保存してから response を返す。
+
+training failure responses:
 
 ```json
 {
@@ -190,17 +201,36 @@ failure responses:
 }
 ```
 
+### `POST /submissions/{submission_id}/cancel`
+
+request body はない。submission 作成時に返された capability を bearer token として渡す。
+
+```http
+Authorization: Bearer <cancel_token>
+```
+
+API は token hash を検証し、保存済みの正確な Execution resource に対してキャンセルを
+要求する。status は `cancelling`、完了後は `cancelled` となり、両 transition を
+Pub/Sub / WebSocket へ publish する。Cloud Run の完了待ちが timeout した場合は
+`202` と `cancelling` の Result Document を返し、後続の Result Document 再同期で
+`cancelled` を確定する。
+
+token がない、または一致しない場合は `403`、`completed` / `failed` の job は `409`
+とする。すでに `cancelled` の job に対する再実行は idempotent に現在値を返す。
+
 ### `GET /results/{submission_id}`
 
 response model shape: `embodiedlab.result_models.ResultDocument`
 
-active status（`queued`、`starting`、`running`）の result を返す場合、API は
-Cloud Run execution を `SUBMISSION_ID` override で照合する。対応する execution が
-timeout などで失敗済みなら、Firestore result を `failed` に更新してから返す。
+active status（`queued`、`starting`、`running`、`cancelling`）の result を返す場合、
+API は submission に保存された正確な Cloud Run Execution resource を取得する。
+対応する execution が timeout などで失敗済みなら `failed`、キャンセル済みなら
+`cancelled` に更新してから返し、更新を Pub/Sub へ publish する。
 これは trainer process が Cloud Run に強制終了され、trainer 自身の失敗更新が
 実行されない場合の補正である。
-この照合には runtime service account の `run.executions.list` 権限が必要であり、
-bootstrap では `roles/run.viewer` を付与する。
+この取得には runtime service account の `run.executions.get` 権限が必要であり、
+bootstrap では `roles/run.viewer` を付与する。キャンセルは project custom role の
+`run.executions.cancel` だけを追加し、広い Cloud Run Developer role は付与しない。
 
 ```json
 {
@@ -268,9 +298,16 @@ stored shape: `embodiedlab.schemas.SubmissionDocument`
       "timesteps": 5000,
       "max_episode_steps": 512
     }
+  },
+  "control": {
+    "cancel_token_hash": "sha256-hex-digest",
+    "execution_name": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job/executions/my-trainer-job-abcde"
   }
 }
 ```
+
+`control` は外部 API response に含めない private server data である。機能追加前に作成した
+submission にはこの field がないため、監視と成果物取得はできるがキャンセルはできない。
 
 ### `results/{submission_id}`
 
@@ -279,7 +316,7 @@ stored shape: `embodiedlab.result_models.ResultDocument`
 common status values:
 
 ```json
-["queued", "starting", "running", "completed", "failed"]
+["queued", "starting", "running", "cancelling", "cancelled", "completed", "failed"]
 ```
 
 progress shape:

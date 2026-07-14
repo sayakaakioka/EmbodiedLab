@@ -24,6 +24,8 @@ class ResultStatus(StrEnum):
     QUEUED = "queued"
     STARTING = "starting"
     RUNNING = "running"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -465,6 +467,26 @@ def completed_progress(total_steps: int) -> Progress:
         current_step=total_steps,
         total_steps=total_steps,
         message="Training completed",
+    )
+
+
+def cancelling_progress(current_step: int, total_steps: int) -> Progress:
+    """Return the progress payload emitted after cancellation is accepted."""
+    return build_progress(
+        phase=ResultStatus.CANCELLING,
+        current_step=current_step,
+        total_steps=total_steps,
+        message="Cancelling training",
+    )
+
+
+def cancelled_progress(current_step: int, total_steps: int) -> Progress:
+    """Return the terminal progress payload for a cancelled execution."""
+    return build_progress(
+        phase=ResultStatus.CANCELLED,
+        current_step=current_step,
+        total_steps=total_steps,
+        message="Training cancelled",
     )
 
 

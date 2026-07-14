@@ -15,10 +15,12 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
 
     Client
       -> POST /submissions
-          -> Firestore submissions/{submission_id}
+          -> cancellation capability を一度だけ返す
+          -> Firestore submissions/{submission_id} に token hash を保存
       -> POST /submissions/{submission_id}/train
           -> Firestore results/{submission_id} = queued
           -> Cloud Run Job with SUBMISSION_ID override
+              -> Operation metadata の正確な Execution name を submission に保存
               -> Firestore submission lookup
               -> Continuous navigation PPO training
               -> GCS artifact upload
@@ -26,6 +28,10 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
               -> Pub/Sub event
                   -> notification service push endpoint
                       -> WebSocket subscribers
+      -> POST /submissions/{submission_id}/cancel
+          -> cancellation capability を検証
+          -> 保存済みの正確な Cloud Run Execution を cancel
+          -> cancelling / cancelled event を Pub/Sub へ publish
       -> GET /results/{submission_id}
       -> WebSocket /ws/results/{submission_id}
 
@@ -34,21 +40,24 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
 ### `server/`
 
 FastAPI API service である。
-submission の受理、result document の queued 化、Cloud Run Job の起動、
-result document の返却を担当する。
+submission の受理、result document の queued 化、Cloud Run Job の起動とキャンセル、
+result document の返却を担当する。キャンセルは submission ごとの capability token で
+保護し、Firestore には SHA-256 hash だけを保存する。
 
 主な endpoint は以下である。
 
 - `POST /submissions`
 - `POST /submissions/{submission_id}/train`
+- `POST /submissions/{submission_id}/cancel`
 - `GET /results/{submission_id}`
 
 Cloud Run Job が timeout などで Python trainer の cleanup 前に終了した場合、
 trainer 自身は Firestore result を更新できない。このため API は
 `GET /results/{submission_id}` で active status
-（`queued`、`starting`、`running`）の result を返す前に、対応する Cloud Run
-execution を `SUBMISSION_ID` override で照合する。対応 execution が失敗済みなら
-result document を `failed` に更新してから返す。
+（`queued`、`starting`、`running`、`cancelling`）の result を返す前に、学習開始時に
+保存した正確な Cloud Run Execution を取得する。対応 execution が失敗済みなら
+`failed`、キャンセル済みなら `cancelled` に更新して Pub/Sub へ publish する。
+recent execution の走査や `SUBMISSION_ID` override による推測は行わない。
 
 ### `trainer/`
 

@@ -1,7 +1,11 @@
 from copy import deepcopy
 
 from embodiedlab.result_models import ResultBundle, build_result_update
-from embodiedlab.schemas import ScenarioBundle, build_submission_document
+from embodiedlab.schemas import (
+    ScenarioBundle,
+    SubmissionControl,
+    build_submission_document,
+)
 
 
 def merge_dicts(existing: dict, update: dict) -> dict:
@@ -81,11 +85,12 @@ class FakeSubmissionRepository:
     def __init__(self, initial_submissions: dict[str, dict] | None = None):
         self.submissions = deepcopy(initial_submissions or {})
 
-    def save(self, scenario: ScenarioBundle) -> str:
+    def save(self, scenario: ScenarioBundle, *, cancel_token_hash: str) -> str:
         submission_id = f"submission-{len(self.submissions) + 1}"
         self.submissions[submission_id] = build_submission_document(
             submission_id,
             scenario,
+            cancel_token_hash=cancel_token_hash,
         )
         return submission_id
 
@@ -98,6 +103,17 @@ class FakeSubmissionRepository:
             return None
 
         return deepcopy(payload)
+
+    def fetch_control(self, submission_id: str) -> SubmissionControl | None:
+        payload = self.submissions.get(submission_id)
+        if payload is None or payload.get("control") is None:
+            return None
+        return SubmissionControl.model_validate(payload["control"])
+
+    def set_execution_name(self, submission_id: str, execution_name: str) -> None:
+        submission = self.submissions[submission_id]
+        control = submission.setdefault("control", {})
+        control["execution_name"] = execution_name
 
 
 class FakeResultRepository:
@@ -114,14 +130,6 @@ class FakeResultRepository:
         self.results[submission_id] = payload
         self.payloads_by_submission.setdefault(submission_id, []).append(
             {"data": deepcopy(payload), "merge": False},
-        )
-
-    def mark_failed(self, submission_id: str, progress, message: str) -> None:
-        self.write_update(
-            submission_id,
-            status=progress.phase,
-            progress=progress,
-            error=message,
         )
 
     def fetch(self, submission_id: str) -> dict | None:

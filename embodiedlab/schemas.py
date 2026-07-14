@@ -433,18 +433,32 @@ class ScenarioBundle(BaseModel):
         return self
 
 
+class SubmissionControl(BaseModel):
+    """Private control data stored with a submitted scenario."""
+
+    cancel_token_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    execution_name: str | None = None
+
+
 class SubmissionDocument(BaseModel):
     """Firestore document stored at submissions/{submission_id}."""
 
     submission_id: str
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     scenario: ScenarioBundle
+    control: SubmissionControl
 
 
-def build_submission_document(submission_id: str, scenario: ScenarioBundle) -> dict:
+def build_submission_document(
+    submission_id: str,
+    scenario: ScenarioBundle,
+    *,
+    cancel_token_hash: str,
+) -> dict:
     """Return a Firestore-ready dict for a new scenario submission."""
     document = SubmissionDocument(
         submission_id=submission_id,
         scenario=scenario,
+        control=SubmissionControl(cancel_token_hash=cancel_token_hash),
     )
     return document.model_dump(mode="json")

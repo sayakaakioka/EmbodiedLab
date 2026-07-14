@@ -439,6 +439,7 @@ notification = [
 server = [
     { name = "fastapi" },
     { name = "google-cloud-firestore" },
+    { name = "google-cloud-pubsub" },
     { name = "google-cloud-run" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -475,6 +476,7 @@ notification = [
 server = [
     { name = "fastapi" },
     { name = "google-cloud-firestore" },
+    { name = "google-cloud-pubsub" },
     { name = "google-cloud-run" },
     { name = "uvicorn", extras = ["standard"] },
 ]

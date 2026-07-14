@@ -85,6 +85,8 @@ require_api_env:
 	exit $$missing
 
 RUNTIME_SA_EMAIL := $(RUNTIME_SA_NAME)@$(PROJECT_ID).iam.gserviceaccount.com
+RUN_CANCEL_ROLE_ID ?= embodiedLabExecutionCanceller
+RUN_CANCEL_ROLE := projects/$(PROJECT_ID)/roles/$(RUN_CANCEL_ROLE_ID)
 
 show_env: check_deps require_cloud_env
 	@echo "PROJECT_ID=$(PROJECT_ID)"
@@ -104,7 +106,7 @@ show_env: check_deps require_cloud_env
 ##### Google Cloud Run (Service / Job) setup #####
 .PHONY: gcp_auth gcp_bootstrap enable_services \
 	create_runtime_sa create_artifact_repo create_model_bucket create_firestore_db create_pubsub_topic \
-	grant_runtime_roles
+	create_run_cancel_role grant_runtime_roles
 
 gcp_auth: check_deps require_cloud_env
 	$(GCLOUD) auth login
@@ -117,6 +119,7 @@ gcp_bootstrap: check_deps require_cloud_env \
 	create_model_bucket \
 	create_firestore_db \
 	create_pubsub_topic \
+	create_run_cancel_role \
 	grant_runtime_roles
 	@echo "GCP bootstrap complete"
 
@@ -165,6 +168,20 @@ create_pubsub_topic: check_deps require_cloud_env
 	@$(GCLOUD) pubsub topics describe $(PUBSUB_TOPIC) >/dev/null 2>&1 || \
 		$(GCLOUD) pubsub topics create $(PUBSUB_TOPIC)
 
+create_run_cancel_role: check_deps require_cloud_env
+	@$(GCLOUD) iam roles describe $(RUN_CANCEL_ROLE_ID) \
+		--project=$(PROJECT_ID) >/dev/null 2>&1 || \
+		$(GCLOUD) iam roles create $(RUN_CANCEL_ROLE_ID) \
+			--project=$(PROJECT_ID) \
+			--title="EmbodiedLab execution canceller" \
+			--description="Cancel an EmbodiedLab Cloud Run execution" \
+			--permissions=run.executions.cancel \
+			--stage=GA
+	$(GCLOUD) iam roles update $(RUN_CANCEL_ROLE_ID) \
+		--project=$(PROJECT_ID) \
+		--permissions=run.executions.cancel \
+		--stage=GA
+
 grant_runtime_roles: check_deps require_cloud_env
 	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
@@ -178,6 +195,9 @@ grant_runtime_roles: check_deps require_cloud_env
 	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
 		--role="roles/run.viewer"
+	$(GCLOUD) projects add-iam-policy-binding $(PROJECT_ID) \
+		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
+		--role="$(RUN_CANCEL_ROLE)"
 	$(GCLOUD) storage buckets add-iam-policy-binding gs://$(MODEL_BUCKET) \
 		--member="serviceAccount:$(RUNTIME_SA_EMAIL)" \
 		--role="roles/storage.objectCreator"
@@ -223,7 +243,7 @@ deploy_api: build_api
 		--service-account $(RUNTIME_SA_EMAIL) \
 		--allow-unauthenticated \
 		--memory 1Gi \
-		--set-env-vars DB_ID=$(DB_ID),REGION=$(REGION),TRAINER_JOB_NAME=$(TRAINER_JOB_NAME),PROJECT_ID=$(PROJECT_ID)
+		--set-env-vars DB_ID=$(DB_ID),REGION=$(REGION),TRAINER_JOB_NAME=$(TRAINER_JOB_NAME),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC)
 
 TRAINER_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/trainer:latest
 TRAINER_CPU ?= 4

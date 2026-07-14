@@ -18,6 +18,8 @@ from embodiedlab.result_models import (
     build_result_bundle,
     build_result_message,
     build_result_update,
+    cancelled_progress,
+    cancelling_progress,
     completed_progress,
     failed_progress,
     parse_result_message,
@@ -70,6 +72,8 @@ def test_progress_factories_return_expected_payloads():
     running = running_progress(10)
     completed = completed_progress(10)
     failed = failed_progress("boom", total_steps=10)
+    cancelling = cancelling_progress(current_step=4, total_steps=10)
+    cancelled = cancelled_progress(current_step=4, total_steps=10)
 
     assert queued.phase is ResultStatus.QUEUED
     assert starting.message == "Trainer job started"
@@ -78,6 +82,10 @@ def test_progress_factories_return_expected_payloads():
     assert completed.phase is ResultStatus.COMPLETED
     assert failed.phase is ResultStatus.FAILED
     assert failed.message == "boom"
+    assert cancelling.phase is ResultStatus.CANCELLING
+    assert cancelling.current_step == 4
+    assert cancelled.phase is ResultStatus.CANCELLED
+    assert cancelled.message == "Training cancelled"
 
 
 def test_parse_result_message_validates_and_normalizes_payload():
