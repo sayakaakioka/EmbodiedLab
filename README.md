@@ -191,7 +191,8 @@ Result documents include:
   `completed`, or `failed`
 - `progress`: phase, current step, total steps, and message
 - `summary`: training and evaluation summary when completed
-- `artifacts`: GCS model location when completed
+- `result_bundle`: typed summary, artifact locations, compatibility metadata,
+  and structured failure details
 - `error`: failure detail when failed
 
 ### Stream Result Updates
