@@ -22,7 +22,6 @@ def update_result(  # noqa: PLR0913
     progress: dict | Progress,
     summary: dict[str, Any] | None = None,
     error: str | None = None,
-    artifacts: dict[str, Any] | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
     """Merge a status/progress update into the result document."""
@@ -31,7 +30,6 @@ def update_result(  # noqa: PLR0913
         progress=progress,
         summary=summary,
         error=error,
-        artifacts=artifacts,
         result_bundle=result_bundle,
     )
     result_ref.set(payload, merge=True)
