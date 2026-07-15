@@ -261,7 +261,6 @@ class ResultDocument(BaseModel):
     progress: Progress | None = None
     summary: dict[str, Any] | None = None
     error: str | None = None
-    artifacts: dict[str, Any] | None = None
     result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
@@ -274,7 +273,6 @@ class ResultMessage(BaseModel):
     progress: Progress | None = None
     summary: dict[str, Any] | None = None
     error: str | None = None
-    artifacts: dict[str, Any] | None = None
     result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
@@ -286,7 +284,6 @@ class ResultUpdate(BaseModel):
     progress: Progress
     summary: dict[str, Any] | None = None
     error: str | None = None
-    artifacts: dict[str, Any] | None = None
     result_bundle: ResultBundle | None = None
     updated_at: str = Field(default_factory=utc_now_iso)
 
@@ -510,13 +507,12 @@ def build_queued_result_document(submission_id: str) -> dict:
     return document.model_dump(mode="json")
 
 
-def build_result_update(  # noqa: PLR0913
+def build_result_update(
     *,
     status: ResultStatus,
     progress: dict | Progress,
     summary: dict[str, Any] | None = None,
     error: str | None = None,
-    artifacts: dict[str, Any] | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
     """Return a Firestore-ready dict for a partial result update."""
@@ -525,7 +521,6 @@ def build_result_update(  # noqa: PLR0913
         progress=progress,
         summary=summary,
         error=error,
-        artifacts=artifacts,
         result_bundle=result_bundle,
     )
     return update.model_dump(mode="json")
@@ -537,7 +532,6 @@ def build_result_message(  # noqa: PLR0913
     progress: Progress,
     summary: dict[str, Any] | None = None,
     error: str | None = None,
-    artifacts: dict[str, Any] | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
     """Return a dict suitable for publishing as a Pub/Sub message."""
@@ -547,7 +541,6 @@ def build_result_message(  # noqa: PLR0913
         progress=progress,
         summary=summary,
         error=error,
-        artifacts=artifacts,
         result_bundle=result_bundle,
     )
     return message.model_dump(mode="json")
