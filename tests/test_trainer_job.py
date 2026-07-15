@@ -95,19 +95,7 @@ def test_run_training_job_updates_result_to_completed():
         "training_timesteps": 5000,
         "training_seed": 10,
     }
-    assert payloads[-1]["data"]["artifacts"]["model"]["bucket"] == "model-bucket"
-    assert (
-        payloads[-1]["data"]["artifacts"]["onnx_model"]["path"]
-        == "results/submission-1/model/policy.onnx"
-    )
-    assert (
-        payloads[-1]["data"]["artifacts"]["sentis_model"]["path"]
-        == "results/submission-1/model/policy.sentis.onnx"
-    )
-    assert (
-        payloads[-1]["data"]["artifacts"]["replay_bundle"]["path"]
-        == "results/submission-1/replay/manifest.json"
-    )
+    assert "artifacts" not in payloads[-1]["data"]
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
     )
