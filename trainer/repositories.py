@@ -53,7 +53,6 @@ class FirestoreResultRepository(ResultUpdateWriter):
         progress: Progress,
         summary: dict[str, Any] | None = None,
         error: str | None = None,
-        artifacts: dict[str, Any] | None = None,
         result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Merge a status/progress update into the result document."""
@@ -62,7 +61,6 @@ class FirestoreResultRepository(ResultUpdateWriter):
             progress=progress,
             summary=summary,
             error=error,
-            artifacts=artifacts,
             result_bundle=result_bundle,
         )
         self._db.collection("results").document(submission_id).set(payload, merge=True)
