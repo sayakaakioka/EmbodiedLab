@@ -113,6 +113,9 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 - Issue #28 で、合意した `T-B2 + C-B` の前提となる capability token 付き
   クラウドジョブキャンセル、正確な Cloud Run Execution name の保存、
   `cancelling` / `cancelled` 契約と WebSocket 通知を実装する。
+- Issue #30 で、Result Document と result event の旧 top-level `artifacts` を
+  削除し、`result_bundle.artifacts` を唯一の artifact contract とする。
+  旧形式への fallback や互換 API は追加しない。
 
 状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
 HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
