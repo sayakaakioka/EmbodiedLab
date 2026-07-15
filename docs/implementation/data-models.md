@@ -259,18 +259,44 @@ bootstrap では `roles/run.viewer` を付与する。キャンセルは project
     "training_seed": 10
   },
   "error": null,
-  "artifacts": {
-    "model": {
-      "storage": "gcs",
-      "bucket": "my-model-bucket",
-      "path": "models/submission-123/policy.zip"
+  "result_bundle": {
+    "schema_version": "result-bundle.v0",
+    "scenario_id": "scenario_demo_001",
+    "job_id": "submission-123",
+    "status": "completed",
+    "compatibility": {
+      "scenario_schema_version": "scenario-bundle.v0",
+      "envforge_min_version": "0.1.0",
+      "robot_version": "simple_robot.v1",
+      "sensor_version": "basic_sensors.v0",
+      "action_layout": ["forward", "turn"],
+      "observation_layout": ["front_camera", "front_distance"]
+    },
+    "summary": {
+      "training_timesteps": 5000,
+      "training_seed": 10,
+      "success_rate": 0.95,
+      "average_episode_reward": 6.4,
+      "average_episode_steps": 118.5
+    },
+    "artifacts": {
+      "model": {
+        "storage": "gcs",
+        "bucket": "my-model-bucket",
+        "path": "results/submission-123/model/policy.onnx",
+        "format": "onnx"
+      }
     }
   },
   "updated_at": "2026-04-24T12:34:56.000000+00:00"
 }
 ```
 
-artifact path は `models/{submission_id}/` 配下の GCS object path である。
+artifact metadata の正規の格納先は `result_bundle.artifacts` だけであり、
+Result Document の top-level には複製しない。旧 top-level artifact だけを持つ
+result は現行 Unity client の対象外とする。
+
+artifact path は `results/{submission_id}/` 配下の GCS object path である。
 現在の Makefile-created model bucket は public object read を許可する。
 これは prototype 用であり、今後 access control を見直す。
 
@@ -362,7 +388,7 @@ published shape: `embodiedlab.result_models.ResultMessage`
   },
   "summary": null,
   "error": null,
-  "artifacts": null,
+  "result_bundle": null,
   "updated_at": "2026-04-24T12:35:12.000000+00:00"
 }
 ```
