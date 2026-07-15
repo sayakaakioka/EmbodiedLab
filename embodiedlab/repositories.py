@@ -69,7 +69,6 @@ class ResultUpdateWriter(Protocol):
         progress: Progress,
         summary: dict[str, Any] | None = None,
         error: str | None = None,
-        artifacts: dict[str, Any] | None = None,
         result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Persist a partial result update."""
