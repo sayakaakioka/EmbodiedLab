@@ -46,7 +46,6 @@ class TrainingExecution:
     """Outcome of a completed training run."""
 
     summary: dict[str, Any]
-    artifacts: dict[str, Any]
     result_bundle: ResultBundle
 
 
@@ -124,7 +123,5 @@ def execute_training_run(  # noqa: PLR0913
 
     return TrainingExecution(
         summary=summary,
-        artifacts=artifacts,
         result_bundle=result_bundle,
     )
-
