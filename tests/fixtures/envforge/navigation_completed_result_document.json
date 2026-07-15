@@ -15,51 +15,6 @@
     "avg_steps": 118.5
   },
   "error": null,
-  "artifacts": {
-    "model": {
-      "storage": "gcs",
-      "bucket": "embodiedlab-models",
-      "path": "results/submission-1/model/policy.zip"
-    },
-    "onnx_model": {
-      "storage": "gcs",
-      "bucket": "embodiedlab-models",
-      "path": "results/submission-1/model/policy.onnx"
-    },
-    "sentis_model": {
-      "storage": "gcs",
-      "bucket": "embodiedlab-models",
-      "path": "results/submission-1/model/policy.sentis.onnx",
-      "format": "onnx",
-      "target": "unity-sentis",
-      "opset_version": 15,
-      "input": {
-        "name": "observation",
-        "shape": [1, 28226],
-        "dtype": "float32",
-        "layout": [
-          "obs_0_chw_3x84x112",
-          "obs_1_angle_degrees",
-          "obs_1_distance_meters"
-        ]
-      },
-      "output": {
-        "name": "action",
-        "layout": ["forward", "turn"],
-        "action_mapping": {
-          "forward": "sigmoid(policy_forward)",
-          "turn": "clip(policy_turn, -3, 3) / 3"
-        }
-      }
-    },
-    "replay_bundle": {
-      "storage": "gcs",
-      "bucket": "embodiedlab-models",
-      "path": "results/submission-1/replay/manifest.json",
-      "format": "json",
-      "schema_version": "replay-bundle.v0"
-    }
-  },
   "result_bundle": {
     "schema_version": "result-bundle.v0",
     "scenario_id": "navigation_default",
