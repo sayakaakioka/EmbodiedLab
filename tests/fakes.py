@@ -147,7 +147,6 @@ class FakeResultRepository:
         progress,
         summary: dict | None = None,
         error: str | None = None,
-        artifacts: dict | None = None,
         result_bundle: dict | ResultBundle | None = None,
     ) -> None:
         payload = build_result_update(
@@ -155,7 +154,6 @@ class FakeResultRepository:
             progress=progress,
             summary=summary,
             error=error,
-            artifacts=artifacts,
             result_bundle=result_bundle,
         )
         existing = self.results.get(submission_id, {})

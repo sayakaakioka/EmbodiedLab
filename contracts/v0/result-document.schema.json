@@ -487,19 +487,6 @@
   "additionalProperties": true,
   "description": "Full result document written to Firestore.",
   "properties": {
-    "artifacts": {
-      "anyOf": [
-        {
-          "additionalProperties": true,
-          "type": "object"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Artifacts"
-    },
     "error": {
       "anyOf": [
         {

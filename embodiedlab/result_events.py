@@ -22,7 +22,6 @@ def publish_result_event(  # noqa: PLR0913
     progress: Progress,
     summary: dict[str, Any] | None = None,
     error: str | None = None,
-    artifacts: dict[str, Any] | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
     """Publish one ordered result lifecycle event."""
@@ -32,7 +31,6 @@ def publish_result_event(  # noqa: PLR0913
         progress=progress,
         summary=summary,
         error=error,
-        artifacts=artifacts,
         result_bundle=result_bundle,
     )
     publisher = pubsub_v1.PublisherClient(

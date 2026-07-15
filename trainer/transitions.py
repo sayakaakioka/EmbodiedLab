@@ -21,14 +21,13 @@ class TrainerResultTransitions:
     result_repository: ResultUpdateWriter
     publish_event: PublishEvent
 
-    def write(  # noqa: PLR0913
+    def write(
         self,
         *,
         status: ResultStatus,
         progress: Progress,
         summary: dict[str, Any] | None = None,
         error: str | None = None,
-        artifacts: dict[str, Any] | None = None,
         result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> None:
         """Persist a result transition and publish the corresponding event."""
@@ -38,7 +37,6 @@ class TrainerResultTransitions:
             progress=progress,
             summary=summary,
             error=error,
-            artifacts=artifacts,
             result_bundle=result_bundle,
         )
         self.publish_event(
@@ -48,6 +46,5 @@ class TrainerResultTransitions:
             progress=progress,
             summary=summary,
             error=error,
-            artifacts=artifacts,
             result_bundle=result_bundle,
         )

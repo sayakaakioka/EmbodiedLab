@@ -566,7 +566,11 @@ def test_submission_train_and_result_flow_integrates_with_trainer(monkeypatch):
         "average_episode_reward": None,
         "average_episode_steps": None,
     }
-    assert result_response.json()["artifacts"]["model"]["bucket"] == "model-bucket"
+    assert "artifacts" not in result_response.json()
+    assert (
+        result_response.json()["result_bundle"]["artifacts"]["model"]["bucket"]
+        == "model-bucket"
+    )
     assert [event["status"].value for event in published_events] == [
         "starting",
         "running",

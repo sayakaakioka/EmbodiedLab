@@ -9,10 +9,12 @@
   Firestore
 - `ResultStatus` is a `StrEnum` — values are lowercase strings used directly in
   Firestore documents
-- Result `artifacts` payloads are plain JSON dicts. GCS artifacts use
+- Uploaded artifact payloads are plain JSON dicts used to build
+  `ResultBundle.artifacts`. GCS artifacts use
   `{ "storage": "gcs", "bucket": "...", "path": "..." }`; completed training
   results should include `model` (`policy.zip`), `onnx_model` (`policy.onnx`),
-  and `sentis_model` (`policy.sentis.onnx`) when upload succeeds.
+  and `sentis_model` (`policy.sentis.onnx`) when upload succeeds. Result
+  documents and events do not duplicate these values at the top level.
 
 ## Markdown
 

@@ -46,7 +46,7 @@ def test_build_queued_result_document_returns_firestore_payload():
     }
     assert payload["summary"] is None
     assert payload["error"] is None
-    assert payload["artifacts"] is None
+    assert "artifacts" not in payload
     assert isinstance(payload["updated_at"], str)
 
 
@@ -100,6 +100,7 @@ def test_parse_result_message_validates_and_normalizes_payload():
     assert parsed["submission_id"] == "submission-1"
     assert parsed["status"] == "running"
     assert parsed["progress"]["phase"] == "running"
+    assert "artifacts" not in parsed
 
 
 def test_result_bundle_serializes_envforge_artifacts():
@@ -173,6 +174,7 @@ def test_completed_result_document_fixture_matches_contract():
 
     assert document.model_dump(mode="json") == payload
     assert result_bundle.model_dump(mode="json") == payload["result_bundle"]
+    assert "artifacts" not in payload
     assert result_bundle.artifacts.model is not None
     assert result_bundle.artifacts.replay_bundle is not None
 
