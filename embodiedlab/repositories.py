@@ -9,10 +9,20 @@ if TYPE_CHECKING:
     from embodiedlab.schemas import ScenarioBundle, SubmissionControl
 
 
+class SubmissionConflictError(Exception):
+    """Raised when an idempotency key is reused for a different request."""
+
+
 class SubmissionWriter(Protocol):
     """Write boundary for submission persistence."""
 
-    def save(self, scenario: ScenarioBundle, *, cancel_token_hash: str) -> str:
+    def save(
+        self,
+        scenario: ScenarioBundle,
+        *,
+        cancel_token_hash: str,
+        idempotency_key: str | None = None,
+    ) -> str:
         """Persist a new submission and return its ID."""
 
 

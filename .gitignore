@@ -51,3 +51,5 @@ node_modules/
 # application data
 .last_submission_id
 .last_submit_response.json
+.last_submission_idempotency_key
+.last_cancel_token

@@ -324,11 +324,21 @@ recreate_pubsub_push: check_deps require_cloud_env
 
 LAST_SUBMISSION_RESPONSE_FILE := .last_submit_response.json
 LAST_SUBMISSION_ID_FILE := .last_submission_id
+LAST_SUBMISSION_IDEMPOTENCY_KEY_FILE := .last_submission_idempotency_key
+LAST_CANCEL_TOKEN_FILE := .last_cancel_token
 
 submit: check_deps require_api_env
 	@test -f payload.json
+	@test -s $(LAST_SUBMISSION_IDEMPOTENCY_KEY_FILE) || \
+		$(UV) run python -c 'import secrets; print(secrets.token_urlsafe(32))' \
+		> $(LAST_SUBMISSION_IDEMPOTENCY_KEY_FILE)
+	@test -s $(LAST_CANCEL_TOKEN_FILE) || \
+		$(UV) run python -c 'import secrets; print(secrets.token_urlsafe(32))' \
+		> $(LAST_CANCEL_TOKEN_FILE)
 	@curl -s -X POST $(API_URL)/submissions \
 		-H "Content-Type: application/json" \
+		-H "Idempotency-Key: $$(cat $(LAST_SUBMISSION_IDEMPOTENCY_KEY_FILE))" \
+		-H "X-EmbodiedLab-Cancel-Token: $$(cat $(LAST_CANCEL_TOKEN_FILE))" \
 		-d @payload.json \
 		| tee $(LAST_SUBMISSION_RESPONSE_FILE) \
 		| $(UV) run python -m json.tool
@@ -358,6 +368,8 @@ show_submission_id:
 clear_submission_id:
 	rm -f $(LAST_SUBMISSION_ID_FILE)
 	rm -f $(LAST_SUBMISSION_RESPONSE_FILE)
+	rm -f $(LAST_SUBMISSION_IDEMPOTENCY_KEY_FILE)
+	rm -f $(LAST_CANCEL_TOKEN_FILE)
 
 ##### local checks #####
 .PHONY: local_setup lint_python lint_markdown lint test check local_test server_local

@@ -88,6 +88,9 @@ make get_result_ws
 
 `make get_result_ws` は `.last_submission_id` を読み、
 `tools/ws_client.py` を実行する。
+`make submit` は `.last_submission_idempotency_key` と `.last_cancel_token` を先に生成し、
+responseが失われても次回の実行で同じsubmissionを回収できる。新しいsubmissionを開始する
+前に`make clear_submission_id`でこれらのlocal capability fileも削除する。
 
 ## `.env` の扱い
 

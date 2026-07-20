@@ -15,7 +15,9 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
 
     Client
       -> POST /submissions
-          -> cancellation capability を一度だけ返す
+          -> SDK は idempotency key と cancellation capability を生成して送る
+          -> 同じ key、scenario、capability の再試行は同じ submission を返す
+          -> client が保持する cancellation capability を response に返す
           -> Firestore submissions/{submission_id} に token hash を保存
       -> POST /submissions/{submission_id}/train
           -> Firestore results/{submission_id} = queued
@@ -43,6 +45,9 @@ FastAPI API service である。
 submission の受理、result document の queued 化、Cloud Run Job の起動とキャンセル、
 result document の返却を担当する。キャンセルは submission ごとの capability token で
 保護し、Firestore には SHA-256 hash だけを保存する。
+submission response が失われた場合、client は同じ `Idempotency-Key` と
+`X-EmbodiedLab-Cancel-Token` で再試行する。server は同一 request を同じ submission へ
+解決し、異なる scenario または capability での key 再利用を拒否する。
 
 主な endpoint は以下である。
 
