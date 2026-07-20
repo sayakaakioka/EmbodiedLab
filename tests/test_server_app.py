@@ -24,6 +24,12 @@ EXECUTION_NAME = (
     "executions/test-trainer-abcde"
 )
 PENDING_MESSAGE = "cancellation still pending"
+IDEMPOTENCY_KEY = "submission-recovery-key-0000000001"
+CLIENT_CANCEL_TOKEN = "cancel-capability-0000000000000001"  # noqa: S105
+IDEMPOTENCY_HEADERS = {
+    "Idempotency-Key": IDEMPOTENCY_KEY,
+    "X-EmbodiedLab-Cancel-Token": CLIENT_CANCEL_TOKEN,
+}
 
 
 class CompletedCancellationOperation:
@@ -101,6 +107,95 @@ def test_create_submission_persists_default_payload():
     assert scenario["robot"]["type"] == "simple_robot"
     assert scenario["robot"]["action_space"]["layout"] == ["forward", "turn"]
     assert scenario["training"]["algorithm"] == "ppo"
+
+
+def test_create_submission_replays_same_response_for_same_recovery_headers():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+
+    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    replay = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+
+    assert first.status_code == 200
+    assert replay.status_code == 200
+    assert replay.json() == first.json()
+    assert replay.json()["cancel_token"] == CLIENT_CANCEL_TOKEN
+    assert len(submission_repository.submissions) == 1
+    submission = submission_repository.fetch(replay.json()["submission_id"])
+    assert CLIENT_CANCEL_TOKEN not in json.dumps(submission)
+
+
+def test_create_submission_rejects_recovery_key_reuse_with_different_request():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+
+    different_scenario = client.post(
+        "/submissions",
+        json={"scenario_id": "different"},
+        headers=IDEMPOTENCY_HEADERS,
+    )
+    different_token = client.post(
+        "/submissions",
+        json={},
+        headers={
+            **IDEMPOTENCY_HEADERS,
+            "X-EmbodiedLab-Cancel-Token": "different-capability-000000000000001",
+        },
+    )
+
+    assert first.status_code == 200
+    assert different_scenario.status_code == 409
+    assert different_token.status_code == 409
+    assert len(submission_repository.submissions) == 1
+
+
+def test_create_submission_requires_both_recovery_headers():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+
+    only_key = client.post(
+        "/submissions",
+        json={},
+        headers={"Idempotency-Key": IDEMPOTENCY_KEY},
+    )
+    only_token = client.post(
+        "/submissions",
+        json={},
+        headers={"X-EmbodiedLab-Cancel-Token": CLIENT_CANCEL_TOKEN},
+    )
+
+    assert only_key.status_code == 400
+    assert only_token.status_code == 400
+
+
+def test_create_submission_rejects_short_recovery_headers():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    client = TestClient(build_test_app(submission_repository, result_repository))
+
+    response = client.post(
+        "/submissions",
+        json={},
+        headers={
+            "Idempotency-Key": "too-short",
+            "X-EmbodiedLab-Cancel-Token": "also-too-short",
+        },
+    )
+
+    assert response.status_code == 422
+    assert submission_repository.submissions == {}
 
 
 def test_create_submission_accepts_envforge_navigation_fixture():

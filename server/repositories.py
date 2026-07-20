@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from typing import TYPE_CHECKING, Any
+
+from google.api_core.exceptions import AlreadyExists
 
 from embodiedlab.repositories import (
     ResultQueueWriter,
     ResultReader,
     ResultUpdateWriter,
+    SubmissionConflictError,
     SubmissionControlReader,
     SubmissionExecutionWriter,
     SubmissionExistenceChecker,
@@ -43,17 +47,52 @@ class FirestoreSubmissionRepository(
         """Bind the repository to a Firestore client."""
         self._db = db
 
-    def save(self, scenario: ScenarioBundle, *, cancel_token_hash: str) -> str:
-        """Persist a new submission document and return its generated ID."""
-        submission_id = str(uuid.uuid4())
-        self._db.collection("submissions").document(submission_id).set(
-            build_submission_document(
-                submission_id,
-                scenario,
-                cancel_token_hash=cancel_token_hash,
-            ),
+    def save(
+        self,
+        scenario: ScenarioBundle,
+        *,
+        cancel_token_hash: str,
+        idempotency_key: str | None = None,
+    ) -> str:
+        """Persist a submission, replaying an identical idempotent request."""
+        if idempotency_key is None:
+            submission_id = str(uuid.uuid4())
+            self._db.collection("submissions").document(submission_id).set(
+                build_submission_document(
+                    submission_id,
+                    scenario,
+                    cancel_token_hash=cancel_token_hash,
+                ),
+            )
+            return submission_id
+
+        submission_id = self._submission_id_for(idempotency_key)
+        document = build_submission_document(
+            submission_id,
+            scenario,
+            cancel_token_hash=cancel_token_hash,
         )
-        return submission_id
+        document_ref = self._db.collection("submissions").document(submission_id)
+        try:
+            document_ref.create(document)
+        except AlreadyExists:
+            existing = document_ref.get().to_dict() or {}
+            if (
+                existing.get("scenario") == scenario.model_dump(mode="json")
+                and existing.get("control", {}).get("cancel_token_hash")
+                == cancel_token_hash
+            ):
+                return submission_id
+            raise SubmissionConflictError from None
+        else:
+            return submission_id
+
+    @staticmethod
+    def _submission_id_for(idempotency_key: str) -> str:
+        digest = hashlib.sha256(
+            f"embodiedlab/submissions/v1/{idempotency_key}".encode(),
+        ).digest()
+        return str(uuid.UUID(bytes=digest[:16]))
 
     def exists(self, submission_id: str) -> bool:
         """Return whether a submission document exists."""

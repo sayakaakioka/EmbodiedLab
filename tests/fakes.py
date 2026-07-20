@@ -1,5 +1,8 @@
 from copy import deepcopy
 
+from google.api_core.exceptions import AlreadyExists
+
+from embodiedlab.repositories import SubmissionConflictError
 from embodiedlab.result_models import ResultBundle, build_result_update
 from embodiedlab.schemas import (
     ScenarioBundle,
@@ -37,6 +40,13 @@ class FakeDocument:
 
     def get(self):
         return FakeSnapshot(self.store.get(self.document_id))
+
+    def create(self, data):
+        if self.document_id in self.store:
+            raise AlreadyExists(self.document_id)
+
+        self.payloads.append({"data": deepcopy(data), "merge": False})
+        self.store[self.document_id] = deepcopy(data)
 
     def set(self, data, merge: bool = False):
         self.payloads.append({"data": deepcopy(data), "merge": merge})
@@ -84,14 +94,33 @@ class FakeSubmissionRepository:
 
     def __init__(self, initial_submissions: dict[str, dict] | None = None):
         self.submissions = deepcopy(initial_submissions or {})
+        self.idempotent_submissions: dict[str, str] = {}
 
-    def save(self, scenario: ScenarioBundle, *, cancel_token_hash: str) -> str:
+    def save(
+        self,
+        scenario: ScenarioBundle,
+        *,
+        cancel_token_hash: str,
+        idempotency_key: str | None = None,
+    ) -> str:
+        if idempotency_key in self.idempotent_submissions:
+            submission_id = self.idempotent_submissions[idempotency_key]
+            existing = self.submissions[submission_id]
+            if (
+                existing["scenario"] == scenario.model_dump(mode="json")
+                and existing["control"]["cancel_token_hash"] == cancel_token_hash
+            ):
+                return submission_id
+            raise SubmissionConflictError
+
         submission_id = f"submission-{len(self.submissions) + 1}"
         self.submissions[submission_id] = build_submission_document(
             submission_id,
             scenario,
             cancel_token_hash=cancel_token_hash,
         )
+        if idempotency_key is not None:
+            self.idempotent_submissions[idempotency_key] = submission_id
         return submission_id
 
     def exists(self, submission_id: str) -> bool:

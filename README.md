@@ -21,8 +21,9 @@ with the right background.
 
 ```text
 Client
-  -> POST /submissions
+  -> POST /submissions with recovery headers
       -> Firestore submissions/{submission_id} with a hashed cancel capability
+      -> identical retries resolve to the same submission
   -> POST /submissions/{submission_id}/train
       -> Firestore results/{submission_id} = queued
       -> Cloud Run Job with SUBMISSION_ID

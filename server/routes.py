@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from embodiedlab.api_models import SubmissionResponse, TrainingResponse
@@ -12,6 +12,7 @@ from embodiedlab.repositories import (
     ResultQueueWriter,
     ResultReader,
     ResultUpdateWriter,
+    SubmissionConflictError,
     SubmissionControlReader,
     SubmissionExecutionWriter,
     SubmissionExistenceChecker,
@@ -54,6 +55,7 @@ from server.services.training_requests import (
 
 router = APIRouter()
 cancel_token_scheme = HTTPBearer(auto_error=False)
+RECOVERY_HEADER_PATTERN = r"^[A-Za-z0-9_-]{32,128}$"
 
 
 @router.post("/submissions")
@@ -63,13 +65,39 @@ def create_submission(
         SubmissionWriter,
         Depends(get_submission_repository),
     ],
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key", pattern=RECOVERY_HEADER_PATTERN),
+    ] = None,
+    client_cancel_token: Annotated[
+        str | None,
+        Header(
+            alias="X-EmbodiedLab-Cancel-Token",
+            pattern=RECOVERY_HEADER_PATTERN,
+        ),
+    ] = None,
 ) -> SubmissionResponse:
     """Create a new submission and persist it to Firestore."""
-    cancel_token = issue_cancel_token()
-    submission_id = submission_repository.save(
-        scenario,
-        cancel_token_hash=hash_cancel_token(cancel_token),
-    )
+    if (idempotency_key is None) != (client_cancel_token is None):
+        raise HTTPException(
+            status_code=400,
+            detail="Both submission recovery headers are required",
+        )
+
+    cancel_token = client_cancel_token or issue_cancel_token()
+    try:
+        submission_id = submission_repository.save(
+            scenario,
+            cancel_token_hash=hash_cancel_token(cancel_token),
+            idempotency_key=idempotency_key,
+        )
+    except SubmissionConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Idempotency key was already used with a different submission request"
+            ),
+        ) from exc
 
     return SubmissionResponse(
         status="accepted",

@@ -116,6 +116,9 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 - Issue #30 で、Result Document と result event の旧 top-level `artifacts` を
   削除し、`result_bundle.artifacts` を唯一の artifact contract とする。
   旧形式への fallback や互換 API は追加しない。
+- submission response 消失時の復旧では、SDKが高エントロピーのidempotency keyと
+  cancel capabilityをrequest前に生成する。APIは同じkey、Scenario Bundle、capabilityの
+  retryを同じsubmissionへ解決し、Firestoreにはcapability hashだけを保存する。
 
 状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
 HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
