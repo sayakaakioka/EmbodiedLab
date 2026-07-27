@@ -93,10 +93,10 @@ Idempotency-Key: <32文字以上のURL-safe random value>
 X-EmbodiedLab-Cancel-Token: <32文字以上のURL-safe cancellation capability>
 ```
 
-二つのheaderは同時に指定する。既存clientとの移行期間中は両方省略した従来requestも
-受理するが、response消失時の復旧保証はない。同じidempotency key、正規化後のScenario
-Bundle、cancel tokenでの再試行は同じsubmission responseを返す。scenarioまたはtokenが
-異なるkey再利用は`409 Conflict`とする。
+二つのheaderは同時に指定する。両方省略した request も受理するが、response 消失時の
+復旧保証はない。同じ idempotency key、正規化後の Scenario Bundle、cancel token での
+再試行は同じ submission response を返す。scenario または token が異なる key 再利用は
+`409 Conflict` とする。
 
 ```json
 {
@@ -141,7 +141,7 @@ Bundle、cancel tokenでの再試行は同じsubmission responseを返す。scen
     {
       "id": "front_camera",
       "type": "forward_camera",
-      "width": 84,
+      "width": 112,
       "height": 84,
       "semantic_mode": "traversable_vs_blocked"
     },
@@ -153,7 +153,21 @@ Bundle、cancel tokenでの再試行は同じsubmission responseを返す。scen
     }
   ],
   "reward": {
-    "components": []
+    "components": [
+      {"name": "goal_reached", "type": "terminal_reward", "weight": 100.0},
+      {
+        "name": "goal_progress",
+        "type": "distance_delta",
+        "target": "goal_001",
+        "weight": 0.1
+      },
+      {"name": "collision_penalty", "type": "collision", "weight": -50.0},
+      {"name": "step_penalty", "type": "per_step", "weight": -0.01},
+      {"name": "wide_angle_penalty", "type": "per_step", "weight": -0.1},
+      {"name": "rear_angle_penalty", "type": "per_step", "weight": -5.0},
+      {"name": "inactive_penalty", "type": "per_step", "weight": -0.1},
+      {"name": "movement_threshold", "type": "per_step", "weight": 0.001}
+    ]
   },
   "training": {
     "algorithm": "ppo",
@@ -169,6 +183,11 @@ Bundle、cancel tokenでの再試行は同じsubmission responseを返す。scen
   }
 }
 ```
+
+continuous runtime の reward contract は上記 8 component を必須とし、欠落、重複、
+未知の name、name と type の不一致を拒否する。`goal_progress.target` は
+`world.goal.id` と一致しなければならない。また deterministic evaluation を
+1 chunk に収めるため、`eval_episodes * max_episode_steps <= 100000` を要求する。
 
 response:
 
@@ -258,17 +277,21 @@ bootstrap では `roles/run.viewer` を付与する。キャンセルは project
   },
   "summary": {
     "policy": "ppo",
-    "score": 0.95,
-    "grid_width": 4,
-    "grid_height": 4,
+    "runtime": "continuous_navigation",
+    "score": 6.4,
     "episodes": 20,
     "obstacle_count": 1,
-    "goal": { "x": 3, "y": 3 },
-    "robot_start": { "x": 0, "y": 0 },
-    "robot_type": "simple",
-    "success_rate": 1.0,
-    "avg_reward": 0.95,
-    "avg_steps": 6.1,
+    "goal": { "x": 8.5, "z": 8.5, "radius": 0.5 },
+    "robot_start": {
+      "x": 1.0,
+      "z": 1.0,
+      "rotation_y_degrees": 0.0
+    },
+    "robot_type": "simple_robot",
+    "robot_radius": 0.45,
+    "success_rate": 0.95,
+    "avg_reward": 6.4,
+    "avg_steps": 118.5,
     "training_timesteps": 5000,
     "training_seed": 10
   },
@@ -284,7 +307,7 @@ bootstrap では `roles/run.viewer` を付与する。キャンセルは project
       "robot_version": "simple_robot.v1",
       "sensor_version": "basic_sensors.v0",
       "action_layout": ["forward", "turn"],
-      "observation_layout": ["front_camera", "front_distance"]
+      "observation_layout": ["obs_0", "obs_1"]
     },
     "summary": {
       "training_timesteps": 5000,
@@ -299,6 +322,74 @@ bootstrap では `roles/run.viewer` を付与する。キャンセルは project
         "bucket": "my-model-bucket",
         "path": "results/submission-123/model/policy.onnx",
         "format": "onnx"
+      },
+      "onnx_model": {
+        "storage": "gcs",
+        "bucket": "my-model-bucket",
+        "path": "results/submission-123/model/policy.onnx",
+        "format": "onnx",
+        "target": "onnx-runtime",
+        "opset_version": 17,
+        "inputs": [
+          {
+            "name": "obs_0",
+            "shape": [-1, 3, 84, 112],
+            "dtype": "float32",
+            "layout": [
+              "channel_0_unused",
+              "channel_1_traversable",
+              "channel_2_blocked_or_background"
+            ]
+          },
+          {
+            "name": "obs_1",
+            "shape": [-1, 2],
+            "dtype": "float32",
+            "layout": ["goal_angle_degrees", "goal_distance_meters"]
+          }
+        ],
+        "output": {
+          "name": "action",
+          "layout": ["forward", "turn"],
+          "action_mapping": {
+            "forward": "sigmoid(policy_forward)",
+            "turn": "clip(policy_turn, -3, 3) / 3"
+          }
+        }
+      },
+      "sentis_model": {
+        "storage": "gcs",
+        "bucket": "my-model-bucket",
+        "path": "results/submission-123/model/policy.sentis.onnx",
+        "format": "onnx",
+        "target": "unity-sentis",
+        "opset_version": 15,
+        "inputs": [
+          {
+            "name": "observation",
+            "shape": [1, 28226],
+            "dtype": "float32",
+            "layout": [
+              "obs_0_chw_3x84x112",
+              "obs_1_angle_degrees",
+              "obs_1_distance_meters"
+            ]
+          }
+        ],
+        "output": {
+          "name": "action",
+          "layout": ["forward", "turn"],
+          "action_mapping": {
+            "forward": "sigmoid(policy_forward)",
+            "turn": "clip(policy_turn, -3, 3) / 3"
+          }
+        }
+      },
+      "replay_bundle": {
+        "storage": "gcs",
+        "bucket": "my-model-bucket",
+        "path": "results/submission-123/replay/manifest.json",
+        "format": "json"
       }
     }
   },
@@ -310,7 +401,8 @@ artifact metadata の正規の格納先は `result_bundle.artifacts` だけで�
 Result Document の top-level には複製しない。旧 top-level artifact だけを持つ
 result は現行 Unity client の対象外とする。
 
-artifact path は `results/{submission_id}/` 配下の GCS object path である。
+artifact path は `results/{submission_id}/model/` または
+`results/{submission_id}/replay/` 配下の GCS object path である。
 現在の Makefile-created model bucket は public object read を許可する。
 これは prototype 用であり、今後 access control を見直す。
 

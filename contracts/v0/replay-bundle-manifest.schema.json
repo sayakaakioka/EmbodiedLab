@@ -65,6 +65,7 @@
           "type": "string"
         },
         "path": {
+          "maxLength": 1024,
           "minLength": 1,
           "title": "Path",
           "type": "string"
@@ -99,6 +100,7 @@
           "title": "Start Step"
         },
         "step_count": {
+          "maximum": 100000,
           "minimum": 0,
           "title": "Step Count",
           "type": "integer"
@@ -137,6 +139,7 @@
       "items": {
         "$ref": "#/$defs/ReplayBundleChunk"
       },
+      "maxItems": 4096,
       "title": "Chunks",
       "type": "array"
     },

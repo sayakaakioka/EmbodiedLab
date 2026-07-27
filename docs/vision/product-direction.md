@@ -36,9 +36,12 @@ EnvForge から渡されたシナリオ条件を保持し、それをクラウ�
 EnvForge Scenario Bundle、continuous navigation runtime、宣言的 reward component、
 Result Bundle、Replay Bundle、ONNX artifact の主経路まで実装済みである。
 
-次のフェーズでは、EnvForge に直接実装されている汎用 Unity client 機能を
-`EmbodiedLab.Unity` へ切り出し、複数の Unity フロントエンドから EmbodiedLab を
-利用できるようにする。その後、学習環境の生成モードを次の二つへ拡張する。
+汎用 Unity client 機能は、独立した `EmbodiedLab.Unity` UPM package として
+分離済みである。現在は EmbodiedLab の Pydantic model と versioned JSON Schema を
+wire contract の正本とし、SDK の generated DTO、canonical fixture、transport test を
+同じ契約へ同期する段階にある。EnvForge の SDK 移行はこの同期完了後の別段階とする。
+
+その後、学習環境の生成モードを次の二つへ拡張する。
 
 - `fixed`: 全 episode で同じマップを使う既定モード。
 - `generated`: versioned な宣言的生成規則に従って episode ごとに環境を構成するモード。

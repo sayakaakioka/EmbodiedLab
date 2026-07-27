@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+MAX_REPLAY_CHUNK_STEPS = 100_000
 
 
 class TrainingAlgorithm(StrEnum):
@@ -19,7 +21,7 @@ class TrainingConfig(BaseModel):
     algorithm: TrainingAlgorithm = Field(default=TrainingAlgorithm.PPO)
     timesteps: int = Field(default=5_000, ge=1)
     seed: int = Field(default=10)
-    max_steps: int = Field(default=50, ge=1)
+    max_steps: int = Field(default=50, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
     n_envs: int = Field(default=1, ge=1)
     cpu_count: int | None = Field(default=None, ge=1)
     torch_num_threads: int | None = Field(default=None, ge=1)
@@ -29,6 +31,21 @@ class TrainingConfig(BaseModel):
     gamma: float = Field(default=0.99, gt=0.0, le=1.0)
     learning_rate: float = Field(default=3e-4, gt=0.0)
     ent_coef: float = Field(default=0.0, ge=0.0)
-    eval_episodes: int = Field(default=20, ge=1)
+    eval_episodes: int = Field(default=20, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
     replay_eval_interval_steps: int = Field(default=1_000_000, ge=0)
-    replay_train_chunk_steps: int = Field(default=10_000, ge=1)
+    replay_train_chunk_steps: int = Field(
+        default=10_000,
+        ge=1,
+        le=MAX_REPLAY_CHUNK_STEPS,
+    )
+
+    @model_validator(mode="after")
+    def validate_eval_replay_size(self) -> TrainingConfig:
+        """Keep one deterministic evaluation chunk within the SDK row budget."""
+        if self.eval_episodes * self.max_steps > MAX_REPLAY_CHUNK_STEPS:
+            msg = (
+                "eval_episodes * max_steps must be less than or equal "
+                f"to {MAX_REPLAY_CHUNK_STEPS}"
+            )
+            raise ValueError(msg)
+        return self

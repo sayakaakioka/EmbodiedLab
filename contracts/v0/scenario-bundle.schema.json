@@ -400,6 +400,8 @@
               }
             ]
           },
+          "maxItems": 8,
+          "minItems": 8,
           "title": "Components",
           "type": "array"
         }
@@ -617,6 +619,7 @@
         },
         "eval_episodes": {
           "default": 20,
+          "maximum": 100000,
           "minimum": 1,
           "title": "Eval Episodes",
           "type": "integer"
@@ -636,6 +639,7 @@
         },
         "max_episode_steps": {
           "default": 512,
+          "maximum": 100000,
           "minimum": 1,
           "title": "Max Episode Steps",
           "type": "integer"

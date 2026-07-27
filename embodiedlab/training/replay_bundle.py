@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import gzip
-import json
 from pathlib import Path
 from typing import Any
 
-from embodiedlab.result_models import ReplayBundleManifest
+from embodiedlab.result_models import (
+    MAX_REPLAY_CHUNK_STEPS,
+    ReplayBundleManifest,
+    ReplayLogStep,
+)
 
 DEFAULT_TRAIN_CHUNK_STEPS = 10_000
 
@@ -29,7 +32,13 @@ class ReplayBundleWriter:
         self.job_id = job_id
         self.scenario_id = scenario_id
         self.total_timesteps = total_timesteps
-        self.train_chunk_steps = max(1, train_chunk_steps)
+        if not 1 <= train_chunk_steps <= MAX_REPLAY_CHUNK_STEPS:
+            msg = (
+                "train_chunk_steps must be between 1 and "
+                f"{MAX_REPLAY_CHUNK_STEPS}"
+            )
+            raise ValueError(msg)
+        self.train_chunk_steps = train_chunk_steps
         self.root_dir.mkdir(parents=True, exist_ok=True)
         (self.root_dir / "train").mkdir(parents=True, exist_ok=True)
         (self.root_dir / "eval").mkdir(parents=True, exist_ok=True)
@@ -52,9 +61,7 @@ class ReplayBundleWriter:
         if self._train_file is None:
             msg = "Training replay chunk was not opened."
             raise RuntimeError(msg)
-        self._train_file.write(
-            (json.dumps(step, separators=(",", ":")) + "\n").encode("utf-8"),
-        )
+        self._train_file.write((self._serialize_step(step) + "\n").encode("utf-8"))
         self._train_chunk_count += 1
         self._train_chunk_last_step = int(step.get("checkpoint_step", 0))
         if self._train_chunk_count >= self.train_chunk_steps:
@@ -70,11 +77,14 @@ class ReplayBundleWriter:
         avg_steps: float,
     ) -> None:
         """Write one deterministic evaluation checkpoint as its own chunk."""
+        if len(steps) > MAX_REPLAY_CHUNK_STEPS:
+            msg = f"eval replay chunk cannot exceed {MAX_REPLAY_CHUNK_STEPS} steps"
+            raise ValueError(msg)
         relative_path = f"eval/checkpoint_{checkpoint_step:08d}.jsonl.gz"
         path = self.root_dir / relative_path
         with gzip.open(path, "wt", encoding="utf-8") as replay_file:
             for step in steps:
-                replay_file.write(json.dumps(step, separators=(",", ":")) + "\n")
+                replay_file.write(self._serialize_step(step) + "\n")
         self._chunks.append(
             {
                 "phase": "eval",
@@ -100,10 +110,21 @@ class ReplayBundleWriter:
             chunks=self._chunks,
         ).model_dump(mode="json", exclude_none=True)
         (self.root_dir / "manifest.json").write_text(
-            json.dumps(manifest, indent=2),
+            ReplayBundleManifest.model_validate(manifest).model_dump_json(
+                indent=2,
+                exclude_none=True,
+            ),
             encoding="utf-8",
         )
         return manifest
+
+    def _serialize_step(self, step: dict[str, Any]) -> str:
+        payload = {
+            **step,
+            "scenario_id": self.scenario_id,
+            "job_id": self.job_id,
+        }
+        return ReplayLogStep.model_validate(payload).model_dump_json(exclude_none=True)
 
     def _ensure_train_chunk(self, checkpoint_step: int) -> None:
         if self._train_file is not None:

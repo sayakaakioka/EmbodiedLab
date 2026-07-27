@@ -5,15 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from embodiedlab.schemas import (
-    CollisionRewardComponent,
-    DistanceDeltaRewardComponent,
     DistanceSensor,
     ForwardCameraSensor,
-    PerStepRewardComponent,
     ScenarioBundle,
     StaticObstacle,
     StaticWall,
-    TerminalRewardComponent,
 )
 from embodiedlab.training.training_models import (
     ContinuousBounds,
@@ -76,11 +72,11 @@ def describe_runtime_conversion(
     )
 
 
-def _distance_sensor_range(scenario: ScenarioBundle) -> float:
+def _distance_sensor(scenario: ScenarioBundle) -> DistanceSensor:
     for sensor in scenario.sensors:
         if isinstance(sensor, DistanceSensor):
-            return sensor.range_meters
-    return DistanceSensor(id="front_distance").range_meters
+            return sensor
+    return DistanceSensor(id="front_distance")
 
 
 def _forward_camera_sensor(scenario: ScenarioBundle) -> ForwardCameraSensor:
@@ -117,23 +113,8 @@ def _camera_spec(scenario: ScenarioBundle) -> ContinuousCameraSpec:
 
 def _reward_weights(scenario: ScenarioBundle) -> ContinuousRewardWeights:
     values = {
-        component.name: component.weight
-        for component in ScenarioBundle().reward.components
+        component.name: component.weight for component in scenario.reward.components
     }
-    for component in scenario.reward.components:
-        if (
-            isinstance(
-                component,
-                (
-                    TerminalRewardComponent,
-                    DistanceDeltaRewardComponent,
-                    CollisionRewardComponent,
-                    PerStepRewardComponent,
-                ),
-            )
-            and component.name in values
-        ):
-            values[component.name] = component.weight
     return ContinuousRewardWeights(**values)
 
 
@@ -176,7 +157,7 @@ def convert_submission_to_spec(
         ),
         *(_box_to_obstacle(obstacle) for obstacle in scenario.world.static_obstacles),
     ]
-    distance_sensor_range_meters = _distance_sensor_range(scenario)
+    distance_sensor = _distance_sensor(scenario)
 
     return ContinuousNavigationSpec(
         bounds=ContinuousBounds(
@@ -199,7 +180,8 @@ def convert_submission_to_spec(
         ),
         robot_type=scenario.robot.type.value,
         robot_radius=scenario.robot.radius,
-        distance_sensor_range_meters=distance_sensor_range_meters,
+        distance_sensor_id=distance_sensor.id,
+        distance_sensor_range_meters=distance_sensor.range_meters,
         camera=_camera_spec(scenario),
         reward_weights=_reward_weights(scenario),
         forward_step_meters=POLICY_FORWARD_STEP_METERS,

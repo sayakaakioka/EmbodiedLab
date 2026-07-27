@@ -48,9 +48,8 @@ located in `server/`, `trainer/`, and `notification/`. Tests are located in
 `tests/`.
 
 Python dependencies are managed by `uv` through `pyproject.toml` dependency
-groups. The project currently declares Python `>=3.13`, while Ruff is configured
-with `target-version = "py312"`; treat this as an existing consistency issue to
-resolve deliberately rather than changing it incidentally.
+groups. The project requires Python `>=3.13`, and Ruff uses
+`target-version = "py313"`.
 
 Project direction is documented under `docs/vision/`. Current architecture,
 development workflow, data models, and the EnvForge integration roadmap are

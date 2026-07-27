@@ -116,6 +116,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.robot_start.x == 1.9
     assert spec.robot_radius == 0.3
     assert spec.robot_start.rotation_y_degrees == 90.0
+    assert spec.distance_sensor_id == "front_distance"
     assert spec.distance_sensor_range_meters == 7.5
     assert spec.camera.mount_height_meters == 0.7
     assert spec.camera.mount_height_min_meters == 0.1
