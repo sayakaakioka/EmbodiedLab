@@ -177,6 +177,8 @@ def test_envforge_navigation_fixture_matches_scenario_bundle_contract():
     assert scenario.world.bounds.min.x == -8.0
     assert scenario.world.bounds.max.z == 6.0
     assert scenario.robot.start_pose.position.x == -6.0
+    assert scenario.world.goal.radius == 0.45
+    assert scenario.world.goal.radius == scenario.robot.radius
     assert scenario.robot.action_space.layout == ["forward", "turn"]
     assert [sensor.id for sensor in scenario.sensors] == [
         "front_camera",
