@@ -2,6 +2,8 @@ from embodiedlab.result_models import failed_progress
 from embodiedlab.schemas import ScenarioBundle
 from tests.fakes import FakeDb, FakeResultRepository, FakeSubmissionRepository
 
+IDEMPOTENCY_KEY = "submission-recovery-key-0000000001"
+
 
 def test_fake_db_merge_recursively_updates_nested_documents():
     fake_db = FakeDb()
@@ -41,16 +43,25 @@ def test_fake_db_merge_recursively_updates_nested_documents():
 
 def test_fake_submission_repository_persists_and_fetches_submission():
     repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    repository.bind_result_repository(result_repository)
 
-    submission_id = repository.save(ScenarioBundle(), cancel_token_hash="a" * 64)
-
-    assert repository.exists(submission_id) is True
+    submission_id = repository.accept(
+        ScenarioBundle(),
+        cancel_token_hash="a" * 64,
+        total_steps=5000,
+        idempotency_key=IDEMPOTENCY_KEY,
+    )
     assert repository.fetch(submission_id)["submission_id"] == submission_id
     assert repository.fetch_control(submission_id).cancel_token_hash == "a" * 64
 
-    repository.set_execution_name(
-        submission_id,
-        "projects/test/locations/test/executions/test-trainer-abcde",
+    assert repository.claim_dispatch(submission_id) is True
+    assert (
+        repository.mark_dispatched(
+            submission_id,
+            "projects/test/locations/test/executions/test-trainer-abcde",
+        )
+        is True
     )
 
     assert repository.fetch_control(submission_id).execution_name.endswith(

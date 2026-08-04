@@ -21,11 +21,10 @@ system; Git history and pull requests retain the development history.
 
 ```text
 Client
-  -> POST /submissions with recovery headers
-      -> Firestore submissions/{submission_id} with a hashed cancel capability
+  -> POST /submissions with required recovery headers
+      -> atomically create the Firestore submission and queued result
       -> identical retries resolve to the same submission
-  -> POST /submissions/{submission_id}/train
-      -> Firestore results/{submission_id} = queued
+      -> claim one server-owned dispatch attempt
       -> Cloud Run Job with SUBMISSION_ID
           -> Firestore submission lookup
           -> Continuous navigation PPO training
@@ -121,9 +120,9 @@ Use the complete canonical payload at
 The canonical fixture makes the world, robot, sensor, reward, and training
 configuration explicit instead of relying on schema defaults.
 
-The recovery headers are optional, but clients must send both or neither.
-`make submit` generates and persists both values so an identical retry can
-recover the same submission.
+Both recovery headers are required. `make submit` generates and persists both
+values so an identical retry can recover the same submission without starting
+a second paid training execution.
 
 Response:
 
@@ -135,21 +134,21 @@ Response:
 }
 ```
 
-The cancellation capability is returned only in this response. Persist it if
-the client must be able to cancel the job after restarting. The server stores
-only its SHA-256 digest.
+The client generates the cancellation capability before the request, sends it
+in `X-EmbodiedLab-Cancel-Token`, and receives the same value in this response.
+Persist it if the client must recover or cancel the job after restarting. The
+server stores only its SHA-256 digest.
 
-### Start Training
+Creating the submission also starts the server-owned training workflow. A
+definitive dispatch rejection becomes a terminal failed Result Document.
+Timeouts and lost responses are never retried as a second Cloud Run execution;
+the server retains the ambiguous dispatch for reconciliation. Before training,
+the trainer recovers the exact execution name from the Cloud Run runtime and
+persists it with a compare-and-set transition.
 
-```http
-POST /submissions/{submission_id}/train
-```
-
-This creates or replaces `results/{submission_id}` with `queued` status, then
-starts the configured Cloud Run Job with `SUBMISSION_ID`.
-Creating a submission does not start training. This endpoint is currently a
-separate operation and is not idempotent; retrying it may start another Cloud
-Run execution.
+The current deployment target is unauthenticated and has no per-caller quota.
+Do not expose it as a production paid-training API until authentication, quota,
+and bounded training-resource validation are in place.
 
 ### Cancel Training
 
@@ -159,8 +158,13 @@ Authorization: Bearer {cancel_token}
 ```
 
 Cancellation targets the exact Cloud Run Execution recorded when training was
-started. The response is the latest result document and is idempotent after the
-job reaches `cancelled`.
+started. A private, expiring intent lease and fencing token give one request
+ownership of the RPC without allowing a stale owner to modify a newer lease.
+If the initial RPC returns no definitive acceptance response, an identical
+retry may resend cancellation for the same exact execution after the lease
+expires. Once Cloud Run returns an Operation, the request is reconciled without
+redispatch. The response is the latest result document and is idempotent after
+the job reaches `cancelled`.
 
 ### Get Result
 
@@ -327,15 +331,6 @@ To submit another complete Scenario Bundle, override the fixture explicitly:
 ```bash
 make submit SUBMISSION_PAYLOAD=path/to/scenario.json
 ```
-
-Start training for the last submission:
-
-```bash
-make train
-```
-
-This is currently a separate, non-idempotent operation. Do not retry it unless
-starting another Cloud Run execution is intended.
 
 Fetch the last result:
 

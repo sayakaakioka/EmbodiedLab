@@ -268,7 +268,7 @@ deploy_trainer: build_trainer
 		--cpu $(TRAINER_CPU) \
 		--memory $(TRAINER_MEMORY) \
 		--task-timeout $(TRAINER_TASK_TIMEOUT) \
-		--update-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC) || \
+		--update-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC),REGION=$(REGION) || \
 	$(GCLOUD) run jobs create $(TRAINER_JOB_NAME) \
 		--image $(TRAINER_IMAGE) \
 		--region $(REGION) \
@@ -276,7 +276,7 @@ deploy_trainer: build_trainer
 		--cpu $(TRAINER_CPU) \
 		--memory $(TRAINER_MEMORY) \
 		--task-timeout $(TRAINER_TASK_TIMEOUT) \
-		--set-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC)
+		--set-env-vars DB_ID=$(DB_ID),MODEL_BUCKET=$(MODEL_BUCKET),PROJECT_ID=$(PROJECT_ID),PUBSUB_TOPIC=$(PUBSUB_TOPIC),REGION=$(REGION)
 
 NOTIFICATION_IMAGE := $(ARTIFACT_HOST)/$(PROJECT_ID)/$(ARTIFACT_REPO)/notification:latest
 
@@ -320,7 +320,7 @@ recreate_pubsub_push: check_deps require_cloud_env
 
 
 ##### test #####
-.PHONY: submit train get_result get_result_ws
+.PHONY: submit get_result get_result_ws
 
 LAST_SUBMISSION_RESPONSE_FILE := .last_submit_response.json
 LAST_SUBMISSION_ID_FILE := .last_submission_id
@@ -345,12 +345,6 @@ submit: check_deps require_api_env
 		| $(UV) run python -m json.tool
 	@$(UV) run python -c 'import json; print(json.load(open("$(LAST_SUBMISSION_RESPONSE_FILE)", encoding="utf-8"))["submission_id"])' > $(LAST_SUBMISSION_ID_FILE)
 	@echo "Saved submission_id: $$(cat $(LAST_SUBMISSION_ID_FILE))"
-
-train: check_deps require_api_env
-	@test -f $(LAST_SUBMISSION_ID_FILE)
-	curl -s -X POST $(API_URL)/submissions/$$(cat $(LAST_SUBMISSION_ID_FILE))/train \
-		| $(UV) run python -m json.tool
-
 get_result: check_deps require_api_env
 	@test -f $(LAST_SUBMISSION_ID_FILE)
 	curl -s $(API_URL)/results/$$(cat $(LAST_SUBMISSION_ID_FILE)) \

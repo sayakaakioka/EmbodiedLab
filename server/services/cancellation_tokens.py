@@ -1,16 +1,7 @@
 """Capability token helpers for cloud job cancellation."""
 
-from __future__ import annotations
-
 import hashlib
 import secrets
-
-CANCEL_TOKEN_BYTES = 32
-
-
-def issue_cancel_token() -> str:
-    """Return a new high-entropy URL-safe cancellation capability."""
-    return secrets.token_urlsafe(CANCEL_TOKEN_BYTES)
 
 
 def hash_cancel_token(cancel_token: str) -> str:

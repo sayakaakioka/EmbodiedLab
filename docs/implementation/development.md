@@ -81,7 +81,6 @@ infrastructure が deploy 済みで `.env` が設定されている場合、
 
 ```bash
 make submit
-make train
 make get_result
 make get_result_ws
 ```

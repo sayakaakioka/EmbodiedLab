@@ -21,7 +21,7 @@ Unity プロジェクトも EmbodiedLab のジョブ投入、進捗監視、成�
 ### EmbodiedLab.Unity
 
 - Scenario / Result / Replay Bundle の Unity DTO と serializer
-- submission 作成、training 開始、result 取得
+- server-owned submission 作成、result 取得
 - WebSocket 監視と HTTP による authoritative state への再同期
 - artifact location の解決と download
 - Replay Bundle manifest / chunk の取得、展開、parse
@@ -85,7 +85,7 @@ contract の再生成と差分検査には次を使う。
 
 1. 完了: EmbodiedLab API の動作を fixture と test で固定する。
 2. 完了: `EmbodiedLab.Unity` リポジトリと UPM package を作る。
-3. 完了: DTO、HTTP submission、training start、result fetch を実装する。
+3. 完了: DTO、server-owned HTTP submission、result fetch を実装する。
 4. 完了: WebSocket 監視、HTTP 再同期、artifact download、
    Replay Bundle 読み込みを実装する。
 5. 完了: EmbodiedLab を正本とする schema/fixture drift test を追加する。
@@ -110,7 +110,7 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 
 - completed Result Document、Replay Bundle manifest、Replay Log、Scenario Bundle の
   canonical fixture を両 repository で検証する。
-- EmbodiedLab が versioned JSON Schema 7件を出力し、SDK が snapshot hash と
+- EmbodiedLab が versioned JSON Schema 6件を出力し、SDK が snapshot hash と
   generated C# DTO の drift を検査する。
 - capability token 付きキャンセル、正確な Cloud Run Execution name、
   `cancelling` / `cancelled` 契約と WebSocket 通知を実装済みである。
@@ -124,12 +124,13 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 
 状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
 HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
-行わない。ジョブ作成、学習開始、キャンセル、artifact download は一回性の
-request/response として HTTP を使う。
+行わない。ジョブ作成と学習開始は一つの server-owned submission request とする。
+キャンセルと artifact download も一回性の request/response として HTTP を使う。
 
 ## 保留事項
 
 - SDK repository の公開範囲、release、tag、package distribution の運用。
 - 一般ユーザ認証導入後の token storage と signed artifact URL。
 - quota、cost control。
+- 認証、quota、training resource上限が揃う前のAPIをproduction課金用途へ公開しない。
 - `generated` mode の最初の schema と、生成結果を Replay のどこへ記録するか。

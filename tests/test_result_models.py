@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from embodiedlab.result_models import (
     ArtifactLocation,
     ModelArtifactLocation,
@@ -206,6 +209,29 @@ def test_completed_result_document_fixture_matches_contract():
     assert "artifacts" not in payload
     assert result_bundle.artifacts.model is not None
     assert result_bundle.artifacts.replay_bundle is not None
+
+
+def test_result_document_rejects_unknown_top_level_fields():
+    with pytest.raises(ValidationError):
+        ResultDocument.model_validate(
+            {
+                "submission_id": "submission-1",
+                "status": "completed",
+                "private_control": {"secret": "must-not-leak"},
+            },
+        )
+
+
+def test_result_bundle_rejects_unknown_top_level_fields():
+    with pytest.raises(ValidationError):
+        ResultBundle.model_validate(
+            {
+                "scenario_id": "scenario_demo_001",
+                "job_id": "job_001",
+                "status": "completed",
+                "legacy_artifacts": {},
+            },
+        )
 
 
 def test_replay_log_step_serializes_jsonl_row():

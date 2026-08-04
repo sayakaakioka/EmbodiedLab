@@ -11,10 +11,3 @@ class SubmissionResponse(BaseModel):
     status: Literal["accepted"]
     submission_id: str = Field(min_length=1)
     cancel_token: str = Field(min_length=32)
-
-
-class TrainingResponse(BaseModel):
-    """Response returned after accepting a training request."""
-
-    status: Literal["accepted"]
-    submission_id: str = Field(min_length=1)
