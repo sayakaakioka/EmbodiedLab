@@ -27,7 +27,7 @@ make server_local         # uvicorn on port 8000
 Requires deployed infra and `.env`.
 
 ```bash
-make submit               # POST payload.json → /submissions, saves submission_id
+make submit               # POST the canonical Scenario fixture, saves submission_id
 make train                # POST /submissions/<id>/train
 make get_result           # GET /results/<id>
 make get_result_ws        # WebSocket stream via tools/ws_client.py
@@ -40,7 +40,7 @@ make get_result_ws        # WebSocket stream via tools/ws_client.py
 ## Deploy
 
 ```bash
-make deploy_all           # builds and pushes all three Docker images, deploys Cloud Run
+make deploy_all           # builds, pushes, and deploys all services
 make deploy_api
 make deploy_trainer
 make deploy_notification
@@ -48,12 +48,11 @@ make deploy_notification
 
 ## GCP Storage
 
-```bash
-make create_model_bucket  # creates MODEL_BUCKET and grants public object read
-gcloud storage rm --recursive gs://$MODEL_BUCKET/models/**
-```
+`make create_model_bucket` creates `MODEL_BUCKET` and grants public object
+read for the current prototype. Completed artifacts are stored under
+`results/<submission_id>/`.
 
-The model bucket stores completed artifacts under `models/<submission_id>/`:
-`policy.zip`, `policy.onnx`, and `policy.sentis.onnx`. Removing `models/**`
-clears generated artifacts while keeping the bucket, IAM policy, and
-public-read configuration.
+Before deleting any cloud result, follow EnvForge's
+[`cloud-result-retention.md`](https://github.com/sayakaakioka/EnvForge/blob/main/docs/implementation/cloud-result-retention.md)
+and verify the submission, Firestore documents, GCS prefix, and Cloud Run
+execution together.

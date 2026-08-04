@@ -13,7 +13,7 @@ Stable-Baselines3 PPO により方策を学習する。成果物は Google Cloud
 EnvForge は、ユーザがロボット学習用シナリオを作る Unity アプリである。
 ユーザは壁や障害物を配置し、用意されたロボットとセンサを設定し、
 報酬体系を定義し、シナリオをクラウドへ送信する。
-その後、学習済みモデルと Replay Log をダウンロードし、
+その後、学習済みモデルと Replay Bundle をダウンロードし、
 EnvForge 上で結果を確認する。
 
 EmbodiedLab は、Unity や ML-Agents をクラウド上で実行する必要はない。
@@ -39,7 +39,8 @@ Result Bundle、Replay Bundle、ONNX artifact の主経路まで実装済みで�
 汎用 Unity client 機能は、独立した `EmbodiedLab.Unity` UPM package として
 分離済みである。現在は EmbodiedLab の Pydantic model と versioned JSON Schema を
 wire contract の正本とし、SDK の generated DTO、canonical fixture、transport test を
-同じ契約へ同期する段階にある。EnvForge の SDK 移行はこの同期完了後の別段階とする。
+同じ契約へ同期している。次に SDK の公開 API と tutorial を整理し、その後に EnvForge を
+SDK 利用へ移行する。
 
 その後、学習環境の生成モードを次の二つへ拡張する。
 
