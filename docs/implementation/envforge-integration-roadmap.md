@@ -21,9 +21,12 @@ Pub/Sub event、WebSocket fan-out を持つ。
 - 入力モデルは EnvForge Scenario Bundle へ置き換える。
 - training backend は continuous navigation runtime と
   Stable-Baselines3 PPO である。
-- 成果物は `results/<submission_id>/` に保存される。
-- 保存される artifact は `policy.zip`、`policy.onnx`、
-  `policy.sentis.onnx`、`replay/replay.jsonl` である。
+- 成果物は `results/<submission_id>/model/` と
+  `results/<submission_id>/replay/` に保存される。
+- model artifact は `policy.zip`、`policy.onnx`、
+  `policy.sentis.onnx` である。
+- Replay Bundle は `manifest.json` と `train/*.jsonl.gz`、
+  `eval/*.jsonl.gz` である。
 - 結果通知は Firestore result document、Pub/Sub、WebSocket で行う。
 - Notification service は WebSocket 接続時に Firestore の最新 result document を
   送信し、Pub/Sub event を取り逃がしても EnvForge が authoritative な
@@ -176,9 +179,11 @@ ONNX export は deterministic action head として `v=sigmoid(raw_v)`、
 
 既定の trainer 経路は continuous navigation runtime へ切り替えた。
 trainer は ContinuousNavigationSpec を学習し、policy.zip、通常 ONNX、
-Unity Sentis 向け ONNX、Replay Log を主成果物として保存する。Sentis 向け
-ONNX は `obs_0` (`batch x 3 x 84 x 112`) と `obs_1`
-(`batch x 2`, angle / distance) から `[forward, turn]` の continuous action を返す。
+Unity Sentis 向け ONNX、Replay Bundle を主成果物として保存する。通常 ONNX は
+`obs_0`（dynamic batch x 3 x 84 x 112）と `obs_1`
+（dynamic batch x 2、angle / distance）から `[forward, turn]` を返す。
+Sentis 向け ONNX は同じ値を固定長 `float32[1,28226]` の `observation`
+input に連結する。
 
 ## Phase 5: Model Compatibility
 
@@ -200,9 +205,10 @@ Result Bundle には EnvForge が artifact を取得し、input/output layout �
 Phase 5 の最小到達点は以下である。
 
 - Result Bundle が通常 ONNX と Sentis ONNX の location を含む。
+- 通常 ONNX が `obs_0` / `obs_1`、opset 17、dynamic batch を明示する。
 - Sentis ONNX が固定長 `float32[1,28226]` input layout を明示する。
-- EnvForge が Result Bundle から Replay Log と model artifact を取得できる。
-- EnvForge が Replay Log をローカル再生できる。
+- SDK が Result Bundle から Replay Bundle と model artifact を取得できる。
+- SDK が Replay Bundle の manifest と gzip JSONL chunk を検証して読める。
 
 ただし最終判断は、EnvForge が安定して load / run できる形式に従う。
 
@@ -303,6 +309,11 @@ EnvForge 内の汎用 client 機能を、独立した `EmbodiedLab.Unity` リポ
 UPM package へ移す。対象は bundle DTO、HTTP API client、WebSocket result stream、
 HTTP 再同期、artifact download、Replay Bundle の取得と parse、互換性検査である。
 
+独立 package、generated DTO、HTTP/WebSocket transport、artifact download、
+Replay Bundle loader、ONNX Runtime Quickstart、contract drift test は実装済みである。
+EnvForge 自体を SDK 利用へ移す作業は第二段階として保留し、現在の contract
+整合性作業を EnvForge の旧実装で制約しない。
+
 EnvForge には world editor、Scenario Bundle 構築、UI、ユーザ向け job history、
 Replay の scene 表示、ONNX Runtime 推論を残す。詳細は
 `docs/implementation/unity-sdk-roadmap.md` に記録する。
@@ -319,8 +330,8 @@ Replay の scene 表示、ONNX Runtime 推論を残す。詳細は
 
 ## Open Issues
 
-- API contract の正本から Unity DTO を生成するか、fixture 適合 test で同期するか。
 - `EmbodiedLab.Unity` の release、tag、package distribution をどう運用するか。
+- EmbodiedLab の contract 更新と SDK snapshot 更新をどの release 単位で結び付けるか。
 - `generated` mode の最初の schema と生成結果の記録先。
 - Replay Bundle の巨大 chunk を全結合せずに読む streaming load。
 - user-specific result を導入した後の GCS access をどうするか。

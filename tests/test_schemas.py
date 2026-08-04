@@ -15,6 +15,13 @@ from embodiedlab.schemas import (
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
 
+def _reward_components(**overrides):
+    components = ScenarioBundle().model_dump(mode="json")["reward"]["components"]
+    for component in components:
+        component.update(overrides.get(component["name"], {}))
+    return components
+
+
 def test_scenario_bundle_defaults_are_valid():
     scenario = ScenarioBundle()
 
@@ -113,14 +120,9 @@ def test_scenario_bundle_accepts_documented_shape():
                 },
             ],
             "reward": {
-                "components": [
-                    {
-                        "name": "goal_progress",
-                        "type": "distance_delta",
-                        "target": "goal_001",
-                        "weight": 0.5,
-                    },
-                ],
+                "components": _reward_components(
+                    goal_progress={"weight": 0.5},
+                ),
             },
             "training": {
                 "algorithm": "ppo",
@@ -139,7 +141,7 @@ def test_scenario_bundle_accepts_documented_shape():
     assert scenario.sensors[0].mount_height_meters == 0.6
     assert scenario.sensors[0].mount_height_min_meters is None
     assert scenario.sensors[0].mount_height_max_meters is None
-    assert isinstance(scenario.reward.components[0], DistanceDeltaRewardComponent)
+    assert isinstance(scenario.reward.components[1], DistanceDeltaRewardComponent)
 
 
 def test_forward_camera_mount_height_range_must_be_complete_and_ordered():
@@ -235,15 +237,60 @@ def test_scenario_rejects_missing_reward_target():
     with pytest.raises(ValidationError):
         ScenarioBundle(
             reward={
-                "components": [
-                    {
-                        "name": "goal_progress",
-                        "type": "distance_delta",
-                        "target": "missing_goal",
-                        "weight": 1.0,
-                    }
-                ]
+                "components": _reward_components(
+                    goal_progress={"target": "missing_goal"},
+                ),
             }
+        )
+
+
+def test_scenario_rejects_missing_reward_component():
+    with pytest.raises(ValidationError, match="at least 8"):
+        ScenarioBundle(
+            reward={"components": _reward_components()[:-1]},
+        )
+
+
+def test_scenario_rejects_duplicate_reward_component():
+    components = _reward_components()
+    components[-1] = components[0]
+
+    with pytest.raises(ValidationError, match="must be unique"):
+        ScenarioBundle(reward={"components": components})
+
+
+def test_scenario_rejects_unknown_reward_component():
+    with pytest.raises(ValidationError, match="unknown="):
+        ScenarioBundle(
+            reward={
+                "components": _reward_components(
+                    movement_threshold={"name": "custom_reward"},
+                ),
+            },
+        )
+
+
+def test_scenario_rejects_wrong_reward_component_type():
+    with pytest.raises(ValidationError, match="must use type terminal_reward"):
+        ScenarioBundle(
+            reward={
+                "components": _reward_components(
+                    goal_reached={"type": "per_step"},
+                ),
+            },
+        )
+
+
+def test_training_rejects_eval_replay_over_sdk_row_limit():
+    with pytest.raises(
+        ValidationError,
+        match=r"eval_episodes \* max_episode_steps",
+    ):
+        ScenarioBundle(
+            training={
+                "max_episode_steps": 1001,
+                "eval_episodes": 100,
+            },
         )
 
 

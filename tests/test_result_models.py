@@ -122,10 +122,37 @@ def test_result_bundle_serializes_envforge_artifacts():
                 path="results/job_001/model/policy.onnx",
                 format="onnx",
             ),
-            onnx_model=ArtifactLocation(
+            onnx_model=ModelArtifactLocation(
                 bucket="embodiedlab-models",
                 path="results/job_001/model/policy.onnx",
                 format="onnx",
+                target="onnx-runtime",
+                opset_version=17,
+                inputs=[
+                    {
+                        "name": "obs_0",
+                        "shape": [-1, 3, 84, 112],
+                        "dtype": "float32",
+                        "layout": [
+                            "channel_0_unused",
+                            "channel_1_traversable",
+                            "channel_2_blocked_or_background",
+                        ],
+                    },
+                    {
+                        "name": "obs_1",
+                        "shape": [-1, 2],
+                        "dtype": "float32",
+                        "layout": [
+                            "goal_angle_degrees",
+                            "goal_distance_meters",
+                        ],
+                    },
+                ],
+                output={
+                    "name": "action",
+                    "layout": ["forward", "turn"],
+                },
             ),
             sentis_model=ModelArtifactLocation(
                 bucket="embodiedlab-models",
@@ -133,12 +160,14 @@ def test_result_bundle_serializes_envforge_artifacts():
                 format="onnx",
                 target="unity-sentis",
                 opset_version=15,
-                input={
-                    "name": "observation",
-                    "shape": [1, 7],
-                    "dtype": "float32",
-                    "layout": ["robot_x", "robot_z", "front_distance"],
-                },
+                inputs=[
+                    {
+                        "name": "observation",
+                        "shape": [1, 7],
+                        "dtype": "float32",
+                        "layout": ["robot_x", "robot_z", "front_distance"],
+                    },
+                ],
                 output={
                     "name": "action",
                     "layout": ["forward", "turn"],
@@ -159,7 +188,7 @@ def test_result_bundle_serializes_envforge_artifacts():
     assert payload["artifacts"]["model"]["format"] == "onnx"
     assert payload["artifacts"]["onnx_model"]["path"].endswith("policy.onnx")
     assert payload["artifacts"]["sentis_model"]["target"] == "unity-sentis"
-    assert payload["artifacts"]["sentis_model"]["input"]["shape"] == [1, 7]
+    assert payload["artifacts"]["sentis_model"]["inputs"][0]["shape"] == [1, 7]
     assert payload["artifacts"]["replay_bundle"]["format"] == "json"
 
 
@@ -299,6 +328,38 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
                 "storage": "gcs",
                 "bucket": "embodiedlab-models",
                 "path": "results/job_001/model/policy.onnx",
+                "format": "onnx",
+                "target": "onnx-runtime",
+                "opset_version": 17,
+                "inputs": [
+                    {
+                        "name": "obs_0",
+                        "shape": [-1, 3, 84, 112],
+                        "dtype": "float32",
+                        "layout": [
+                            "channel_0_unused",
+                            "channel_1_traversable",
+                            "channel_2_blocked_or_background",
+                        ],
+                    },
+                    {
+                        "name": "obs_1",
+                        "shape": [-1, 2],
+                        "dtype": "float32",
+                        "layout": [
+                            "goal_angle_degrees",
+                            "goal_distance_meters",
+                        ],
+                    },
+                ],
+                "output": {
+                    "name": "action",
+                    "layout": ["forward", "turn"],
+                    "action_mapping": {
+                        "forward": "sigmoid(policy_forward)",
+                        "turn": "clip(policy_turn, -3, 3) / 3",
+                    },
+                },
             },
             "replay_bundle": {
                 "storage": "gcs",

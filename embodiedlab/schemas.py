@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SCENARIO_SCHEMA_VERSION = "scenario-bundle.v0"
 ROBOT_VERSION = "simple_robot.v1"
 DEFAULT_ROBOT_RADIUS_METERS = 0.45
+MAX_REPLAY_CHUNK_STEPS = 100_000
 
 
 class CoordinateSystem(StrEnum):
@@ -324,7 +325,11 @@ RewardComponent = Annotated[
 class RewardSpec(BaseModel):
     """Declarative reward configuration for training."""
 
-    components: list[RewardComponent] = Field(default_factory=list)
+    components: list[RewardComponent] = Field(
+        default_factory=list,
+        min_length=8,
+        max_length=8,
+    )
 
 
 class TrainingSpec(BaseModel):
@@ -333,7 +338,7 @@ class TrainingSpec(BaseModel):
     algorithm: TrainingAlgorithm = TrainingAlgorithm.PPO
     timesteps: int = Field(default=5_000, ge=1)
     seed: int = 10
-    max_episode_steps: int = Field(default=512, ge=1)
+    max_episode_steps: int = Field(default=512, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
     n_envs: int = Field(default=1, ge=1)
     cpu_count: int | None = Field(default=None, ge=1)
     torch_num_threads: int | None = Field(default=None, ge=1)
@@ -343,7 +348,18 @@ class TrainingSpec(BaseModel):
     gamma: float = Field(default=0.99, gt=0.0, le=1.0)
     learning_rate: float = Field(default=3e-4, gt=0.0)
     ent_coef: float = Field(default=0.0, ge=0.0)
-    eval_episodes: int = Field(default=20, ge=1)
+    eval_episodes: int = Field(default=20, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+
+    @model_validator(mode="after")
+    def validate_eval_replay_size(self) -> TrainingSpec:
+        """Keep one deterministic evaluation chunk within the SDK row budget."""
+        if self.eval_episodes * self.max_episode_steps > MAX_REPLAY_CHUNK_STEPS:
+            msg = (
+                "eval_episodes * max_episode_steps must be less than or equal "
+                f"to {MAX_REPLAY_CHUNK_STEPS}"
+            )
+            raise ValueError(msg)
+        return self
 
 
 class ScenarioBundle(BaseModel):
@@ -417,17 +433,48 @@ class ScenarioBundle(BaseModel):
             msg = "sensor ids must be unique"
             raise ValueError(msg)
 
-        object_ids = {
-            self.world.goal.id,
-            *(wall.id for wall in self.world.static_walls),
-            *(obstacle.id for obstacle in self.world.static_obstacles),
+        expected_reward_types = {
+            "goal_reached": RewardComponentType.TERMINAL_REWARD,
+            "goal_progress": RewardComponentType.DISTANCE_DELTA,
+            "collision_penalty": RewardComponentType.COLLISION,
+            "step_penalty": RewardComponentType.PER_STEP,
+            "wide_angle_penalty": RewardComponentType.PER_STEP,
+            "rear_angle_penalty": RewardComponentType.PER_STEP,
+            "inactive_penalty": RewardComponentType.PER_STEP,
+            "movement_threshold": RewardComponentType.PER_STEP,
         }
+        reward_names = [component.name for component in self.reward.components]
+        if len(reward_names) != len(set(reward_names)):
+            msg = "reward component names must be unique"
+            raise ValueError(msg)
+
+        actual_reward_names = set(reward_names)
+        expected_reward_names = set(expected_reward_types)
+        if actual_reward_names != expected_reward_names:
+            missing = sorted(expected_reward_names - actual_reward_names)
+            unknown = sorted(actual_reward_names - expected_reward_names)
+            msg = (
+                "reward components must match the continuous runtime contract; "
+                f"missing={missing}, unknown={unknown}"
+            )
+            raise ValueError(msg)
+
         for component in self.reward.components:
+            expected_type = expected_reward_types[component.name]
+            if component.type != expected_type:
+                msg = (
+                    f"reward component {component.name} must use type "
+                    f"{expected_type.value}"
+                )
+                raise ValueError(msg)
             if (
                 isinstance(component, DistanceDeltaRewardComponent)
-                and component.target not in object_ids
+                and component.target != self.world.goal.id
             ):
-                msg = f"reward component target not found: {component.target}"
+                msg = (
+                    "goal_progress target must match world.goal.id: "
+                    f"{component.target}"
+                )
                 raise ValueError(msg)
 
         return self

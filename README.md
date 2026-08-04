@@ -126,7 +126,7 @@ Example payload:
       "max": {"x": 10.0, "z": 10.0}
     },
     "goal": {
-      "id": "goal-1",
+      "id": "goal_001",
       "position": {"x": 8.5, "z": 8.5},
       "radius": 0.5
     }

@@ -16,6 +16,14 @@ from embodiedlab.training.training_converter import (
 )
 
 
+def _scenario_with_reward_weights(**weights):
+    payload = ScenarioBundle().model_dump(mode="json")
+    for component in payload["reward"]["components"]:
+        if component["name"] in weights:
+            component["weight"] = weights[component["name"]]
+    return ScenarioBundle.model_validate(payload)
+
+
 def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     scenario = ScenarioBundle(
         world={
@@ -102,18 +110,9 @@ def test_continuous_env_moves_forward_in_envforge_xz_space():
 
 
 def test_continuous_env_ignores_tiny_goal_progress_below_physics_resolution():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.5,
-                },
-                {"name": "step_penalty", "type": "per_step", "weight": 0.0},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.5,
+        step_penalty=0.0,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -131,18 +130,9 @@ def test_continuous_env_ignores_tiny_goal_progress_below_physics_resolution():
 
 
 def test_continuous_env_rewards_goal_progress_fixed_when_distance_decreases():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.5,
-                },
-                {"name": "step_penalty", "type": "per_step", "weight": 0.0},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.5,
+        step_penalty=0.0,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -159,22 +149,10 @@ def test_continuous_env_rewards_goal_progress_fixed_when_distance_decreases():
 
 
 def test_continuous_env_uses_declared_reward_weights():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {"name": "goal_reached", "type": "terminal_reward", "weight": 100.0},
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.0,
-                },
-                {"name": "collision_penalty", "type": "collision", "weight": -50.0},
-                {"name": "step_penalty", "type": "per_step", "weight": -0.2},
-                {"name": "inactive_penalty", "type": "per_step", "weight": -0.4},
-                {"name": "movement_threshold", "type": "per_step", "weight": 0.001},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.0,
+        step_penalty=-0.2,
+        inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -190,20 +168,10 @@ def test_continuous_env_uses_declared_reward_weights():
 
 
 def test_continuous_env_penalizes_min_forward_even_when_turning_fast():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.0,
-                },
-                {"name": "step_penalty", "type": "per_step", "weight": 0.0},
-                {"name": "inactive_penalty", "type": "per_step", "weight": -0.4},
-                {"name": "movement_threshold", "type": "per_step", "weight": 0.001},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.0,
+        step_penalty=0.0,
+        inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -221,20 +189,10 @@ def test_continuous_env_penalizes_min_forward_even_when_turning_fast():
 
 
 def test_continuous_env_penalizes_zero_forward_as_inactive():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.0,
-                },
-                {"name": "step_penalty", "type": "per_step", "weight": 0.0},
-                {"name": "inactive_penalty", "type": "per_step", "weight": -0.4},
-                {"name": "movement_threshold", "type": "per_step", "weight": 0.001},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.0,
+        step_penalty=0.0,
+        inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -251,20 +209,10 @@ def test_continuous_env_penalizes_zero_forward_as_inactive():
 
 
 def test_continuous_env_does_not_penalize_forward_without_turning_as_inactive():
-    scenario = ScenarioBundle(
-        reward={
-            "components": [
-                {
-                    "name": "goal_progress",
-                    "type": "distance_delta",
-                    "target": "goal_001",
-                    "weight": 0.0,
-                },
-                {"name": "step_penalty", "type": "per_step", "weight": 0.0},
-                {"name": "inactive_penalty", "type": "per_step", "weight": -0.4},
-                {"name": "movement_threshold", "type": "per_step", "weight": 0.001},
-            ],
-        },
+    scenario = _scenario_with_reward_weights(
+        goal_progress=0.0,
+        step_penalty=0.0,
+        inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),

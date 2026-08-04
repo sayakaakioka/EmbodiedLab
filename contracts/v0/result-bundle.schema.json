@@ -87,39 +87,21 @@
         "format": {
           "$ref": "#/$defs/ArtifactFormat"
         },
-        "input": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ModelInput"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ModelInput"
+          },
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
         },
         "opset_version": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Opset Version"
+          "minimum": 1,
+          "title": "Opset Version",
+          "type": "integer"
         },
         "output": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ModelOutput"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
+          "$ref": "#/$defs/ModelOutput"
         },
         "path": {
           "minLength": 1,
@@ -131,22 +113,19 @@
           "default": "gcs"
         },
         "target": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Target"
+          "minLength": 1,
+          "title": "Target",
+          "type": "string"
         }
       },
       "required": [
         "bucket",
         "path",
-        "format"
+        "format",
+        "target",
+        "opset_version",
+        "inputs",
+        "output"
       ],
       "title": "ModelArtifactLocation",
       "type": "object"
@@ -240,7 +219,7 @@
         "onnx_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ArtifactLocation"
+              "$ref": "#/$defs/ModelArtifactLocation"
             },
             {
               "type": "null"

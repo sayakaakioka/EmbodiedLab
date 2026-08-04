@@ -175,6 +175,55 @@ def upload_replay_bundle_to_gcs(
     }
 
 
+def _action_output_metadata() -> dict:
+    return {
+        "name": "action",
+        "layout": ["forward", "turn"],
+        "action_mapping": {
+            "forward": "sigmoid(policy_forward)",
+            "turn": "clip(policy_turn, -3, 3) / 3",
+        },
+    }
+
+
+def _onnx_metadata(*, bucket_name: str, path: str) -> dict:
+    return {
+        "storage": "gcs",
+        "bucket": bucket_name,
+        "path": path,
+        "format": "onnx",
+        "target": "onnx-runtime",
+        "opset_version": 17,
+        "inputs": [
+            {
+                "name": "obs_0",
+                "shape": [
+                    -1,
+                    IMAGE_OBSERVATION_CHANNELS,
+                    IMAGE_OBSERVATION_HEIGHT,
+                    IMAGE_OBSERVATION_WIDTH,
+                ],
+                "dtype": "float32",
+                "layout": [
+                    "channel_0_unused",
+                    "channel_1_traversable",
+                    "channel_2_blocked_or_background",
+                ],
+            },
+            {
+                "name": "obs_1",
+                "shape": [-1, NUMERIC_OBSERVATION_SIZE],
+                "dtype": "float32",
+                "layout": [
+                    "goal_angle_degrees",
+                    "goal_distance_meters",
+                ],
+            },
+        ],
+        "output": _action_output_metadata(),
+    }
+
+
 def _sentis_metadata(*, bucket_name: str, path: str) -> dict:
     return {
         "storage": "gcs",
@@ -183,29 +232,24 @@ def _sentis_metadata(*, bucket_name: str, path: str) -> dict:
         "format": "onnx",
         "target": "unity-sentis",
         "opset_version": 15,
-        "input": {
-            "name": "observation",
-            "shape": [1, SENTIS_OBSERVATION_SIZE],
-            "dtype": "float32",
-            "layout": [
-                (
-                    "obs_0_chw_"
-                    f"{IMAGE_OBSERVATION_CHANNELS}x"
-                    f"{IMAGE_OBSERVATION_HEIGHT}x"
-                    f"{IMAGE_OBSERVATION_WIDTH}"
-                ),
-                "obs_1_angle_degrees",
-                "obs_1_distance_meters",
-            ],
-        },
-        "output": {
-            "name": "action",
-            "layout": ["forward", "turn"],
-            "action_mapping": {
-                "forward": "sigmoid(policy_forward)",
-                "turn": "clip(policy_turn, -3, 3) / 3",
+        "inputs": [
+            {
+                "name": "observation",
+                "shape": [1, SENTIS_OBSERVATION_SIZE],
+                "dtype": "float32",
+                "layout": [
+                    (
+                        "obs_0_chw_"
+                        f"{IMAGE_OBSERVATION_CHANNELS}x"
+                        f"{IMAGE_OBSERVATION_HEIGHT}x"
+                        f"{IMAGE_OBSERVATION_WIDTH}"
+                    ),
+                    "obs_1_angle_degrees",
+                    "obs_1_distance_meters",
+                ],
             },
-        },
+        ],
+        "output": _action_output_metadata(),
     }
 
 
@@ -261,11 +305,10 @@ def upload_model_to_gcs(
             "bucket": bucket_name,
             "path": zip_blob_path,
         },
-        "onnx_model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": onnx_blob_path,
-        },
+        "onnx_model": _onnx_metadata(
+            bucket_name=bucket_name,
+            path=onnx_blob_path,
+        ),
         "sentis_model": _sentis_metadata(
             bucket_name=bucket_name,
             path=sentis_blob_path,
