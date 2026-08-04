@@ -2,7 +2,7 @@
 
 ## 概要
 
-EmbodiedLab は現在、EnvForge Scenario Bundle を continuous navigation
+EmbodiedLab は現在、Scenario Bundle を continuous navigation
 runtime へ変換し、クラウド上で PPO 学習する最小限の学習ループを実装している。
 
 FastAPI service が submission を受け取り、Firestore に保存し、
@@ -98,13 +98,15 @@ training converter、training runner を含む shared library である。
 
 ## 現在のデータモデル
 
-現在の API は EnvForge Scenario Bundle を受け取る。主経路の環境は、
+現在の API は Scenario Bundle を受け取る。主経路の環境は、
 Gymnasium-compatible continuous navigation runtime である。action は PPO 内部では
 raw `forward` と raw `turn` を分けて扱い、runtime 適用時は
 `forward=sigmoid(raw_forward)`、`turn=clip(raw_turn,-3,3)/3` に写像される。
-observation は `obs_0` の semantic camera
-`3 x 84 x 112` と、`obs_1` の `[goal_angle_degrees, goal_distance_meters]` である。
-旧 grid-world runtime は削除済みで、必要な履歴は Git history を参照する。
+observation は Scenario Bundle で指定した名前、解像度、semantic mode から構成する
+semantic camera と、同じく Scenario Bundle で順序を指定した
+`[goal_angle_degrees, goal_distance_meters]` である。固定 tutorial の現在値は
+`obs_0: 3 x 84 x 112`、`obs_1: 2` だが、runtime や policy network にこの shape を
+重複して直書きしない。
 
 ## 現在の成果物
 
@@ -112,7 +114,6 @@ trainer job が完了すると、以下の成果物をアップロードする�
 
     results/<submission_id>/
       model/
-        policy.zip
         policy.onnx
         policy.sentis.onnx
       replay/
@@ -120,16 +121,20 @@ trainer job が完了すると、以下の成果物をアップロードする�
         train/chunk_<index>.jsonl.gz
         eval/checkpoint_<step>.jsonl.gz
 
-`policy.zip` は Stable-Baselines3 model である。`policy.onnx` は
-continuous navigation の dict observation を `obs_0`
-（dynamic batch x 3 x 84 x 112）と `obs_1`（dynamic batch x 2）の
-2 input として公開する opset 17 の一般 ONNX artifact である。
-`policy.sentis.onnx` は Unity Sentis 向けに固定長 `float32[1,28226]` input
-へまとめた opset 15 の ONNX artifact である。どちらも output は
+`policy.onnx` は continuous navigation の dict observation を2 input として公開する
+opset 17 の一般 ONNX artifact、`policy.sentis.onnx` は同じ observation を Unity Sentis
+向け固定長 input へまとめた opset 15 の ONNX artifact である。input 名、shape、layout は
+Scenario Bundle から導出し、保存済み policy の observation space と一致しなければ export を
+失敗させる。どちらも output は
 `[forward, turn]` の continuous action である。Replay Bundle は manifest と
 gzip 圧縮した JSON Lines chunk からなり、各行は `scenario_id` と `job_id` を含む
 `ReplayLogStep` として書き込み前に検証される。Result Bundle には両 ONNX の
 artifact location、target、opset、全 input/output metadata を含める。
+
+ダウンロード対象の ONNX、Sentis ONNX、Replay manifest はすべて `size_bytes` と
+`sha256` を持つ。Replay manifest の各 chunk も圧縮後 bytes の size と digest を持つ。
+trainer は upload 前に実ファイルを検証し、GCS object は generation precondition 付きで
+新規作成する。Replay gzip は同じ入力から同じ digest を得られるよう timestamp を固定する。
 
 ## 現在の強み
 
@@ -143,13 +148,15 @@ artifact location、target、opset、全 input/output metadata を含める。
 ## 現在の連携状態と次の不足
 
 現在の production training path は `ContinuousNavigationEnv` と
-`run_continuous_navigation_training` を使う。この runtime は EnvForge の x/z meter
+`run_continuous_navigation_training` を使う。この runtime は左手系 Y-up meter の x/z
 座標、Y 回転、連続 action forward/turn、goal radius、static walls、
-static obstacles、回転付き box collision、距離センサ range を表現する。
+static obstacles、回転付き box collision、任意の距離センサ range を表現する。
 Replay Bundle は continuous runtime の実座標と実 action から生成する。
 
 Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge からのジョブ投入、
 進捗監視、artifact download、Replay 再生、ONNX Runtime 推論の主導線は実装済みである。
+これは EnvForge 内の既存直接実装を指す。重複実装を `EmbodiedLab.Unity` の公開 API 利用へ
+置き換える SDK 移行は第二段階であり、まだ着手していない。
 
 次に不足しているものは以下である。
 
@@ -160,11 +167,11 @@ Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge から�
   表現できない。
 - ONNX export と Result Bundle metadata は continuous 主経路に接続済みであり、
   SDK は実ファイルの tensor metadata も検証する。Sentis 実行経路は別途検証が必要である。
-- reward component の主要 weight は Scenario Bundle から continuous runtime へ
-  反映する。現時点では `goal_reached`、`goal_progress`、
-  `collision_penalty`、`step_penalty`、
-  `wide_angle_penalty`、`rear_angle_penalty`、`inactive_penalty`、
-  `movement_threshold` を扱う。
+- reward weight と発火条件は Scenario Bundle から continuous runtime へ反映する。
+  `goal_progress`、wide/rear angle、inactive の判定値も JSON を正本とする。
+- PPO hyperparameter、environment 数、CPU、PyTorch thread、Replay 間隔、start pose
+  randomization は Scenario Bundle から受け取る。実行時に解決した library version、
+  resource 数、全 PPO 値は Result Bundle の training configuration に保存する。
 - robot と sensor descriptor が最小限である。
 - forward camera observation は semantic 2.5D projection であり、
   Unity の material、lighting、shadow、post-processing を再現するものではない。

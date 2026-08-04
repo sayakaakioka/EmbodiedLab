@@ -26,21 +26,26 @@ EnvForge / another Unity frontend
   実行する。
 - Scenario Bundle を continuous navigation runtime へ変換し、Stable-Baselines3 PPO と
   `NavigationFinalPolicy` で学習する。
-- 通常 ONNX は `obs_0` と `obs_1`、Sentis ONNX は固定長 `observation` を入力とする。
+- 通常 ONNX の input 名と shape は Scenario から導出する。canonical fixture では
+  `obs_0` と `obs_1` である。Sentis ONNX は固定長 `observation` を入力とする。
 - 成果物は `results/<submission_id>/model/` と
   `results/<submission_id>/replay/` に保存する。
 - Replay Bundle は manifest と train / eval の gzip JSONL chunk で構成する。
 - EmbodiedLab の Pydantic model と versioned JSON Schema を wire contract の正本とし、
   SDK の generated DTO、canonical fixture、contract test を同期する。
-- `EmbodiedLab.Unity` の契約同期と最小チュートリアルを実装済みである。
+- `EmbodiedLab.Unity` には直前の v0 契約と最小チュートリアルを実装済みである。
+  今回厳密化した v0 schema と generated DTO の再同期は次工程で行う。
 
 現行の Scenario、Result、Replay、ONNX 契約の詳細は `contracts/v0/`、
 `tests/fixtures/envforge/`、`docs/implementation/unity-sdk-roadmap.md` を正本として参照する。
 過去の段階的な実装経緯は Git 履歴と pull request に残す。
 
-## 次の実装順序
+## 実装順序と進捗
 
 ### 1. server-owned job lifecycle
+
+完了。submission 作成を一つの server-owned 操作として受理し、dispatch、調停、cancel、
+terminal Result までを server と trainer が所有する。
 
 submission 作成後の training dispatch、失敗記録、再試行判断はサーバー側で完結させる。
 Unity client は一つの submit 操作を呼び、submission id と authoritative な Result を
@@ -49,6 +54,9 @@ Unity client は一つの submit 操作を呼び、submission id と authoritati
 cancel は永続化された capability と terminal state に基づいて安全に処理する。
 
 ### 2. Unity 公開 API の整理
+
+公開 API の初期整理は実装済みで、今回の厳密化した Result / artifact contract への
+追従を進める段階である。
 
 `EmbodiedLab.Unity` は tutorial 固有の補助クラスへ責務を隠さず、次を小さな公開 API として
 提供する。
@@ -61,8 +69,20 @@ cancel は永続化された capability と terminal state に基づいて安全
 
 公開 API は server-owned lifecycle を表現し、artifact の size と SHA-256 を検証する。
 HTTP response、Scenario / Replay の要素数と文字列長には明示的な上限を設ける。
+JSON Schema だけでは表現できない train chunk の
+`start_step <= end_step`、`checkpoint_step == end_step`、Replay path の一意性は、
+generated DTO の後段に置く Unity semantic validator と contract test で検証する。
 
 ### 3. 契約値の明示
+
+EmbodiedLab 側は完了。action step、camera、numeric goal input、reward 判定値、PPO、
+resource、Replay 設定を Scenario Bundle から runtime へ渡し、解決済み training 設定を
+Result Bundle に記録する。ONNX export は保存済み policy と Scenario の observation contract
+が一致しない場合に失敗する。
+
+ONNX、Sentis ONNX、Replay manifest と Replay chunk は `size_bytes` と `sha256` を持つ。
+次は同じ schema、fixture、download 検証を
+`EmbodiedLab.Unity` へ同期する。
 
 実行結果へ影響する既定値をコードの magic number にしない。寸法、goal radius、camera、
 解像度、semantic mode、PPO、environment 数、CPU、PyTorch thread 数など、ユーザーが
@@ -71,6 +91,8 @@ HTTP response、Scenario / Replay の要素数と文字列長には明示的な�
 ONNX の入出力 shape と layout は metadata だけでなく実 graph と照合する。
 
 ### 4. EnvForge の SDK 移行
+
+未着手。`EmbodiedLab.Unity` の同期と human review 完了後に行う第二段階である。
 
 公開 API と tutorial の整理後、EnvForge の重複 client / contract / replay / inference
 実装を `EmbodiedLab.Unity` 利用へ置き換える。移行時は以下を横断検証する。
@@ -83,9 +105,11 @@ ONNX の入出力 shape と layout は metadata だけでなく実 graph と照�
 
 ### 5. 公開運用の hardening
 
+- Scenario、Result、Replay の現在の wire contract には要素数、文字列長、training resource
+  の上限を実装済みである。以下は service 公開前に残る運用・転送境界の課題である。
 - 認証、所有者単位の authorization、quota、billing
 - private GCS と期限付き artifact access
-- 学習計算量、payload、download、Replay 展開の resource limit
+- HTTP body、artifact download、Replay 展開後 bytes の service-level resource limit
 - Cloud Run / Firestore / GCS の保持と削除運用
 
 cloud resource を削除する前に、EnvForge 側の

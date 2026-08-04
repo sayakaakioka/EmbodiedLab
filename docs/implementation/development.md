@@ -63,7 +63,7 @@ make check
 
 ```bash
 uv run ruff check embodiedlab server trainer tests notification
-uv run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs
+uv run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs rules
 uv run pytest
 ```
 
@@ -106,8 +106,7 @@ cloud/API 系 target は、必要な環境変数が不足している場合、
 trainer job は完了した model artifact を `MODEL_BUCKET` の
 `results/<submission_id>/` に upload する。
 
-- `model/policy.zip`: Stable-Baselines3 saved model
-- `model/policy.onnx`: `obs_0` / `obs_1` input を持つ opset 17 ONNX
+- `model/policy.onnx`: Scenario が指定した input 名と shape を持つ opset 17 ONNX
 - `model/policy.sentis.onnx`: 固定長 input を持つ opset 15 Sentis-oriented ONNX
 - `replay/manifest.json`: Replay Bundle manifest
 - `replay/train/*.jsonl.gz`: stochastic training chunk
@@ -116,6 +115,10 @@ trainer job は完了した model artifact を `MODEL_BUCKET` の
 1 chunk は最大 100,000 行、manifest は最大 4,096 chunk とする。
 Scenario Bundle は `eval_episodes * max_episode_steps <= 100000` を要求し、
 最終評価を一つの SDK-readable chunk に収める。
+
+公開する各 ONNX と Replay manifest は `size_bytes` と `sha256` を Result Bundle に持つ。
+Replay manifest は各 gzip chunk の圧縮後 size と SHA-256 を持つ。upload は実ファイルと
+metadata の一致を確認し、同じ GCS object を上書きしない。
 
 現在の bucket 作成処理は public object read を許可する。
 これは prototype 用の挙動であり、user-specific result を扱う段階では

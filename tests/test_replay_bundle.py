@@ -2,6 +2,7 @@ import gzip
 import json
 from pathlib import Path
 
+from embodiedlab.artifact_integrity import compute_file_integrity
 from embodiedlab.result_models import ReplayBundleManifest, ReplayLogStep
 from embodiedlab.training.replay_bundle import ReplayBundleWriter
 
@@ -27,7 +28,12 @@ def _replay_step(
             "position": {"x": 0.0, "z": 0.0},
             "rotation_y_degrees": 0.0,
         },
-        "action": {"values": []},
+        "action": {
+            "values": [
+                {"name": "forward", "value": 0.0},
+                {"name": "turn", "value": 0.0},
+            ],
+        },
         "reward": {"total": 0.0, "components": []},
         "events": [],
         "sensors": [],
@@ -76,10 +82,14 @@ def test_replay_bundle_writer_matches_canonical_manifest(tmp_path):
 
     assert manifest == expected
     assert written == expected
-    assert validated.model_dump(mode="json", exclude_none=True) == expected
+    assert validated.model_dump(mode="json") == expected
 
     for chunk in manifest["chunks"]:
-        with gzip.open(writer.root_dir / chunk["path"], "rt", encoding="utf-8") as file:
+        chunk_path = writer.root_dir / chunk["path"]
+        integrity = compute_file_integrity(chunk_path)
+        assert integrity.size_bytes == chunk["size_bytes"]
+        assert integrity.sha256 == chunk["sha256"]
+        with gzip.open(chunk_path, "rt", encoding="utf-8") as file:
             rows = [ReplayLogStep.model_validate_json(line) for line in file]
         assert len(rows) == chunk["step_count"]
         assert {row.scenario_id for row in rows} == {"navigation_default"}

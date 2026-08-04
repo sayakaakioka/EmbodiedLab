@@ -1,10 +1,7 @@
 import numpy as np
 import pytest
 
-from embodiedlab.continuous_navigation_env import (
-    IMAGE_OBSERVATION_WIDTH,
-    ContinuousNavigationEnv,
-)
+from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.navigation_final_policy import (
     POLICY_FORWARD_ACTION_HIGH,
@@ -14,18 +11,19 @@ from embodiedlab.training.training_converter import (
     convert_submission_to_spec,
     describe_runtime_conversion,
 )
+from tests.fakes import scenario_bundle
 
 
 def _scenario_with_reward_weights(**weights):
-    payload = ScenarioBundle().model_dump(mode="json")
+    payload = scenario_bundle().model_dump(mode="json")
     for component in payload["reward"]["components"]:
         if component["name"] in weights:
             component["weight"] = weights[component["name"]]
     return ScenarioBundle.model_validate(payload)
 
 
-def test_continuous_runtime_conversion_preserves_envforge_coordinates():
-    scenario = ScenarioBundle(
+def test_continuous_runtime_conversion_preserves_left_handed_coordinates():
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -5.0, "z": -2.0},
@@ -36,6 +34,7 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
                     "id": "wall_001",
                     "center": {"x": 0.0, "z": 4.0},
                     "size": {"x": 8.0, "z": 0.2},
+                    "height": 2.0,
                     "rotation_y_degrees": 90.0,
                 },
             ],
@@ -62,15 +61,25 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
         },
         sensors=[
             {"id": "front_camera", "type": "forward_camera"},
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 7.5,
+                "direction": "forward",
+            },
         ],
     )
 
     conversion = describe_runtime_conversion(scenario)
     spec = convert_submission_to_spec(scenario)
 
-    assert conversion.runtime_coordinate_system == "envforge_xz_meters"
-    assert conversion.coordinate_mapping == "direct_envforge_xz_meters"
+    assert conversion.runtime_coordinate_system == "left_handed_y_up_meters"
+    assert conversion.coordinate_mapping == "direct_left_handed_y_up_meters"
     assert conversion.lossy is True
     assert "reward.components" not in conversion.omitted_contract_fields
     assert spec.bounds.min_x == -5.0
@@ -89,8 +98,8 @@ def test_continuous_runtime_conversion_preserves_envforge_coordinates():
     assert spec.obstacles[1].rotation_y_degrees == 45.0
 
 
-def test_continuous_env_moves_forward_in_envforge_xz_space():
-    spec = convert_submission_to_spec(ScenarioBundle())
+def test_continuous_env_moves_forward_in_left_handed_xz_space():
+    spec = convert_submission_to_spec(scenario_bundle())
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
 
     obs, info = env.reset()
@@ -121,6 +130,32 @@ def test_continuous_env_ignores_tiny_goal_progress_below_physics_resolution():
 
     reward_components = env._reward_components(  # noqa: SLF001
         distance_delta=0.001,
+        applied_forward=1.0,
+        collision_id=None,
+        goal_reached=False,
+    )
+
+    assert reward_components == [{"name": "step_penalty", "value": 0.0}]
+
+
+def test_continuous_env_uses_declared_goal_progress_threshold():
+    payload = _scenario_with_reward_weights(
+        goal_progress=0.5,
+        step_penalty=0.0,
+    ).model_dump(mode="json")
+    component = next(
+        item
+        for item in payload["reward"]["components"]
+        if item["name"] == "goal_progress"
+    )
+    component["minimum_delta_meters"] = 0.02
+    env = ContinuousNavigationEnv(
+        spec=convert_submission_to_spec(ScenarioBundle.model_validate(payload)),
+        max_steps=10,
+    )
+
+    reward_components = env._reward_components(  # noqa: SLF001
+        distance_delta=0.01,
         applied_forward=1.0,
         collision_id=None,
         goal_reached=False,
@@ -229,7 +264,7 @@ def test_continuous_env_does_not_penalize_forward_without_turning_as_inactive():
 
 
 def test_continuous_env_blocks_rotated_obstacle_collision():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "static_obstacles": [
                 {
@@ -258,12 +293,11 @@ def test_continuous_env_blocks_rotated_obstacle_collision():
     assert next_info["robot_z"] == pytest.approx(_info["robot_z"])
     assert next_info["collision"] is True
     assert next_info["collision_id"] == "box_001"
-    assert next_info["front_distance"] <= 0.2
     assert reward < -1.0
 
 
 def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         robot={
             "radius": 0.45,
             "start_pose": {
@@ -283,7 +317,17 @@ def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
         },
         sensors=[
             {"id": "front_camera", "type": "forward_camera"},
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 3.0,
+                "direction": "forward",
+            },
         ],
     )
     env = ContinuousNavigationEnv(
@@ -299,7 +343,7 @@ def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
 
 
 def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "static_obstacles": [
                 {
@@ -328,7 +372,7 @@ def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
 
 
 def test_segmentation_observation_renders_near_wall_as_large_blocked_surface():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -2.0, "z": -2.0},
@@ -362,7 +406,17 @@ def test_segmentation_observation_renders_near_wall_as_large_blocked_surface():
                 "mount_height_meters": 0.6,
                 "far_clip_meters": 3.0,
             },
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 3.0,
+                "direction": "forward",
+            },
         ],
     )
     env = ContinuousNavigationEnv(
@@ -373,12 +427,13 @@ def test_segmentation_observation_renders_near_wall_as_large_blocked_surface():
     obs, _info = env.reset()
 
     assert obs["obs_0"][2].mean() > 0.95
-    assert obs["obs_0"][2, 0, IMAGE_OBSERVATION_WIDTH // 2] == 1.0
-    assert obs["obs_0"][2, -1, IMAGE_OBSERVATION_WIDTH // 2] == 1.0
+    center_column = env.spec.camera.width // 2
+    assert obs["obs_0"][2, 0, center_column] == 1.0
+    assert obs["obs_0"][2, -1, center_column] == 1.0
 
 
 def test_segmentation_observation_uses_object_height_in_camera_projection():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -2.0, "z": -2.0},
@@ -412,14 +467,24 @@ def test_segmentation_observation_uses_object_height_in_camera_projection():
                 "mount_height_meters": 0.6,
                 "far_clip_meters": 3.0,
             },
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 3.0,
+                "direction": "forward",
+            },
         ],
     )
     env = ContinuousNavigationEnv(spec=convert_submission_to_spec(scenario))
 
     obs, _info = env.reset()
 
-    center_column = IMAGE_OBSERVATION_WIDTH // 2
+    center_column = env.spec.camera.width // 2
     assert obs["obs_0"][2, 0, center_column] == 1.0
     assert obs["obs_0"][1].mean() > 0.1
     assert obs["obs_0"][2].mean() > 0.1
@@ -427,7 +492,7 @@ def test_segmentation_observation_uses_object_height_in_camera_projection():
 
 
 def test_segmentation_observation_renders_floor_and_background_without_hits():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -2.0, "z": -2.0},
@@ -438,6 +503,7 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
                 "position": {"x": 0.0, "z": 3.0},
                 "radius": 0.5,
             },
+            "static_obstacles": [],
         },
         robot={
             "start_pose": {
@@ -447,14 +513,24 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
         },
         sensors=[
             {"id": "front_camera", "type": "forward_camera", "far_clip_meters": 3.0},
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 3.0},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 3.0,
+                "direction": "forward",
+            },
         ],
     )
     env = ContinuousNavigationEnv(spec=convert_submission_to_spec(scenario))
 
     obs, _info = env.reset()
 
-    center_column = IMAGE_OBSERVATION_WIDTH // 2
+    center_column = env.spec.camera.width // 2
     assert np.all(obs["obs_0"][0] == 0.0)
     assert obs["obs_0"][2, 0, center_column] == 1.0
     assert obs["obs_0"][1, -1, center_column] == 1.0
@@ -463,7 +539,7 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
 
 
 def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -2.0, "z": -2.0},
@@ -490,6 +566,20 @@ def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
                 "rotation_y_degrees": 180.0,
             },
         },
+        sensors=[
+            {"id": "front_camera", "type": "forward_camera"},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 3.0,
+                "direction": "forward",
+            },
+        ],
     )
     env = ContinuousNavigationEnv(
         spec=convert_submission_to_spec(scenario),
@@ -501,7 +591,7 @@ def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
 
 
 def test_continuous_env_maps_raw_action_to_navigation_final_contract():
-    spec = convert_submission_to_spec(ScenarioBundle())
+    spec = convert_submission_to_spec(scenario_bundle())
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
 
     _obs, _info = env.reset()
@@ -518,8 +608,30 @@ def test_continuous_env_maps_raw_action_to_navigation_final_contract():
     assert _next_info["robot_z"] > _info["robot_z"]
 
 
+def test_continuous_env_uses_declared_action_steps():
+    payload = scenario_bundle().model_dump(mode="json")
+    payload["robot"]["action_space"]["forward_step_meters"] = 0.4
+    payload["robot"]["action_space"]["turn_degrees_per_step"] = 30.0
+    env = ContinuousNavigationEnv(
+        spec=convert_submission_to_spec(ScenarioBundle.model_validate(payload)),
+        max_steps=10,
+    )
+
+    _obs, info = env.reset()
+    _next_obs, _reward, _terminated, _truncated, next_info = env.step(
+        np.array([POLICY_FORWARD_ACTION_HIGH, 1.0], dtype=np.float32),
+    )
+
+    displacement = np.hypot(
+        next_info["robot_x"] - info["robot_x"],
+        next_info["robot_z"] - info["robot_z"],
+    )
+    assert displacement == pytest.approx(0.4, abs=1e-3)
+    assert next_info["robot_rotation_y_degrees"] == pytest.approx(10.0)
+
+
 def test_continuous_env_randomizes_start_pose_when_enabled():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -4.0, "z": -4.0},
@@ -574,7 +686,7 @@ def test_continuous_env_randomizes_start_pose_when_enabled():
 
 
 def test_continuous_env_randomizes_camera_mount_height_per_episode():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         sensors=[
             {
                 "id": "front_camera",
@@ -582,6 +694,11 @@ def test_continuous_env_randomizes_camera_mount_height_per_episode():
                 "mount_height_meters": 0.6,
                 "mount_height_min_meters": 0.1,
                 "mount_height_max_meters": 1.0,
+            },
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
             },
         ],
     )

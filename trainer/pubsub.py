@@ -17,7 +17,6 @@ def publish_training_event(  # noqa: PLR0913
     submission_id: str,
     status: ResultStatus,
     progress: Progress,
-    summary: dict[str, Any] | None = None,
     error: str | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
@@ -28,7 +27,6 @@ def publish_training_event(  # noqa: PLR0913
         submission_id=submission_id,
         status=status,
         progress=progress,
-        summary=summary,
         error=error,
         result_bundle=result_bundle,
     )

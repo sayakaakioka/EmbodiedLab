@@ -376,7 +376,7 @@ lint_python: local_setup
 	$(UV) run ruff check embodiedlab server trainer tests notification
 
 lint_markdown: local_setup
-	$(UV) run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs
+	$(UV) run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs rules
 
 lint: lint_python lint_markdown
 

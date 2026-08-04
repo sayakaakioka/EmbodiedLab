@@ -1,20 +1,32 @@
 {
   "$defs": {
     "ReplayAction": {
+      "additionalProperties": false,
       "description": "Action values emitted for a replay step.",
       "properties": {
         "values": {
-          "items": {
-            "$ref": "#/$defs/ReplayNamedValue"
-          },
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/ReplayForwardActionValue"
+            },
+            {
+              "$ref": "#/$defs/ReplayTurnActionValue"
+            }
+          ],
           "title": "Values",
           "type": "array"
         }
       },
+      "required": [
+        "values"
+      ],
       "title": "ReplayAction",
       "type": "object"
     },
     "ReplayEvent": {
+      "additionalProperties": false,
       "description": "A compact event emitted during replay.",
       "properties": {
         "message": {
@@ -26,7 +38,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Message"
         },
         "object_id": {
@@ -38,25 +49,50 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Object Id"
         },
         "type": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Type",
           "type": "string"
         }
       },
       "required": [
-        "type"
+        "type",
+        "object_id",
+        "message"
       ],
       "title": "ReplayEvent",
       "type": "object"
     },
+    "ReplayForwardActionValue": {
+      "additionalProperties": false,
+      "description": "The forward component of the continuous action.",
+      "properties": {
+        "name": {
+          "const": "forward",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "ReplayForwardActionValue",
+      "type": "object"
+    },
     "ReplayNamedValue": {
+      "additionalProperties": false,
       "description": "A named scalar value in a JsonUtility-friendly replay payload.",
       "properties": {
         "name": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Name",
           "type": "string"
@@ -74,6 +110,7 @@
       "type": "object"
     },
     "ReplayPosition": {
+      "additionalProperties": false,
       "description": "A continuous replay position on the x/z plane.",
       "properties": {
         "x": {
@@ -93,12 +130,14 @@
       "type": "object"
     },
     "ReplayReward": {
+      "additionalProperties": false,
       "description": "Reward values emitted for a replay step.",
       "properties": {
         "components": {
           "items": {
             "$ref": "#/$defs/ReplayNamedValue"
           },
+          "maxItems": 64,
           "title": "Components",
           "type": "array"
         },
@@ -108,12 +147,14 @@
         }
       },
       "required": [
-        "total"
+        "total",
+        "components"
       ],
       "title": "ReplayReward",
       "type": "object"
     },
     "ReplayRobotState": {
+      "additionalProperties": false,
       "description": "Robot state emitted in a replay step.",
       "properties": {
         "position": {
@@ -132,14 +173,17 @@
       "type": "object"
     },
     "ReplaySensorSummary": {
+      "additionalProperties": false,
       "description": "A compact sensor summary emitted during replay.",
       "properties": {
         "id": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Id",
           "type": "string"
         },
         "type": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Type",
           "type": "string"
@@ -156,10 +200,54 @@
       ],
       "title": "ReplaySensorSummary",
       "type": "object"
+    },
+    "ReplayTurnActionValue": {
+      "additionalProperties": false,
+      "description": "The turn component of the continuous action.",
+      "properties": {
+        "name": {
+          "const": "turn",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "ReplayTurnActionValue",
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "One JSON Lines row in an EnvForge replay log.",
+  "additionalProperties": false,
+  "description": "One JSON Lines row in a Replay Log.",
+  "oneOf": [
+    {
+      "properties": {
+        "phase": {
+          "const": "train"
+        },
+        "policy_mode": {
+          "const": "stochastic"
+        }
+      }
+    },
+    {
+      "properties": {
+        "phase": {
+          "const": "eval"
+        },
+        "policy_mode": {
+          "const": "deterministic"
+        }
+      }
+    }
+  ],
   "properties": {
     "action": {
       "$ref": "#/$defs/ReplayAction"
@@ -175,6 +263,7 @@
       "type": "integer"
     },
     "episode_id": {
+      "maxLength": 128,
       "minLength": 1,
       "title": "Episode Id",
       "type": "string"
@@ -183,21 +272,29 @@
       "items": {
         "$ref": "#/$defs/ReplayEvent"
       },
+      "maxItems": 256,
       "title": "Events",
       "type": "array"
     },
     "job_id": {
+      "maxLength": 128,
       "minLength": 1,
       "title": "Job Id",
       "type": "string"
     },
     "phase": {
-      "minLength": 1,
+      "enum": [
+        "train",
+        "eval"
+      ],
       "title": "Phase",
       "type": "string"
     },
     "policy_mode": {
-      "minLength": 1,
+      "enum": [
+        "stochastic",
+        "deterministic"
+      ],
       "title": "Policy Mode",
       "type": "string"
     },
@@ -208,13 +305,13 @@
       "$ref": "#/$defs/ReplayRobotState"
     },
     "scenario_id": {
+      "maxLength": 128,
       "minLength": 1,
       "title": "Scenario Id",
       "type": "string"
     },
     "schema_version": {
       "const": "replay-log.v0",
-      "default": "replay-log.v0",
       "title": "Schema Version",
       "type": "string"
     },
@@ -222,6 +319,7 @@
       "items": {
         "$ref": "#/$defs/ReplaySensorSummary"
       },
+      "maxItems": 32,
       "title": "Sensors",
       "type": "array"
     },
@@ -231,7 +329,6 @@
       "type": "integer"
     },
     "terminated": {
-      "default": false,
       "title": "Terminated",
       "type": "boolean"
     },
@@ -244,7 +341,6 @@
           "type": "null"
         }
       ],
-      "default": null,
       "title": "Termination Reason"
     },
     "time_seconds": {
@@ -254,6 +350,7 @@
     }
   },
   "required": [
+    "schema_version",
     "scenario_id",
     "job_id",
     "phase",
@@ -264,7 +361,12 @@
     "step_index",
     "time_seconds",
     "robot",
-    "reward"
+    "action",
+    "reward",
+    "events",
+    "sensors",
+    "terminated",
+    "termination_reason"
   ],
   "title": "ReplayLogStep",
   "type": "object"

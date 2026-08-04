@@ -4,21 +4,42 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Literal
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
+
+from embodiedlab.schemas import (
+    MAX_IDENTIFIER_LENGTH,
+    MAX_PARALLEL_ENVS,
+    MAX_PPO_EPOCHS,
+    MAX_PPO_ROLLOUT_STEPS,
+    MAX_RANDOM_SEED,
+    MAX_REPLAY_CHUNK_STEPS,
+    MAX_STATS_WINDOW_SIZE,
+    MAX_TRAINING_CPU_COUNT,
+    MAX_TRAINING_TIMESTEPS,
+    ContractModel,
+    ForwardCameraSensor,
+    GoalVectorSensor,
+    ScenarioBundle,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from embodiedlab.schemas import ScenarioBundle
 
 RESULT_SCHEMA_VERSION = "result-bundle.v0"
 REPLAY_LOG_SCHEMA_VERSION = "replay-log.v0"
 REPLAY_BUNDLE_SCHEMA_VERSION = "replay-bundle.v0"
 MAX_REPLAY_BUNDLE_CHUNKS = 4_096
 MAX_REPLAY_CHUNK_PATH_LENGTH = 1_024
-MAX_REPLAY_CHUNK_STEPS = 100_000
+MAX_ARTIFACT_PATH_LENGTH = 1_024
+MAX_MODEL_IO_ENTRIES = 16
+MAX_LAYOUT_ENTRIES = 256
+MAX_REPLAY_EVENTS = 256
+MAX_REPLAY_SENSORS = 32
+MAX_REPLAY_REWARD_COMPONENTS = 64
 
 
 class ResultStatus(StrEnum):
@@ -39,205 +60,486 @@ class ArtifactStorage(StrEnum):
     GCS = "gcs"
 
 
-class ArtifactFormat(StrEnum):
-    """Supported artifact formats."""
-
-    ONNX = "onnx"
-    JSON = "json"
-    JSONL = "jsonl"
-    JSONL_GZIP = "jsonl.gz"
-    ZIP = "zip"
-
-
-class ArtifactLocation(BaseModel):
+class ArtifactLocation(ContractModel):
     """Location and format of a result artifact."""
 
-    storage: ArtifactStorage = ArtifactStorage.GCS
-    bucket: str = Field(min_length=1)
-    path: str = Field(min_length=1)
-    format: ArtifactFormat
+    model_config = ConfigDict(extra="forbid")
+
+    storage: ArtifactStorage
+    bucket: str = Field(min_length=3, max_length=63)
+    path: str = Field(min_length=1, max_length=MAX_ARTIFACT_PATH_LENGTH)
+    format: Literal["json"]
+    size_bytes: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-class ModelInput(BaseModel):
-    """Input metadata for an EnvForge-loadable model artifact."""
+class ModelInput(ContractModel):
+    """Input metadata for a client-loadable model artifact."""
 
-    name: str = Field(min_length=1)
-    shape: list[int] = Field(default_factory=list)
-    dtype: str = Field(min_length=1)
-    layout: list[str] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    model_config = ConfigDict(extra="forbid")
+
+    shape: list[int] = Field(min_length=1, max_length=8)
+    dtype: str = Field(min_length=1, max_length=32)
+    layout: list[str] = Field(max_length=MAX_LAYOUT_ENTRIES)
 
 
-class ModelOutput(BaseModel):
-    """Output metadata for an EnvForge-loadable model artifact."""
+class ModelOutput(ContractModel):
+    """Output metadata for a client-loadable model artifact."""
 
-    name: str = Field(min_length=1)
-    layout: list[str] = Field(default_factory=list)
-    action_mapping: dict[str, str] | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    layout: list[str] = Field(min_length=1, max_length=MAX_LAYOUT_ENTRIES)
+    action_mapping: dict[str, str] | None
 
 
 class ModelArtifactLocation(ArtifactLocation):
     """Model artifact location with Unity compatibility metadata."""
 
-    target: str = Field(min_length=1)
+    format: Literal["onnx"]
+    target: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     opset_version: int = Field(ge=1)
-    inputs: list[ModelInput] = Field(min_length=1)
+    inputs: list[ModelInput] = Field(
+        min_length=1,
+        max_length=MAX_MODEL_IO_ENTRIES,
+    )
     output: ModelOutput
 
 
-class ResultCompatibility(BaseModel):
-    """Compatibility metadata needed by EnvForge when loading a result."""
+class OnnxModelArtifactLocation(ModelArtifactLocation):
+    """Canonical ONNX Runtime artifact metadata."""
 
-    scenario_schema_version: str = Field(default="scenario-bundle.v0", min_length=1)
-    envforge_min_version: str = Field(default="0.1.0", min_length=1)
-    robot_version: str = Field(default="simple_robot.v1", min_length=1)
-    sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
-    action_layout: list[str] = Field(default_factory=lambda: ["forward", "turn"])
-    observation_layout: list[str] = Field(
-        default_factory=lambda: ["obs_0", "obs_1"],
-    )
+    target: Literal["onnx-runtime"]
+    opset_version: Literal[17]
 
 
-class TrainingSummary(BaseModel):
-    """High-level metrics from a completed training run."""
+class SentisModelArtifactLocation(ModelArtifactLocation):
+    """Canonical Unity Sentis artifact metadata."""
 
-    training_timesteps: int = Field(ge=0)
-    training_seed: int
-    success_rate: float | None = Field(default=None, ge=0.0, le=1.0)
-    average_episode_reward: float | None = None
-    average_episode_steps: float | None = Field(default=None, ge=0.0)
+    target: Literal["unity-sentis"]
+    opset_version: Literal[15]
 
 
-class ResultArtifacts(BaseModel):
-    """Artifacts produced by a training run."""
-
-    model: ArtifactLocation | None = None
-    onnx_model: ModelArtifactLocation | None = None
-    sentis_model: ModelArtifactLocation | None = None
-    replay_bundle: ArtifactLocation | None = None
-
-
-class ErrorReport(BaseModel):
-    """Structured failure details for failed result bundles."""
-
-    message: str = Field(min_length=1)
-    details: str | None = None
-
-
-class ResultBundle(BaseModel):
-    """EnvForge-facing training result bundle."""
+class ResultCompatibility(ContractModel):
+    """Compatibility metadata needed by clients when loading a result."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[RESULT_SCHEMA_VERSION] = RESULT_SCHEMA_VERSION
+    scenario_schema_version: str = Field(
+        min_length=1,
+        max_length=MAX_IDENTIFIER_LENGTH,
+    )
+    robot_version: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    sensor_version: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    action_layout: list[str] = Field(min_length=1, max_length=MAX_LAYOUT_ENTRIES)
+    observation_layout: list[str] = Field(
+        min_length=1,
+        max_length=MAX_LAYOUT_ENTRIES,
+    )
+
+
+class TrainingSummary(ContractModel):
+    """High-level metrics from a completed training run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    success_rate: float | None = Field(ge=0.0, le=1.0)
+    average_episode_reward: float | None
+    average_episode_steps: float | None = Field(ge=0.0)
+    configuration: ResolvedTrainingConfig
+
+
+class ResolvedTrainingConfig(ContractModel):
+    """Exact library, hyperparameters, and resources used by a training run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    library: Literal["stable-baselines3"]
+    library_version: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    algorithm: Literal["ppo"]
+    device: Literal["cpu"]
+    timesteps: int = Field(ge=1, le=MAX_TRAINING_TIMESTEPS)
+    seed: int = Field(ge=0, le=MAX_RANDOM_SEED)
+    max_episode_steps: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    n_envs: int = Field(ge=1, le=MAX_PARALLEL_ENVS)
+    requested_cpu_count: int | None = Field(ge=1, le=MAX_TRAINING_CPU_COUNT)
+    cpu_count: int = Field(ge=1, le=MAX_TRAINING_CPU_COUNT)
+    requested_torch_num_threads: int | None = Field(
+        ge=1,
+        le=MAX_TRAINING_CPU_COUNT,
+    )
+    torch_num_threads: int = Field(ge=1, le=MAX_TRAINING_CPU_COUNT)
+    n_steps: int = Field(ge=1, le=MAX_PPO_ROLLOUT_STEPS)
+    batch_size: int = Field(ge=1, le=MAX_PPO_ROLLOUT_STEPS)
+    n_epochs: int = Field(ge=1, le=MAX_PPO_EPOCHS)
+    gamma: float = Field(gt=0.0, le=1.0)
+    gae_lambda: float = Field(gt=0.0, le=1.0)
+    learning_rate: float = Field(gt=0.0)
+    clip_range: float = Field(gt=0.0)
+    clip_range_vf: float | None = Field(gt=0.0)
+    normalize_advantage: bool
+    ent_coef: float = Field(ge=0.0)
+    vf_coef: float = Field(ge=0.0)
+    max_grad_norm: float = Field(ge=0.0)
+    use_sde: bool
+    sde_sample_freq: int = Field(ge=-1)
+    target_kl: float | None = Field(gt=0.0)
+    stats_window_size: int = Field(ge=1, le=MAX_STATS_WINDOW_SIZE)
+    eval_episodes: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    replay_eval_interval_steps: int = Field(ge=0)
+    replay_train_chunk_steps: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    randomize_start: bool
+
+
+class ResultArtifacts(ContractModel):
+    """Artifacts produced by a training run."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    onnx_model: OnnxModelArtifactLocation | None
+    sentis_model: SentisModelArtifactLocation | None
+    replay_bundle: ArtifactLocation | None
+
+
+class ErrorReport(ContractModel):
+    """Structured failure details for failed result bundles."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=4_096)
+    details: str | None
+
+
+class ResultBundle(ContractModel):
+    """Client-facing training result bundle."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "oneOf": [
+                {
+                    "properties": {
+                        "status": {"const": "completed"},
+                        "summary": {"not": {"type": "null"}},
+                        "artifacts": {
+                            "properties": {
+                                "onnx_model": {"not": {"type": "null"}},
+                                "sentis_model": {"not": {"type": "null"}},
+                                "replay_bundle": {"not": {"type": "null"}},
+                            },
+                        },
+                        "error": {"type": "null"},
+                    },
+                },
+                {
+                    "properties": {
+                        "status": {"const": "failed"},
+                        "summary": {"type": "null"},
+                        "artifacts": {
+                            "properties": {
+                                "onnx_model": {"type": "null"},
+                                "sentis_model": {"type": "null"},
+                                "replay_bundle": {"type": "null"},
+                            },
+                        },
+                        "error": {"not": {"type": "null"}},
+                    },
+                },
+            ],
+        },
+    )
+
+    schema_version: Literal[RESULT_SCHEMA_VERSION]
     scenario_id: str = Field(min_length=1)
     job_id: str = Field(min_length=1)
-    status: ResultStatus
-    compatibility: ResultCompatibility = Field(default_factory=ResultCompatibility)
-    summary: TrainingSummary | None = None
-    artifacts: ResultArtifacts = Field(default_factory=ResultArtifacts)
-    error: ErrorReport | None = None
+    status: Literal[ResultStatus.COMPLETED, ResultStatus.FAILED]
+    compatibility: ResultCompatibility
+    summary: TrainingSummary | None
+    artifacts: ResultArtifacts
+    error: ErrorReport | None
+
+    @model_validator(mode="after")
+    def validate_completed_artifacts(self) -> ResultBundle:
+        """Require every current downloadable artifact on completed results."""
+        if self.status is ResultStatus.COMPLETED:
+            if self.summary is None:
+                msg = "completed result bundles require a training summary"
+                raise ValueError(msg)
+            if (
+                self.artifacts.onnx_model is None
+                or self.artifacts.sentis_model is None
+                or self.artifacts.replay_bundle is None
+            ):
+                msg = "completed result bundles require all downloadable artifacts"
+                raise ValueError(msg)
+            if self.error is not None:
+                msg = "completed result bundles must not contain an error report"
+                raise ValueError(msg)
+        if self.status is ResultStatus.FAILED:
+            if self.error is None:
+                msg = "failed result bundles require an error report"
+                raise ValueError(msg)
+            if self.summary is not None or any(
+                artifact is not None
+                for artifact in (
+                    self.artifacts.onnx_model,
+                    self.artifacts.sentis_model,
+                    self.artifacts.replay_bundle,
+                )
+            ):
+                msg = "failed result bundles must not contain completed outputs"
+                raise ValueError(msg)
+        return self
 
 
-class ReplayPosition(BaseModel):
+class ReplayPosition(ContractModel):
     """A continuous replay position on the x/z plane."""
+
+    model_config = ConfigDict(extra="forbid")
 
     x: float
     z: float
 
 
-class ReplayRobotState(BaseModel):
+class ReplayRobotState(ContractModel):
     """Robot state emitted in a replay step."""
+
+    model_config = ConfigDict(extra="forbid")
 
     position: ReplayPosition
     rotation_y_degrees: float
 
 
-class ReplayNamedValue(BaseModel):
+class ReplayNamedValue(ContractModel):
     """A named scalar value in a JsonUtility-friendly replay payload."""
 
-    name: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     value: float
 
 
-class ReplayAction(BaseModel):
+class ReplayForwardActionValue(ContractModel):
+    """The forward component of the continuous action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["forward"]
+    value: float
+
+
+class ReplayTurnActionValue(ContractModel):
+    """The turn component of the continuous action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["turn"]
+    value: float
+
+
+class ReplayAction(ContractModel):
     """Action values emitted for a replay step."""
 
-    values: list[ReplayNamedValue] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    values: tuple[ReplayForwardActionValue, ReplayTurnActionValue]
 
 
-class ReplayReward(BaseModel):
+class ReplayReward(ContractModel):
     """Reward values emitted for a replay step."""
 
+    model_config = ConfigDict(extra="forbid")
+
     total: float
-    components: list[ReplayNamedValue] = Field(default_factory=list)
+    components: list[ReplayNamedValue] = Field(
+        max_length=MAX_REPLAY_REWARD_COMPONENTS,
+    )
 
 
-class ReplayEvent(BaseModel):
+class ReplayEvent(ContractModel):
     """A compact event emitted during replay."""
 
-    type: str = Field(min_length=1)
-    object_id: str | None = None
-    message: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    object_id: str | None
+    message: str | None
 
 
-class ReplaySensorSummary(BaseModel):
+class ReplaySensorSummary(ContractModel):
     """A compact sensor summary emitted during replay."""
 
-    id: str = Field(min_length=1)
-    type: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    type: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     value: float
 
 
-class ReplayLogStep(BaseModel):
-    """One JSON Lines row in an EnvForge replay log."""
+class ReplayLogStep(ContractModel):
+    """One JSON Lines row in a Replay Log."""
 
-    schema_version: Literal[REPLAY_LOG_SCHEMA_VERSION] = REPLAY_LOG_SCHEMA_VERSION
-    scenario_id: str = Field(min_length=1)
-    job_id: str = Field(min_length=1)
-    phase: str = Field(min_length=1)
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "oneOf": [
+                {
+                    "properties": {
+                        "phase": {"const": "train"},
+                        "policy_mode": {"const": "stochastic"},
+                    },
+                },
+                {
+                    "properties": {
+                        "phase": {"const": "eval"},
+                        "policy_mode": {"const": "deterministic"},
+                    },
+                },
+            ],
+        },
+    )
+
+    schema_version: Literal[REPLAY_LOG_SCHEMA_VERSION]
+    scenario_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    job_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    phase: Literal["train", "eval"]
     checkpoint_step: int = Field(ge=0)
     env_index: int = Field(ge=0)
-    policy_mode: str = Field(min_length=1)
-    episode_id: str = Field(min_length=1)
+    policy_mode: Literal["stochastic", "deterministic"]
+    episode_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     step_index: int = Field(ge=0)
     time_seconds: float = Field(ge=0.0)
     robot: ReplayRobotState
-    action: ReplayAction = Field(default_factory=ReplayAction)
+    action: ReplayAction
     reward: ReplayReward
-    events: list[ReplayEvent] = Field(default_factory=list)
-    sensors: list[ReplaySensorSummary] = Field(default_factory=list)
-    terminated: bool = False
-    termination_reason: str | None = None
+    events: list[ReplayEvent] = Field(max_length=MAX_REPLAY_EVENTS)
+    sensors: list[ReplaySensorSummary] = Field(max_length=MAX_REPLAY_SENSORS)
+    terminated: bool
+    termination_reason: str | None
+
+    @model_validator(mode="after")
+    def validate_phase_policy_mode(self) -> ReplayLogStep:
+        """Require the policy mode defined for each Replay phase."""
+        expected = "stochastic" if self.phase == "train" else "deterministic"
+        if self.policy_mode != expected:
+            msg = f"Replay {self.phase} rows require {expected} policy mode"
+            raise ValueError(msg)
+        return self
 
 
-class ReplayBundleChunk(BaseModel):
-    """One compressed train or evaluation chunk in a Replay Bundle."""
+class ReplayBundleChunkBase(ContractModel):
+    """Fields shared by every compressed Replay Bundle chunk."""
 
-    phase: Literal["train", "eval"]
-    policy_mode: Literal["stochastic", "deterministic"]
+    model_config = ConfigDict(extra="forbid")
+
     checkpoint_step: int = Field(ge=0)
-    start_step: int | None = Field(default=None, ge=0)
-    end_step: int | None = Field(default=None, ge=0)
     path: str = Field(min_length=1, max_length=MAX_REPLAY_CHUNK_PATH_LENGTH)
     format: Literal["jsonl.gz"]
+    size_bytes: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class TrainReplayBundleChunk(ReplayBundleChunkBase):
+    """One stochastic training Replay chunk."""
+
+    phase: Literal["train"]
+    policy_mode: Literal["stochastic"]
+    start_step: int = Field(ge=0)
+    end_step: int = Field(ge=0)
+    path: str = Field(
+        min_length=1,
+        max_length=MAX_REPLAY_CHUNK_PATH_LENGTH,
+        pattern=r"^train/[A-Za-z0-9._-]+\.jsonl\.gz$",
+    )
+    step_count: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    episode_count: None
+    success_rate: None
+    avg_reward: None
+    avg_steps: None
+
+    @model_validator(mode="after")
+    def validate_step_range(self) -> TrainReplayBundleChunk:
+        """Require ordered train chunk bounds ending at its checkpoint."""
+        if self.start_step > self.end_step:
+            msg = "Replay train chunk start_step must not exceed end_step"
+            raise ValueError(msg)
+        if self.checkpoint_step != self.end_step:
+            msg = "Replay train chunk checkpoint_step must equal end_step"
+            raise ValueError(msg)
+        return self
+
+
+class EvalReplayBundleChunk(ReplayBundleChunkBase):
+    """One deterministic evaluation Replay chunk."""
+
+    phase: Literal["eval"]
+    policy_mode: Literal["deterministic"]
+    start_step: None
+    end_step: None
+    path: str = Field(
+        min_length=1,
+        max_length=MAX_REPLAY_CHUNK_PATH_LENGTH,
+        pattern=r"^eval/[A-Za-z0-9._-]+\.jsonl\.gz$",
+    )
     step_count: int = Field(ge=0, le=MAX_REPLAY_CHUNK_STEPS)
-    episode_count: int | None = Field(default=None, ge=0)
-    success_rate: float | None = Field(default=None, ge=0.0, le=1.0)
-    avg_reward: float | None = None
-    avg_steps: float | None = Field(default=None, ge=0.0)
+    episode_count: int = Field(ge=0)
+    success_rate: float = Field(ge=0.0, le=1.0)
+    avg_reward: float
+    avg_steps: float = Field(ge=0.0)
 
 
-class ReplayBundleManifest(BaseModel):
+ReplayBundleChunk = Annotated[
+    TrainReplayBundleChunk | EvalReplayBundleChunk,
+    Field(discriminator="phase"),
+]
+
+
+class ReplayBundleManifest(ContractModel):
     """Manifest describing the chunks in one Replay Bundle."""
 
-    schema_version: Literal[REPLAY_BUNDLE_SCHEMA_VERSION] = REPLAY_BUNDLE_SCHEMA_VERSION
-    job_id: str = Field(min_length=1)
-    scenario_id: str = Field(min_length=1)
-    total_timesteps: int = Field(ge=0)
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[REPLAY_BUNDLE_SCHEMA_VERSION]
+    job_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    scenario_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    total_timesteps: int = Field(ge=1, le=MAX_TRAINING_TIMESTEPS)
     chunks: list[ReplayBundleChunk] = Field(
-        default_factory=list,
+        min_length=1,
         max_length=MAX_REPLAY_BUNDLE_CHUNKS,
     )
+
+    @model_validator(mode="after")
+    def validate_chunk_paths(self) -> ReplayBundleManifest:
+        """Require unique normalized relative paths for every Replay chunk."""
+        paths = [chunk.path for chunk in self.chunks]
+        if len(paths) != len(set(paths)):
+            msg = "Replay Bundle chunk paths must be unique"
+            raise ValueError(msg)
+        for path in paths:
+            parsed = PurePosixPath(path)
+            if (
+                "\\" in path
+                or parsed.is_absolute()
+                or ".." in parsed.parts
+                or parsed.as_posix() != path
+                or path == "manifest.json"
+            ):
+                msg = (
+                    f"Replay Bundle chunk path must be normalized and relative: {path}"
+                )
+                raise ValueError(msg)
+        for chunk in self.chunks:
+            if not chunk.path.startswith(f"{chunk.phase}/"):
+                msg = (
+                    "Replay Bundle chunk path must match its phase directory: "
+                    f"{chunk.path}"
+                )
+                raise ValueError(msg)
+            if chunk.checkpoint_step > self.total_timesteps:
+                msg = "Replay chunk checkpoint_step must not exceed total_timesteps"
+                raise ValueError(msg)
+        return self
 
 
 def utc_now_iso() -> str:
@@ -245,108 +547,264 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-class Progress(BaseModel):
+def _result_state_schema_conditions() -> dict[str, Any]:
+    """Return JSON Schema conditions shared by result wire messages."""
+    conditions: list[dict[str, Any]] = [
+        {
+            "properties": {
+                "status": {"const": status.value},
+                "progress": {
+                    "type": "object",
+                    "properties": {"phase": {"const": status.value}},
+                    "required": ["phase"],
+                },
+                "error": {"type": "null"},
+                "result_bundle": {"type": "null"},
+            },
+        }
+        for status in (
+            ResultStatus.QUEUED,
+            ResultStatus.STARTING,
+            ResultStatus.RUNNING,
+            ResultStatus.CANCELLING,
+            ResultStatus.CANCELLED,
+        )
+    ]
+    conditions.extend(
+        [
+            {
+                "properties": {
+                    "status": {"const": ResultStatus.COMPLETED.value},
+                    "progress": {
+                        "type": "object",
+                        "properties": {
+                            "phase": {"const": ResultStatus.COMPLETED.value},
+                        },
+                        "required": ["phase"],
+                    },
+                    "error": {"type": "null"},
+                    "result_bundle": {
+                        "type": "object",
+                        "properties": {
+                            "status": {"const": ResultStatus.COMPLETED.value},
+                        },
+                        "required": ["status"],
+                    },
+                },
+            },
+            {
+                "properties": {
+                    "status": {"const": ResultStatus.FAILED.value},
+                    "progress": {
+                        "type": "object",
+                        "properties": {
+                            "phase": {"const": ResultStatus.FAILED.value},
+                        },
+                        "required": ["phase"],
+                    },
+                    "error": {"type": "string", "minLength": 1},
+                    "result_bundle": {
+                        "anyOf": [
+                            {"type": "null"},
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "status": {"const": ResultStatus.FAILED.value},
+                                },
+                                "required": ["status"],
+                            },
+                        ],
+                    },
+                },
+            },
+        ],
+    )
+    return {"oneOf": conditions}
+
+
+def _validate_completed_result_state(
+    error: str | None,
+    result_bundle: ResultBundle | None,
+) -> None:
+    """Require the outputs and absence of error for completed results."""
+    if result_bundle is None:
+        msg = "completed results require a completed result bundle"
+        raise ValueError(msg)
+    if error is not None:
+        msg = "completed results must not contain an error"
+        raise ValueError(msg)
+
+
+def _validate_failed_result_state(error: str | None) -> None:
+    """Require a nonempty error for failed results."""
+    if error is None or not error:
+        msg = "failed results require an error"
+        raise ValueError(msg)
+
+
+def _validate_result_state(
+    *,
+    status: ResultStatus,
+    progress: Progress,
+    error: str | None,
+    result_bundle: ResultBundle | None,
+    submission_id: str | None,
+) -> None:
+    """Validate one complete result-state snapshot or update."""
+    if progress.phase is not status:
+        msg = "result progress phase must match status"
+        raise ValueError(msg)
+    if result_bundle is not None:
+        if result_bundle.status is not status:
+            msg = "result bundle status must match status"
+            raise ValueError(msg)
+        if submission_id is not None and result_bundle.job_id != submission_id:
+            msg = "result bundle job_id must match submission_id"
+            raise ValueError(msg)
+    if status is ResultStatus.COMPLETED:
+        _validate_completed_result_state(error, result_bundle)
+    elif status is ResultStatus.FAILED:
+        _validate_failed_result_state(error)
+    elif error is not None or result_bundle is not None:
+        msg = "nonterminal and cancelled results must not contain terminal outputs"
+        raise ValueError(msg)
+
+
+class Progress(ContractModel):
     """Training progress snapshot stored in each result document."""
+
+    model_config = ConfigDict(extra="forbid")
 
     phase: ResultStatus
     current_step: int = Field(ge=0)
     total_steps: int = Field(ge=0)
-    message: str
+    message: str = Field(min_length=1, max_length=4_096)
 
 
-class ResultDocument(BaseModel):
+class ResultDocument(ContractModel):
     """Full result document written to Firestore."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra=_result_state_schema_conditions(),
+    )
 
-    submission_id: str = Field(min_length=1)
+    submission_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     status: ResultStatus
-    progress: Progress | None = None
-    summary: dict[str, Any] | None = None
-    error: str | None = None
-    result_bundle: ResultBundle | None = None
-    updated_at: str = Field(default_factory=utc_now_iso)
+    progress: Progress
+    error: str | None
+    result_bundle: ResultBundle | None
+    updated_at: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_state(self) -> ResultDocument:
+        """Require a coherent, complete Firestore result snapshot."""
+        _validate_result_state(
+            status=self.status,
+            progress=self.progress,
+            error=self.error,
+            result_bundle=self.result_bundle,
+            submission_id=self.submission_id,
+        )
+        return self
 
 
-class ResultMessage(BaseModel):
+class ResultMessage(ContractModel):
     """Pub/Sub message payload emitted after each status transition."""
 
-    submission_id: str
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra=_result_state_schema_conditions(),
+    )
+
+    submission_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     status: ResultStatus
-    progress: Progress | None = None
-    summary: dict[str, Any] | None = None
-    error: str | None = None
-    result_bundle: ResultBundle | None = None
-    updated_at: str = Field(default_factory=utc_now_iso)
+    progress: Progress
+    error: str | None
+    result_bundle: ResultBundle | None
+    updated_at: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_state(self) -> ResultMessage:
+        """Require a coherent, complete result transition message."""
+        _validate_result_state(
+            status=self.status,
+            progress=self.progress,
+            error=self.error,
+            result_bundle=self.result_bundle,
+            submission_id=self.submission_id,
+        )
+        return self
 
 
-class ResultUpdate(BaseModel):
+class ResultUpdate(ContractModel):
     """Partial update applied to an existing result document."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra=_result_state_schema_conditions(),
+    )
 
     status: ResultStatus
     progress: Progress
-    summary: dict[str, Any] | None = None
-    error: str | None = None
-    result_bundle: ResultBundle | None = None
-    updated_at: str = Field(default_factory=utc_now_iso)
+    error: str | None
+    result_bundle: ResultBundle | None
+    updated_at: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_state(self) -> ResultUpdate:
+        """Require a coherent, complete Firestore result update."""
+        _validate_result_state(
+            status=self.status,
+            progress=self.progress,
+            error=self.error,
+            result_bundle=self.result_bundle,
+            submission_id=None,
+        )
+        return self
 
 
 def _artifact_from_payload(
     payload: dict[str, Any] | None,
-    *,
-    default_format: ArtifactFormat,
 ) -> ArtifactLocation | None:
     """Convert an uploaded artifact dict into a ResultBundle location."""
     if payload is None:
         return None
 
-    artifact_format = payload.get("format", default_format)
-    return ArtifactLocation(
-        storage=payload.get("storage", ArtifactStorage.GCS),
-        bucket=payload["bucket"],
-        path=payload["path"],
-        format=artifact_format,
-    )
+    return ArtifactLocation.model_validate(payload)
 
 
 def _model_artifact_from_payload(
     payload: dict[str, Any] | None,
-    *,
-    default_format: ArtifactFormat,
-) -> ModelArtifactLocation | None:
+    artifact_type: type[OnnxModelArtifactLocation | SentisModelArtifactLocation],
+) -> OnnxModelArtifactLocation | SentisModelArtifactLocation | None:
     """Convert an uploaded model dict into compatibility-aware metadata."""
     if payload is None:
         return None
 
-    return ModelArtifactLocation(
-        storage=payload.get("storage", ArtifactStorage.GCS),
-        bucket=payload["bucket"],
-        path=payload["path"],
-        format=payload.get("format", default_format),
-        target=payload["target"],
-        opset_version=payload["opset_version"],
-        inputs=payload["inputs"],
-        output=payload["output"],
-    )
+    return artifact_type.model_validate(payload)
 
 
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
-    """Build EnvForge compatibility metadata from the submitted scenario."""
+    """Build client compatibility metadata from the submitted scenario."""
+    camera = next(
+        sensor for sensor in scenario.sensors if isinstance(sensor, ForwardCameraSensor)
+    )
+    goal_vector = next(
+        sensor for sensor in scenario.sensors if isinstance(sensor, GoalVectorSensor)
+    )
     return ResultCompatibility(
         scenario_schema_version=scenario.schema_version,
-        envforge_min_version=scenario.compatibility.envforge_min_version,
         robot_version=scenario.compatibility.robot_version,
         sensor_version=scenario.compatibility.sensor_version,
         action_layout=list(scenario.robot.action_space.layout),
-        observation_layout=["obs_0", "obs_1"],
+        observation_layout=[camera.observation_name, goal_vector.observation_name],
     )
 
 
 def build_training_summary(summary: dict[str, Any]) -> TrainingSummary:
     """Normalize the current runner summary into the ResultBundle summary."""
     return TrainingSummary(
-        training_timesteps=summary["training_timesteps"],
-        training_seed=summary["training_seed"],
         success_rate=summary.get("success_rate"),
         average_episode_reward=summary.get(
             "average_episode_reward",
@@ -356,6 +814,7 @@ def build_training_summary(summary: dict[str, Any]) -> TrainingSummary:
             "average_episode_steps",
             summary.get("avg_steps"),
         ),
+        configuration=summary["training_configuration"],
     )
 
 
@@ -368,38 +827,28 @@ def build_result_bundle(  # noqa: PLR0913
     artifacts: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> ResultBundle:
-    """Build the EnvForge-facing ResultBundle from trainer outputs."""
+    """Build the client-facing ResultBundle from trainer outputs."""
     artifacts = artifacts or {}
-    result_error = ErrorReport(message=error) if error is not None else None
-    model_payload = artifacts.get("onnx_model")
-    model_format = ArtifactFormat.ONNX
-    if model_payload is None:
-        model_payload = artifacts.get("model")
-        model_format = ArtifactFormat.ZIP
-
+    result_error = (
+        ErrorReport(message=error, details=None) if error is not None else None
+    )
     return ResultBundle(
+        schema_version=RESULT_SCHEMA_VERSION,
         scenario_id=scenario.scenario_id,
         job_id=job_id,
         status=status,
         compatibility=build_result_compatibility(scenario),
         summary=build_training_summary(summary) if summary is not None else None,
         artifacts=ResultArtifacts(
-            model=_artifact_from_payload(
-                model_payload,
-                default_format=model_format,
-            ),
             onnx_model=_model_artifact_from_payload(
                 artifacts.get("onnx_model"),
-                default_format=ArtifactFormat.ONNX,
+                OnnxModelArtifactLocation,
             ),
             sentis_model=_model_artifact_from_payload(
                 artifacts.get("sentis_model"),
-                default_format=ArtifactFormat.ONNX,
+                SentisModelArtifactLocation,
             ),
-            replay_bundle=_artifact_from_payload(
-                artifacts.get("replay_bundle"),
-                default_format=ArtifactFormat.JSON,
-            ),
+            replay_bundle=_artifact_from_payload(artifacts.get("replay_bundle")),
         ),
         error=result_error,
     )
@@ -505,6 +954,9 @@ def build_queued_result_document(submission_id: str, *, total_steps: int = 0) ->
         submission_id=submission_id,
         status=ResultStatus.QUEUED,
         progress=queued_progress(total_steps),
+        error=None,
+        result_bundle=None,
+        updated_at=utc_now_iso(),
     )
     return document.model_dump(mode="json")
 
@@ -513,7 +965,6 @@ def build_result_update(
     *,
     status: ResultStatus,
     progress: dict | Progress,
-    summary: dict[str, Any] | None = None,
     error: str | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
@@ -521,18 +972,17 @@ def build_result_update(
     update = ResultUpdate(
         status=status,
         progress=progress,
-        summary=summary,
         error=error,
         result_bundle=result_bundle,
+        updated_at=utc_now_iso(),
     )
     return update.model_dump(mode="json")
 
 
-def build_result_message(  # noqa: PLR0913
+def build_result_message(
     submission_id: str,
     status: ResultStatus,
     progress: Progress,
-    summary: dict[str, Any] | None = None,
     error: str | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> dict:
@@ -541,9 +991,9 @@ def build_result_message(  # noqa: PLR0913
         submission_id=submission_id,
         status=status,
         progress=progress,
-        summary=summary,
         error=error,
         result_bundle=result_bundle,
+        updated_at=utc_now_iso(),
     )
     return message.model_dump(mode="json")
 

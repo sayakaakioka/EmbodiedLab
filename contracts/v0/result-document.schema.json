@@ -1,42 +1,47 @@
 {
   "$defs": {
-    "ArtifactFormat": {
-      "description": "Supported artifact formats.",
-      "enum": [
-        "onnx",
-        "json",
-        "jsonl",
-        "jsonl.gz",
-        "zip"
-      ],
-      "title": "ArtifactFormat",
-      "type": "string"
-    },
     "ArtifactLocation": {
+      "additionalProperties": false,
       "description": "Location and format of a result artifact.",
       "properties": {
         "bucket": {
-          "minLength": 1,
+          "maxLength": 63,
+          "minLength": 3,
           "title": "Bucket",
           "type": "string"
         },
         "format": {
-          "$ref": "#/$defs/ArtifactFormat"
+          "const": "json",
+          "title": "Format",
+          "type": "string"
         },
         "path": {
+          "maxLength": 1024,
           "minLength": 1,
           "title": "Path",
           "type": "string"
         },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
         "storage": {
-          "$ref": "#/$defs/ArtifactStorage",
-          "default": "gcs"
+          "$ref": "#/$defs/ArtifactStorage"
         }
       },
       "required": [
+        "storage",
         "bucket",
         "path",
-        "format"
+        "format",
+        "size_bytes",
+        "sha256"
       ],
       "title": "ArtifactLocation",
       "type": "object"
@@ -50,6 +55,7 @@
       "type": "string"
     },
     "ErrorReport": {
+      "additionalProperties": false,
       "description": "Structured failure details for failed result bundles.",
       "properties": {
         "details": {
@@ -61,79 +67,28 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Details"
         },
         "message": {
+          "maxLength": 4096,
           "minLength": 1,
           "title": "Message",
           "type": "string"
         }
       },
       "required": [
-        "message"
+        "message",
+        "details"
       ],
       "title": "ErrorReport",
       "type": "object"
     },
-    "ModelArtifactLocation": {
-      "description": "Model artifact location with Unity compatibility metadata.",
-      "properties": {
-        "bucket": {
-          "minLength": 1,
-          "title": "Bucket",
-          "type": "string"
-        },
-        "format": {
-          "$ref": "#/$defs/ArtifactFormat"
-        },
-        "inputs": {
-          "items": {
-            "$ref": "#/$defs/ModelInput"
-          },
-          "minItems": 1,
-          "title": "Inputs",
-          "type": "array"
-        },
-        "opset_version": {
-          "minimum": 1,
-          "title": "Opset Version",
-          "type": "integer"
-        },
-        "output": {
-          "$ref": "#/$defs/ModelOutput"
-        },
-        "path": {
-          "minLength": 1,
-          "title": "Path",
-          "type": "string"
-        },
-        "storage": {
-          "$ref": "#/$defs/ArtifactStorage",
-          "default": "gcs"
-        },
-        "target": {
-          "minLength": 1,
-          "title": "Target",
-          "type": "string"
-        }
-      },
-      "required": [
-        "bucket",
-        "path",
-        "format",
-        "target",
-        "opset_version",
-        "inputs",
-        "output"
-      ],
-      "title": "ModelArtifactLocation",
-      "type": "object"
-    },
     "ModelInput": {
-      "description": "Input metadata for an EnvForge-loadable model artifact.",
+      "additionalProperties": false,
+      "description": "Input metadata for a client-loadable model artifact.",
       "properties": {
         "dtype": {
+          "maxLength": 32,
           "minLength": 1,
           "title": "Dtype",
           "type": "string"
@@ -142,10 +97,12 @@
           "items": {
             "type": "string"
           },
+          "maxItems": 256,
           "title": "Layout",
           "type": "array"
         },
         "name": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Name",
           "type": "string"
@@ -154,19 +111,24 @@
           "items": {
             "type": "integer"
           },
+          "maxItems": 8,
+          "minItems": 1,
           "title": "Shape",
           "type": "array"
         }
       },
       "required": [
         "name",
-        "dtype"
+        "shape",
+        "dtype",
+        "layout"
       ],
       "title": "ModelInput",
       "type": "object"
     },
     "ModelOutput": {
-      "description": "Output metadata for an EnvForge-loadable model artifact.",
+      "additionalProperties": false,
+      "description": "Output metadata for a client-loadable model artifact.",
       "properties": {
         "action_mapping": {
           "anyOf": [
@@ -180,29 +142,106 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Action Mapping"
         },
         "layout": {
           "items": {
             "type": "string"
           },
+          "maxItems": 256,
+          "minItems": 1,
           "title": "Layout",
           "type": "array"
         },
         "name": {
+          "maxLength": 128,
           "minLength": 1,
           "title": "Name",
           "type": "string"
         }
       },
       "required": [
-        "name"
+        "name",
+        "layout",
+        "action_mapping"
       ],
       "title": "ModelOutput",
       "type": "object"
     },
+    "OnnxModelArtifactLocation": {
+      "additionalProperties": false,
+      "description": "Canonical ONNX Runtime artifact metadata.",
+      "properties": {
+        "bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "format": {
+          "const": "onnx",
+          "title": "Format",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ModelInput"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "opset_version": {
+          "const": 17,
+          "title": "Opset Version",
+          "type": "integer"
+        },
+        "output": {
+          "$ref": "#/$defs/ModelOutput"
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "storage": {
+          "$ref": "#/$defs/ArtifactStorage"
+        },
+        "target": {
+          "const": "onnx-runtime",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "storage",
+        "bucket",
+        "path",
+        "format",
+        "size_bytes",
+        "sha256",
+        "target",
+        "opset_version",
+        "inputs",
+        "output"
+      ],
+      "title": "OnnxModelArtifactLocation",
+      "type": "object"
+    },
     "Progress": {
+      "additionalProperties": false,
       "description": "Training progress snapshot stored in each result document.",
       "properties": {
         "current_step": {
@@ -211,6 +250,8 @@
           "type": "integer"
         },
         "message": {
+          "maxLength": 4096,
+          "minLength": 1,
           "title": "Message",
           "type": "string"
         },
@@ -232,30 +273,263 @@
       "title": "Progress",
       "type": "object"
     },
-    "ResultArtifacts": {
-      "description": "Artifacts produced by a training run.",
+    "ResolvedTrainingConfig": {
+      "additionalProperties": false,
+      "description": "Exact library, hyperparameters, and resources used by a training run.",
       "properties": {
-        "model": {
+        "algorithm": {
+          "const": "ppo",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "batch_size": {
+          "maximum": 65536,
+          "minimum": 1,
+          "title": "Batch Size",
+          "type": "integer"
+        },
+        "clip_range": {
+          "exclusiveMinimum": 0.0,
+          "title": "Clip Range",
+          "type": "number"
+        },
+        "clip_range_vf": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ArtifactLocation"
+              "exclusiveMinimum": 0.0,
+              "type": "number"
             },
             {
               "type": "null"
             }
           ],
-          "default": null
+          "title": "Clip Range Vf"
         },
+        "cpu_count": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Cpu Count",
+          "type": "integer"
+        },
+        "device": {
+          "const": "cpu",
+          "title": "Device",
+          "type": "string"
+        },
+        "ent_coef": {
+          "minimum": 0.0,
+          "title": "Ent Coef",
+          "type": "number"
+        },
+        "eval_episodes": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Eval Episodes",
+          "type": "integer"
+        },
+        "gae_lambda": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Gae Lambda",
+          "type": "number"
+        },
+        "gamma": {
+          "exclusiveMinimum": 0.0,
+          "maximum": 1.0,
+          "title": "Gamma",
+          "type": "number"
+        },
+        "learning_rate": {
+          "exclusiveMinimum": 0.0,
+          "title": "Learning Rate",
+          "type": "number"
+        },
+        "library": {
+          "const": "stable-baselines3",
+          "title": "Library",
+          "type": "string"
+        },
+        "library_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Library Version",
+          "type": "string"
+        },
+        "max_episode_steps": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Episode Steps",
+          "type": "integer"
+        },
+        "max_grad_norm": {
+          "minimum": 0.0,
+          "title": "Max Grad Norm",
+          "type": "number"
+        },
+        "n_envs": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "N Envs",
+          "type": "integer"
+        },
+        "n_epochs": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "N Epochs",
+          "type": "integer"
+        },
+        "n_steps": {
+          "maximum": 65536,
+          "minimum": 1,
+          "title": "N Steps",
+          "type": "integer"
+        },
+        "normalize_advantage": {
+          "title": "Normalize Advantage",
+          "type": "boolean"
+        },
+        "randomize_start": {
+          "title": "Randomize Start",
+          "type": "boolean"
+        },
+        "replay_eval_interval_steps": {
+          "minimum": 0,
+          "title": "Replay Eval Interval Steps",
+          "type": "integer"
+        },
+        "replay_train_chunk_steps": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Replay Train Chunk Steps",
+          "type": "integer"
+        },
+        "requested_cpu_count": {
+          "anyOf": [
+            {
+              "maximum": 32,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Cpu Count"
+        },
+        "requested_torch_num_threads": {
+          "anyOf": [
+            {
+              "maximum": 32,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Requested Torch Num Threads"
+        },
+        "sde_sample_freq": {
+          "minimum": -1,
+          "title": "Sde Sample Freq",
+          "type": "integer"
+        },
+        "seed": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "title": "Seed",
+          "type": "integer"
+        },
+        "stats_window_size": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Stats Window Size",
+          "type": "integer"
+        },
+        "target_kl": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Kl"
+        },
+        "timesteps": {
+          "maximum": 10000000,
+          "minimum": 1,
+          "title": "Timesteps",
+          "type": "integer"
+        },
+        "torch_num_threads": {
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Torch Num Threads",
+          "type": "integer"
+        },
+        "use_sde": {
+          "title": "Use Sde",
+          "type": "boolean"
+        },
+        "vf_coef": {
+          "minimum": 0.0,
+          "title": "Vf Coef",
+          "type": "number"
+        }
+      },
+      "required": [
+        "library",
+        "library_version",
+        "algorithm",
+        "device",
+        "timesteps",
+        "seed",
+        "max_episode_steps",
+        "n_envs",
+        "requested_cpu_count",
+        "cpu_count",
+        "requested_torch_num_threads",
+        "torch_num_threads",
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "gamma",
+        "gae_lambda",
+        "learning_rate",
+        "clip_range",
+        "clip_range_vf",
+        "normalize_advantage",
+        "ent_coef",
+        "vf_coef",
+        "max_grad_norm",
+        "use_sde",
+        "sde_sample_freq",
+        "target_kl",
+        "stats_window_size",
+        "eval_episodes",
+        "replay_eval_interval_steps",
+        "replay_train_chunk_steps",
+        "randomize_start"
+      ],
+      "title": "ResolvedTrainingConfig",
+      "type": "object"
+    },
+    "ResultArtifacts": {
+      "additionalProperties": false,
+      "description": "Artifacts produced by a training run.",
+      "properties": {
         "onnx_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ModelArtifactLocation"
+              "$ref": "#/$defs/OnnxModelArtifactLocation"
             },
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "replay_bundle": {
           "anyOf": [
@@ -265,27 +539,94 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "sentis_model": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ModelArtifactLocation"
+              "$ref": "#/$defs/SentisModelArtifactLocation"
             },
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         }
       },
+      "required": [
+        "onnx_model",
+        "sentis_model",
+        "replay_bundle"
+      ],
       "title": "ResultArtifacts",
       "type": "object"
     },
     "ResultBundle": {
       "additionalProperties": false,
-      "description": "EnvForge-facing training result bundle.",
+      "description": "Client-facing training result bundle.",
+      "oneOf": [
+        {
+          "properties": {
+            "artifacts": {
+              "properties": {
+                "onnx_model": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "replay_bundle": {
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "sentis_model": {
+                  "not": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            "error": {
+              "type": "null"
+            },
+            "status": {
+              "const": "completed"
+            },
+            "summary": {
+              "not": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "artifacts": {
+              "properties": {
+                "onnx_model": {
+                  "type": "null"
+                },
+                "replay_bundle": {
+                  "type": "null"
+                },
+                "sentis_model": {
+                  "type": "null"
+                }
+              }
+            },
+            "error": {
+              "not": {
+                "type": "null"
+              }
+            },
+            "status": {
+              "const": "failed"
+            },
+            "summary": {
+              "type": "null"
+            }
+          }
+        }
+      ],
       "properties": {
         "artifacts": {
           "$ref": "#/$defs/ResultArtifacts"
@@ -301,8 +642,7 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         },
         "job_id": {
           "minLength": 1,
@@ -316,12 +656,16 @@
         },
         "schema_version": {
           "const": "result-bundle.v0",
-          "default": "result-bundle.v0",
           "title": "Schema Version",
           "type": "string"
         },
         "status": {
-          "$ref": "#/$defs/ResultStatus"
+          "enum": [
+            "completed",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
         },
         "summary": {
           "anyOf": [
@@ -331,60 +675,70 @@
             {
               "type": "null"
             }
-          ],
-          "default": null
+          ]
         }
       },
       "required": [
+        "schema_version",
         "scenario_id",
         "job_id",
-        "status"
+        "status",
+        "compatibility",
+        "summary",
+        "artifacts",
+        "error"
       ],
       "title": "ResultBundle",
       "type": "object"
     },
     "ResultCompatibility": {
-      "description": "Compatibility metadata needed by EnvForge when loading a result.",
+      "additionalProperties": false,
+      "description": "Compatibility metadata needed by clients when loading a result.",
       "properties": {
         "action_layout": {
           "items": {
             "type": "string"
           },
+          "maxItems": 256,
+          "minItems": 1,
           "title": "Action Layout",
           "type": "array"
-        },
-        "envforge_min_version": {
-          "default": "0.1.0",
-          "minLength": 1,
-          "title": "Envforge Min Version",
-          "type": "string"
         },
         "observation_layout": {
           "items": {
             "type": "string"
           },
+          "maxItems": 256,
+          "minItems": 1,
           "title": "Observation Layout",
           "type": "array"
         },
         "robot_version": {
-          "default": "simple_robot.v1",
+          "maxLength": 128,
           "minLength": 1,
           "title": "Robot Version",
           "type": "string"
         },
         "scenario_schema_version": {
-          "default": "scenario-bundle.v0",
+          "maxLength": 128,
           "minLength": 1,
           "title": "Scenario Schema Version",
           "type": "string"
         },
         "sensor_version": {
-          "default": "basic_sensors.v0",
+          "maxLength": 128,
           "minLength": 1,
           "title": "Sensor Version",
           "type": "string"
         }
       },
+      "required": [
+        "scenario_schema_version",
+        "robot_version",
+        "sensor_version",
+        "action_layout",
+        "observation_layout"
+      ],
       "title": "ResultCompatibility",
       "type": "object"
     },
@@ -402,7 +756,80 @@
       "title": "ResultStatus",
       "type": "string"
     },
+    "SentisModelArtifactLocation": {
+      "additionalProperties": false,
+      "description": "Canonical Unity Sentis artifact metadata.",
+      "properties": {
+        "bucket": {
+          "maxLength": 63,
+          "minLength": 3,
+          "title": "Bucket",
+          "type": "string"
+        },
+        "format": {
+          "const": "onnx",
+          "title": "Format",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/ModelInput"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "opset_version": {
+          "const": 15,
+          "title": "Opset Version",
+          "type": "integer"
+        },
+        "output": {
+          "$ref": "#/$defs/ModelOutput"
+        },
+        "path": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "storage": {
+          "$ref": "#/$defs/ArtifactStorage"
+        },
+        "target": {
+          "const": "unity-sentis",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "storage",
+        "bucket",
+        "path",
+        "format",
+        "size_bytes",
+        "sha256",
+        "target",
+        "opset_version",
+        "inputs",
+        "output"
+      ],
+      "title": "SentisModelArtifactLocation",
+      "type": "object"
+    },
     "TrainingSummary": {
+      "additionalProperties": false,
       "description": "High-level metrics from a completed training run.",
       "properties": {
         "average_episode_reward": {
@@ -414,7 +841,6 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Average Episode Reward"
         },
         "average_episode_steps": {
@@ -427,8 +853,10 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Average Episode Steps"
+        },
+        "configuration": {
+          "$ref": "#/$defs/ResolvedTrainingConfig"
         },
         "success_rate": {
           "anyOf": [
@@ -441,22 +869,14 @@
               "type": "null"
             }
           ],
-          "default": null,
           "title": "Success Rate"
-        },
-        "training_seed": {
-          "title": "Training Seed",
-          "type": "integer"
-        },
-        "training_timesteps": {
-          "minimum": 0,
-          "title": "Training Timesteps",
-          "type": "integer"
         }
       },
       "required": [
-        "training_timesteps",
-        "training_seed"
+        "success_rate",
+        "average_episode_reward",
+        "average_episode_steps",
+        "configuration"
       ],
       "title": "TrainingSummary",
       "type": "object"
@@ -465,6 +885,200 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Full result document written to Firestore.",
+  "oneOf": [
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "queued"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "type": "null"
+        },
+        "status": {
+          "const": "queued"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "starting"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "type": "null"
+        },
+        "status": {
+          "const": "starting"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "running"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "type": "null"
+        },
+        "status": {
+          "const": "running"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "cancelling"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "type": "null"
+        },
+        "status": {
+          "const": "cancelling"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "cancelled"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "type": "null"
+        },
+        "status": {
+          "const": "cancelled"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "type": "null"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "properties": {
+            "status": {
+              "const": "completed"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        "status": {
+          "const": "completed"
+        }
+      }
+    },
+    {
+      "properties": {
+        "error": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "progress": {
+          "properties": {
+            "phase": {
+              "const": "failed"
+            }
+          },
+          "required": [
+            "phase"
+          ],
+          "type": "object"
+        },
+        "result_bundle": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "properties": {
+                "status": {
+                  "const": "failed"
+                }
+              },
+              "required": [
+                "status"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "status": {
+          "const": "failed"
+        }
+      }
+    }
+  ],
   "properties": {
     "error": {
       "anyOf": [
@@ -475,19 +1089,10 @@
           "type": "null"
         }
       ],
-      "default": null,
       "title": "Error"
     },
     "progress": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Progress"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
+      "$ref": "#/$defs/Progress"
     },
     "result_bundle": {
       "anyOf": [
@@ -497,38 +1102,30 @@
         {
           "type": "null"
         }
-      ],
-      "default": null
+      ]
     },
     "status": {
       "$ref": "#/$defs/ResultStatus"
     },
     "submission_id": {
+      "maxLength": 128,
       "minLength": 1,
       "title": "Submission Id",
       "type": "string"
     },
-    "summary": {
-      "anyOf": [
-        {
-          "additionalProperties": true,
-          "type": "object"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Summary"
-    },
     "updated_at": {
+      "minLength": 1,
       "title": "Updated At",
       "type": "string"
     }
   },
   "required": [
     "submission_id",
-    "status"
+    "status",
+    "progress",
+    "error",
+    "result_bundle",
+    "updated_at"
   ],
   "title": "ResultDocument",
   "type": "object"

@@ -15,12 +15,11 @@ from embodiedlab.result_models import (
 )
 
 
-def update_result(  # noqa: PLR0913
+def update_result(
     result_ref: firestore.DocumentReference,
     *,
     status: ResultStatus,
     progress: dict | Progress,
-    summary: dict[str, Any] | None = None,
     error: str | None = None,
     result_bundle: dict[str, Any] | ResultBundle | None = None,
 ) -> None:
@@ -28,7 +27,6 @@ def update_result(  # noqa: PLR0913
     payload = build_result_update(
         status=status,
         progress=progress,
-        summary=summary,
         error=error,
         result_bundle=result_bundle,
     )

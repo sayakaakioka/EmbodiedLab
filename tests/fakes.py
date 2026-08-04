@@ -1,10 +1,20 @@
+import json
 import uuid
 from copy import deepcopy
+from pathlib import Path
 
 from google.api_core.exceptions import AlreadyExists
 
 from embodiedlab.repositories import SubmissionConflictError, SubmissionRecoveryError
-from embodiedlab.result_models import ResultBundle, ResultStatus, build_result_update
+from embodiedlab.result_models import (
+    ResultBundle,
+    ResultDocument,
+    ResultStatus,
+    build_progress,
+    build_result_bundle,
+    build_result_update,
+    utc_now_iso,
+)
 from embodiedlab.schemas import (
     CancellationState,
     DispatchState,
@@ -12,6 +22,234 @@ from embodiedlab.schemas import (
     SubmissionControl,
     build_submission_document,
 )
+from embodiedlab.training.training_config import TrainingConfig
+
+TEST_SHA256 = "0" * 64
+SCENARIO_FIXTURE_PATH = (
+    Path(__file__).parent
+    / "fixtures"
+    / "envforge"
+    / "navigation_default_scenario_bundle.json"
+)
+
+
+def scenario_payload() -> dict:
+    """Return a complete explicit Scenario payload for focused unit tests."""
+    payload = json.loads(SCENARIO_FIXTURE_PATH.read_text(encoding="utf-8"))
+    payload["scenario_id"] = "scenario_demo_001"
+    payload["world"] = {
+        "coordinate_system": "left_handed_y_up_meters",
+        "bounds": {
+            "min": {"x": 0.0, "z": 0.0},
+            "max": {"x": 10.0, "z": 10.0},
+        },
+        "static_walls": [],
+        "static_obstacles": [
+            {
+                "id": "box_001",
+                "shape": "box",
+                "center": {"x": 5.0, "z": 5.0},
+                "size": {"x": 1.0, "z": 1.0},
+                "height": 1.0,
+                "rotation_y_degrees": 0.0,
+            },
+        ],
+        "goal": {
+            "id": "goal_001",
+            "position": {"x": 8.5, "z": 8.5},
+            "radius": 0.45,
+        },
+    }
+    payload["robot"]["start_pose"] = {
+        "position": {"x": 1.0, "z": 1.0},
+        "rotation_y_degrees": 0.0,
+    }
+    payload["sensors"][1]["target"] = "goal_001"
+    payload["training"]["max_episode_steps"] = 512
+    for component in payload["reward"]["components"]:
+        if component["name"] == "goal_progress":
+            component["weight"] = 0.1
+    return payload
+
+
+def _merge_scenario_values(base: object, override: object) -> object:
+    """Merge concise test overrides into the explicit canonical payload."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = deepcopy(base)
+        for key, value in override.items():
+            merged[key] = _merge_scenario_values(merged.get(key), value)
+        return merged
+    if isinstance(base, list) and isinstance(override, list):
+        return [
+            _merge_scenario_values(base[index] if index < len(base) else None, value)
+            for index, value in enumerate(override)
+        ]
+    return deepcopy(override)
+
+
+def scenario_bundle(**overrides: object) -> ScenarioBundle:
+    """Return the canonical Scenario with explicit test-only field overrides."""
+    payload = _merge_scenario_values(scenario_payload(), overrides)
+    return ScenarioBundle.model_validate(payload)
+
+
+def training_config(**overrides: object) -> TrainingConfig:
+    """Build the runtime config from the explicit canonical Scenario values."""
+    payload = scenario_bundle().training.model_dump(mode="python")
+    payload.update(overrides)
+    return TrainingConfig.model_validate(payload)
+
+
+def resolved_training_configuration() -> dict:
+    """Return a complete resolved training configuration for test doubles."""
+    return {
+        "library": "stable-baselines3",
+        "library_version": "2.7.1",
+        "algorithm": "ppo",
+        "device": "cpu",
+        "timesteps": 5000,
+        "seed": 10,
+        "max_episode_steps": 512,
+        "n_envs": 1,
+        "requested_cpu_count": None,
+        "cpu_count": 1,
+        "requested_torch_num_threads": None,
+        "torch_num_threads": 1,
+        "n_steps": 32,
+        "batch_size": 32,
+        "n_epochs": 3,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "learning_rate": 0.0003,
+        "clip_range": 0.2,
+        "clip_range_vf": None,
+        "normalize_advantage": True,
+        "ent_coef": 0.0,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "use_sde": False,
+        "sde_sample_freq": -1,
+        "target_kl": None,
+        "stats_window_size": 100,
+        "eval_episodes": 20,
+        "replay_eval_interval_steps": 1000000,
+        "replay_train_chunk_steps": 10000,
+        "randomize_start": True,
+    }
+
+
+def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
+    """Return all downloadable artifacts required by a completed result."""
+    integrity = {"size_bytes": 1, "sha256": TEST_SHA256}
+    output = {
+        "name": "action",
+        "layout": ["forward", "turn"],
+        "action_mapping": None,
+    }
+    return {
+        "onnx_model": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": f"results/{submission_id}/model/policy.onnx",
+            "format": "onnx",
+            **integrity,
+            "target": "onnx-runtime",
+            "opset_version": 17,
+            "inputs": [
+                {
+                    "name": "obs_0",
+                    "shape": [-1, 3, 84, 112],
+                    "dtype": "float32",
+                    "layout": ["batch", "channel", "height", "width"],
+                },
+                {
+                    "name": "obs_1",
+                    "shape": [-1, 2],
+                    "dtype": "float32",
+                    "layout": ["batch", "goal_vector"],
+                },
+            ],
+            "output": output,
+        },
+        "sentis_model": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": f"results/{submission_id}/model/policy.sentis.onnx",
+            "format": "onnx",
+            **integrity,
+            "target": "unity-sentis",
+            "opset_version": 15,
+            "inputs": [
+                {
+                    "name": "observation",
+                    "shape": [1, 28226],
+                    "dtype": "float32",
+                    "layout": ["batch", "flattened_observation"],
+                },
+            ],
+            "output": output,
+        },
+        "replay_bundle": {
+            "storage": "gcs",
+            "bucket": bucket_name,
+            "path": f"results/{submission_id}/replay/manifest.json",
+            "format": "json",
+            **integrity,
+        },
+    }
+
+
+def result_document(
+    submission_id: str,
+    status: ResultStatus | str,
+    *,
+    current_step: int = 0,
+    total_steps: int = 0,
+    message: str | None = None,
+) -> dict:
+    """Return one complete canonical ResultDocument test payload."""
+    status = ResultStatus(status)
+    messages = {
+        ResultStatus.QUEUED: "Queued",
+        ResultStatus.STARTING: "Trainer job started",
+        ResultStatus.RUNNING: "Training",
+        ResultStatus.CANCELLING: "Cancelling training",
+        ResultStatus.CANCELLED: "Training cancelled",
+        ResultStatus.COMPLETED: "Training completed",
+        ResultStatus.FAILED: "Training failed",
+    }
+    error = "Training failed" if status is ResultStatus.FAILED else None
+    bundle = None
+    if status is ResultStatus.COMPLETED:
+        bundle = build_result_bundle(
+            scenario=scenario_bundle(),
+            job_id=submission_id,
+            status=status,
+            summary={
+                "training_configuration": resolved_training_configuration(),
+            },
+            artifacts=completed_artifacts("model-bucket", submission_id),
+        )
+    elif status is ResultStatus.FAILED:
+        bundle = build_result_bundle(
+            scenario=scenario_bundle(),
+            job_id=submission_id,
+            status=status,
+            error=error,
+        )
+    return ResultDocument(
+        submission_id=submission_id,
+        status=status,
+        progress=build_progress(
+            phase=status,
+            current_step=current_step,
+            total_steps=total_steps,
+            message=message or messages[status],
+        ),
+        error=error,
+        result_bundle=bundle,
+        updated_at=utc_now_iso(),
+    ).model_dump(mode="json")
 
 
 def merge_dicts(existing: dict, update: dict) -> dict:
@@ -413,20 +651,18 @@ class FakeResultRepository:
 
         return deepcopy(payload)
 
-    def write_update(  # noqa: PLR0913
+    def write_update(
         self,
         submission_id: str,
         *,
         status,
         progress,
-        summary: dict | None = None,
         error: str | None = None,
         result_bundle: dict | ResultBundle | None = None,
     ) -> None:
         payload = build_result_update(
             status=status,
             progress=progress,
-            summary=summary,
             error=error,
             result_bundle=result_bundle,
         )
@@ -446,7 +682,6 @@ class FakeResultRepository:
         expected_statuses,
         status,
         progress,
-        summary=None,
         error=None,
         result_bundle=None,
     ) -> dict | None:
@@ -459,7 +694,6 @@ class FakeResultRepository:
         update = build_result_update(
             status=status,
             progress=progress,
-            summary=summary,
             error=error,
             result_bundle=result_bundle,
         )

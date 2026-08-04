@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from google.api_core.exceptions import Aborted
 
 from embodiedlab.repositories import SubmissionConflictError, SubmissionRecoveryError
 from embodiedlab.result_models import ResultStatus, cancelled_progress, failed_progress
-from embodiedlab.schemas import ScenarioBundle
 from server.repositories import FirestoreResultRepository, FirestoreSubmissionRepository
-from tests.fakes import FakeDb, FakeTransaction
+from tests.fakes import FakeDb, FakeTransaction, scenario_bundle
+
+if TYPE_CHECKING:
+    from embodiedlab.schemas import ScenarioBundle
 
 CONCURRENT_UPDATE = "concurrent update"
 IDEMPOTENCY_KEY = "submission-recovery-key-0000000001"
@@ -40,7 +43,7 @@ class OneShotAbortingDb(FakeDb):
 def test_firestore_submission_accept_is_atomic_and_idempotent() -> None:
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
 
     first = repository.accept(
         scenario,
@@ -64,8 +67,8 @@ def test_firestore_submission_accept_is_atomic_and_idempotent() -> None:
 @pytest.mark.parametrize(
     ("scenario", "cancel_token_hash"),
     [
-        (ScenarioBundle(scenario_id="different"), "a" * 64),
-        (ScenarioBundle(), "b" * 64),
+        (scenario_bundle().model_copy(update={"scenario_id": "different"}), "a" * 64),
+        (scenario_bundle(), "b" * 64),
     ],
 )
 def test_firestore_submission_accept_rejects_conflicting_replay(
@@ -76,7 +79,7 @@ def test_firestore_submission_accept_rejects_conflicting_replay(
     repository = FirestoreSubmissionRepository(db)
     idempotency_key = "submission-recovery-key-0000000001"
     repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=idempotency_key,
@@ -108,7 +111,7 @@ def test_firestore_submission_rejects_unrecoverable_existing_submission(
     repository = FirestoreSubmissionRepository(db)
     idempotency_key = "submission-recovery-key-0000000001"
     submission_id = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=idempotency_key,
@@ -128,7 +131,7 @@ def test_firestore_submission_rejects_unrecoverable_existing_submission(
 
     with pytest.raises(SubmissionRecoveryError):
         repository.accept(
-            ScenarioBundle(),
+            scenario_bundle(),
             cancel_token_hash="a" * 64,
             total_steps=5000,
             idempotency_key=idempotency_key,
@@ -139,7 +142,7 @@ def test_firestore_submission_dispatch_can_only_be_claimed_once() -> None:
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -159,7 +162,7 @@ def test_firestore_submission_does_not_claim_legacy_control(
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -176,7 +179,7 @@ def test_firestore_submission_claim_retries_one_aborted_transaction() -> None:
     db = OneShotAbortingDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -190,7 +193,7 @@ def test_firestore_submission_pending_dispatch_can_be_cancelled_once() -> None:
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -220,7 +223,7 @@ def test_firestore_pending_cancel_retry_exhaustion_changes_neither_document() ->
     db = AbortingDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -240,7 +243,7 @@ def test_firestore_dispatch_finalization_does_not_revive_failed_control() -> Non
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
     accepted = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,
@@ -258,7 +261,7 @@ def test_firestore_cancellation_lease_has_one_owner_and_can_be_reclaimed() -> No
     db = FakeDb()
     repository = FirestoreSubmissionRepository(db)
     submission_id = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,

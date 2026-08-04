@@ -4,7 +4,7 @@
 
 EmbodiedLab は、身体性を持つ AI 実験のためのクラウド側学習基盤である。
 
-現在の実装は、EnvForge Scenario Bundle を受け取る end-to-end 学習ループを持つ。
+現在の実装は、Scenario Bundle を受け取る end-to-end 学習ループを持つ。
 Scenario Bundle を continuous navigation runtime へ変換し、Cloud Run Job 上で
 Stable-Baselines3 PPO により方策を学習する。成果物は Google Cloud Storage に
 保存し、Firestore、Pub/Sub、WebSocket を通して状態更新を届ける。
@@ -33,14 +33,16 @@ EnvForge から渡されたシナリオ条件を保持し、それをクラウ�
 ## 現在の方向性
 
 現在は、API、ジョブ起動、成果物アップロード、状態保存、通知経路に加えて、
-EnvForge Scenario Bundle、continuous navigation runtime、宣言的 reward component、
+Scenario Bundle、continuous navigation runtime、宣言的 reward component、
 Result Bundle、Replay Bundle、ONNX artifact の主経路まで実装済みである。
 
 汎用 Unity client 機能は、独立した `EmbodiedLab.Unity` UPM package として
 分離済みである。現在は EmbodiedLab の Pydantic model と versioned JSON Schema を
 wire contract の正本とし、SDK の generated DTO、canonical fixture、transport test を
-同じ契約へ同期している。次に SDK の公開 API と tutorial を整理し、その後に EnvForge を
-SDK 利用へ移行する。
+同じ契約へ同期している。Scenario の実行値、学習値、観測 shape は JSON を正本とし、
+downloadable artifact は bytes 数と SHA-256 を持つ。次にこの更新を
+`EmbodiedLab.Unity` の公開 API と tutorial へ同期し、その後に EnvForge を SDK 利用へ
+移行する。
 
 その後、学習環境の生成モードを次の二つへ拡張する。
 
@@ -66,4 +68,6 @@ SDK 利用へ移行する。
 - 固定マップと生成マップを暗黙に切り替えず、Scenario Bundle で明示する。
 - リプレイは動画ではなく構造化ログとして保存する。
 - EnvForge がモデルやリプレイの互換性を検証できる metadata を残す。
+- ダウンロード対象の size と digest を契約に含め、利用前に実 bytes と照合する。
+- 学習時に解決した library、hyperparameter、resource 値を Result Bundle に残す。
 - 成果物は cloud storage に保存し、状態は Firestore に保存する。

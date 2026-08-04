@@ -1,16 +1,17 @@
 import numpy as np
+import pytest
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
-from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.runner import (
     _build_training_env,
+    _configure_cpu_count,
     _predict_navigation_final_raw_action,
     _train_model,
     build_continuous_replay_step,
     evaluate_continuous_policy,
 )
-from embodiedlab.training.training_config import TrainingConfig
 from embodiedlab.training.training_converter import convert_submission_to_spec
+from tests.fakes import scenario_bundle, training_config
 
 
 def test_training_configures_torch_threads(monkeypatch):
@@ -27,7 +28,8 @@ def test_training_configures_torch_threads(monkeypatch):
     events = []
 
     _configure_torch_threads(
-        TrainingConfig(torch_num_threads=1),
+        training_config(torch_num_threads=1),
+        1,
         lambda event, fields: events.append((event, fields)),
     )
 
@@ -43,10 +45,80 @@ def test_training_configures_torch_threads(monkeypatch):
     ]
 
 
+def test_unspecified_torch_threads_resolve_to_effective_cpu_count(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "embodiedlab.training.runner.torch.set_num_threads",
+        calls.append,
+    )
+    monkeypatch.setattr("embodiedlab.training.runner.torch.get_num_threads", lambda: 2)
+
+    from embodiedlab.training.runner import _configure_torch_threads
+
+    effective = _configure_torch_threads(
+        training_config(torch_num_threads=None),
+        2,
+        None,
+    )
+
+    assert calls == [2]
+    assert effective == 2
+
+
+def test_training_applies_requested_cpu_affinity(monkeypatch):
+    affinity = {0, 1, 2, 3}
+
+    monkeypatch.setattr(
+        "embodiedlab.training.runner.os.sched_getaffinity",
+        lambda _pid: affinity,
+        raising=False,
+    )
+
+    def set_affinity(_pid, cpus):
+        affinity.clear()
+        affinity.update(cpus)
+
+    monkeypatch.setattr(
+        "embodiedlab.training.runner.os.sched_setaffinity",
+        set_affinity,
+        raising=False,
+    )
+    events = []
+
+    effective = _configure_cpu_count(
+        training_config(cpu_count=2, n_envs=2, torch_num_threads=1),
+        lambda event, fields: events.append((event, fields)),
+    )
+
+    assert effective == 2
+    assert affinity == {0, 1}
+    assert events == [
+        (
+            "cpu_count_configured",
+            {
+                "requested_cpu_count": 2,
+                "available_cpu_count": 4,
+                "cpu_count": 2,
+            },
+        ),
+    ]
+
+
+def test_training_rejects_requested_cpu_count_above_available(monkeypatch):
+    monkeypatch.setattr(
+        "embodiedlab.training.runner.os.sched_getaffinity",
+        lambda _pid: {0, 1},
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="exceeds available CPU count"):
+        _configure_cpu_count(training_config(cpu_count=3), None)
+
+
 def test_build_training_env_randomizes_start_for_single_env():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
     spec = convert_submission_to_spec(scenario)
-    training = TrainingConfig(n_envs=1)
+    training = training_config(n_envs=1)
 
     env = _build_training_env(spec=spec, training=training)
 
@@ -54,9 +126,9 @@ def test_build_training_env_randomizes_start_for_single_env():
 
 
 def test_build_training_env_uses_subproc_vec_env_automatically_for_multiple_envs():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
     spec = convert_submission_to_spec(scenario)
-    training = TrainingConfig(n_envs=2)
+    training = training_config(n_envs=2)
     events = []
 
     env = _build_training_env(
@@ -80,10 +152,10 @@ def test_build_training_env_uses_subproc_vec_env_automatically_for_multiple_envs
 
 
 def test_navigation_final_raw_prediction_matches_sb3_deterministic_action():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
     spec = convert_submission_to_spec(scenario)
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
-    training = TrainingConfig(timesteps=1, n_steps=8, batch_size=4, seed=10)
+    training = training_config(timesteps=1, n_steps=8, batch_size=4, seed=10)
     model = _train_model(env=env, training=training)
     obs, _info = env.reset(seed=10)
 
@@ -93,11 +165,29 @@ def test_navigation_final_raw_prediction_matches_sb3_deterministic_action():
     np.testing.assert_allclose(action, sb3_action)
 
 
-def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
-    scenario = ScenarioBundle()
+def test_train_model_passes_declared_ppo_configuration(monkeypatch):
+    scenario = scenario_bundle()
     spec = convert_submission_to_spec(scenario)
     env = ContinuousNavigationEnv(spec=spec, max_steps=10)
-    training = TrainingConfig(timesteps=1, n_steps=8, batch_size=4, n_epochs=3)
+    training = training_config(
+        timesteps=1,
+        n_steps=8,
+        batch_size=4,
+        n_epochs=3,
+        gamma=0.91,
+        gae_lambda=0.92,
+        learning_rate=0.001,
+        clip_range=0.15,
+        clip_range_vf=0.3,
+        normalize_advantage=False,
+        ent_coef=0.02,
+        vf_coef=0.7,
+        max_grad_norm=0.8,
+        use_sde=False,
+        sde_sample_freq=-1,
+        target_kl=0.04,
+        stats_window_size=50,
+    )
     captured = {}
     events = []
 
@@ -118,7 +208,45 @@ def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
     )
 
     assert model is not None
-    assert captured["n_epochs"] == 3
+    assert {
+        key: captured[key]
+        for key in (
+            "n_steps",
+            "batch_size",
+            "n_epochs",
+            "gamma",
+            "gae_lambda",
+            "learning_rate",
+            "clip_range",
+            "clip_range_vf",
+            "normalize_advantage",
+            "ent_coef",
+            "vf_coef",
+            "max_grad_norm",
+            "use_sde",
+            "sde_sample_freq",
+            "target_kl",
+            "stats_window_size",
+        )
+    } == {
+        "n_steps": 8,
+        "batch_size": 4,
+        "n_epochs": 3,
+        "gamma": 0.91,
+        "gae_lambda": 0.92,
+        "learning_rate": 0.001,
+        "clip_range": 0.15,
+        "clip_range_vf": 0.3,
+        "normalize_advantage": False,
+        "ent_coef": 0.02,
+        "vf_coef": 0.7,
+        "max_grad_norm": 0.8,
+        "use_sde": False,
+        "sde_sample_freq": -1,
+        "target_kl": 0.04,
+        "stats_window_size": 50,
+    }
+    assert captured["device"] == "cpu"
     assert captured["total_timesteps"] == 1
     assert [event for event, _fields in events] == [
         "ppo_model_construction_started",
@@ -128,10 +256,11 @@ def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
     ]
 
 
-def test_build_continuous_replay_step_returns_envforge_replay_shape():
+def test_build_continuous_replay_step_returns_contract_replay_shape():
     step = build_continuous_replay_step(
         goal_id="target_goal",
         distance_sensor_id="rangefinder",
+        step_duration_seconds=0.1,
         episode_index=0,
         step_index=2,
         action=np.array([0.7, -0.2], dtype=np.float32),
@@ -188,12 +317,12 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
     assert step["sensors"] == [
         {
             "id": "rangefinder",
-            "type": "envforge_distance_sensor_meters",
+            "type": "distance_meters",
             "value": 1.25,
         },
         {
             "id": "camera_mount_height",
-            "type": "envforge_camera_mount_height_meters",
+            "type": "camera_mount_height_meters",
             "value": 0.42,
         },
     ]
@@ -202,7 +331,7 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
 def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     class FakeEnv:
         def __init__(self):
-            self.spec = convert_submission_to_spec(ScenarioBundle())
+            self.spec = convert_submission_to_spec(scenario_bundle())
             self.episode_index = -1
             self.step_index = 0
 
@@ -246,7 +375,7 @@ def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     result = evaluate_continuous_policy(
         model=object(),
         env=FakeEnv(),
-        training=TrainingConfig(eval_episodes=3),
+        training=training_config(eval_episodes=3),
     )
 
     assert result["episodes"] == 3

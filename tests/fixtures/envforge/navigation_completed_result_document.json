@@ -7,13 +7,6 @@
     "total_steps": 5000,
     "message": "Training completed"
   },
-  "summary": {
-    "training_timesteps": 5000,
-    "training_seed": 10,
-    "success_rate": 0.82,
-    "avg_reward": 6.4,
-    "avg_steps": 118.5
-  },
   "error": null,
   "result_bundle": {
     "schema_version": "result-bundle.v0",
@@ -22,31 +15,58 @@
     "status": "completed",
     "compatibility": {
       "scenario_schema_version": "scenario-bundle.v0",
-      "envforge_min_version": "0.1.0",
       "robot_version": "simple_robot.v1",
       "sensor_version": "basic_sensors.v0",
       "action_layout": ["forward", "turn"],
       "observation_layout": ["obs_0", "obs_1"]
     },
     "summary": {
-      "training_timesteps": 5000,
-      "training_seed": 10,
       "success_rate": 0.82,
       "average_episode_reward": 6.4,
-      "average_episode_steps": 118.5
+      "average_episode_steps": 118.5,
+      "configuration": {
+        "library": "stable-baselines3",
+        "library_version": "2.7.1",
+        "algorithm": "ppo",
+        "device": "cpu",
+        "timesteps": 5000,
+        "seed": 10,
+        "max_episode_steps": 1000,
+        "n_envs": 1,
+        "requested_cpu_count": null,
+        "cpu_count": 1,
+        "requested_torch_num_threads": null,
+        "torch_num_threads": 1,
+        "n_steps": 32,
+        "batch_size": 32,
+        "n_epochs": 3,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "learning_rate": 0.0003,
+        "clip_range": 0.2,
+        "clip_range_vf": null,
+        "normalize_advantage": true,
+        "ent_coef": 0.0,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "use_sde": false,
+        "sde_sample_freq": -1,
+        "target_kl": null,
+        "stats_window_size": 100,
+        "eval_episodes": 20,
+        "replay_eval_interval_steps": 1000000,
+        "replay_train_chunk_steps": 10000,
+        "randomize_start": true
+      }
     },
     "artifacts": {
-      "model": {
-        "storage": "gcs",
-        "bucket": "embodiedlab-models",
-        "path": "results/submission-1/model/policy.onnx",
-        "format": "onnx"
-      },
       "onnx_model": {
         "storage": "gcs",
         "bucket": "embodiedlab-models",
         "path": "results/submission-1/model/policy.onnx",
         "format": "onnx",
+        "size_bytes": 12345,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "target": "onnx-runtime",
         "opset_version": 17,
         "inputs": [
@@ -81,6 +101,8 @@
         "bucket": "embodiedlab-models",
         "path": "results/submission-1/model/policy.sentis.onnx",
         "format": "onnx",
+        "size_bytes": 12345,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "target": "unity-sentis",
         "opset_version": 15,
         "inputs": [
@@ -90,8 +112,8 @@
             "dtype": "float32",
             "layout": [
               "obs_0_chw_3x84x112",
-              "obs_1_angle_degrees",
-              "obs_1_distance_meters"
+              "obs_1_goal_angle_degrees",
+              "obs_1_goal_distance_meters"
             ]
           }
         ],
@@ -108,7 +130,9 @@
         "storage": "gcs",
         "bucket": "embodiedlab-models",
         "path": "results/submission-1/replay/manifest.json",
-        "format": "json"
+        "format": "json",
+        "size_bytes": 678,
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       }
     },
     "error": null

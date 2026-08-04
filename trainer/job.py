@@ -191,7 +191,6 @@ def run_training_job(  # noqa: PLR0913
             },
             status=ResultStatus.COMPLETED,
             progress=completed_progress(total_steps),
-            summary=execution.summary,
             result_bundle=execution.result_bundle,
         )
 

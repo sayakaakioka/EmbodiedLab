@@ -16,7 +16,7 @@ uv run ruff check .
 uv run ruff format .
 
 # Lint / format (markdown)
-npx markdownlint-cli2 --fix "**/*.md"
+make lint
 
 # Run API locally
 make server_local         # uvicorn on port 8000

@@ -1,30 +1,31 @@
-"""Convert EnvForge scenario bundles into the training runtime spec."""
+"""Convert scenario bundles into the training runtime spec."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from embodiedlab.schemas import (
+    DistanceDeltaRewardComponent,
     DistanceSensor,
     ForwardCameraSensor,
+    GoalVectorSensor,
+    MaximumAbsoluteForwardRewardComponent,
+    MinimumAbsoluteAngleRewardComponent,
     ScenarioBundle,
     StaticObstacle,
     StaticWall,
+    semantic_channel_layout,
 )
 from embodiedlab.training.training_models import (
     ContinuousBounds,
     ContinuousBoxObstacle,
     ContinuousCameraSpec,
     ContinuousGoal,
+    ContinuousGoalVectorSpec,
     ContinuousNavigationSpec,
-    ContinuousRewardWeights,
+    ContinuousRewardSettings,
     ContinuousRobotStart,
 )
-
-POLICY_CAMERA_WIDTH = ForwardCameraSensor(id="front_camera").width
-POLICY_CAMERA_HEIGHT = ForwardCameraSensor(id="front_camera").height
-POLICY_FORWARD_STEP_METERS = 0.2
-POLICY_TURN_DEGREES_PER_STEP = 15.0
 
 
 @dataclass(frozen=True)
@@ -53,17 +54,17 @@ def parse_scenario_bundle(
 def describe_runtime_conversion(
     submission: dict[str, object] | ScenarioBundle,
 ) -> ScenarioRuntimeConversion:
-    """Describe the EnvForge scenario runtime mapping."""
+    """Describe the scenario runtime mapping."""
     scenario = parse_scenario_bundle(submission)
     return ScenarioRuntimeConversion(
         source_coordinate_system=scenario.world.coordinate_system.value,
-        runtime_coordinate_system="envforge_xz_meters",
-        coordinate_mapping="direct_envforge_xz_meters",
+        runtime_coordinate_system=scenario.world.coordinate_system.value,
+        coordinate_mapping="direct_left_handed_y_up_meters",
         omitted_contract_fields=(),
         lossy=True,
         notes=(
             "Runtime positions, rotations, bounds, goal radius, static walls, "
-            "static obstacle footprints, and object heights stay in EnvForge meters.",
+            "static obstacle footprints, and object heights stay in declared meters.",
             "Forward camera output is rendered as a semantic 2.5D projection; "
             "materials, lighting, shadows, and Unity post-processing remain lossy.",
             "Supported declarative reward component weights are carried into "
@@ -72,26 +73,32 @@ def describe_runtime_conversion(
     )
 
 
-def _distance_sensor(scenario: ScenarioBundle) -> DistanceSensor:
+def _distance_sensor(scenario: ScenarioBundle) -> DistanceSensor | None:
     for sensor in scenario.sensors:
         if isinstance(sensor, DistanceSensor):
             return sensor
-    return DistanceSensor(id="front_distance")
+    return None
 
 
 def _forward_camera_sensor(scenario: ScenarioBundle) -> ForwardCameraSensor:
     for sensor in scenario.sensors:
         if isinstance(sensor, ForwardCameraSensor):
             return sensor
-    return ForwardCameraSensor(id="front_camera")
+    msg = "scenario requires a forward camera sensor"
+    raise ValueError(msg)
+
+
+def _goal_vector_sensor(scenario: ScenarioBundle) -> GoalVectorSensor:
+    for sensor in scenario.sensors:
+        if isinstance(sensor, GoalVectorSensor):
+            return sensor
+    msg = "scenario requires a goal vector sensor"
+    raise ValueError(msg)
 
 
 def _camera_spec(scenario: ScenarioBundle) -> ContinuousCameraSpec:
     camera = _forward_camera_sensor(scenario)
     far_clip_meters = camera.far_clip_meters
-    if camera.width != POLICY_CAMERA_WIDTH or camera.height != POLICY_CAMERA_HEIGHT:
-        msg = "forward camera size must be 112x84 for the current policy network"
-        raise ValueError(msg)
     mount_height_min_meters = camera.mount_height_min_meters
     if mount_height_min_meters is None:
         mount_height_min_meters = camera.mount_height_meters
@@ -108,19 +115,48 @@ def _camera_spec(scenario: ScenarioBundle) -> ContinuousCameraSpec:
         vertical_fov_degrees=camera.vertical_fov_degrees,
         near_clip_meters=camera.near_clip_meters,
         far_clip_meters=far_clip_meters,
+        semantic_mode=camera.semantic_mode.value,
+        observation_name=camera.observation_name,
+        channel_layout=semantic_channel_layout(camera.semantic_mode),
     )
 
 
-def _reward_weights(scenario: ScenarioBundle) -> ContinuousRewardWeights:
-    values = {
-        component.name: component.weight for component in scenario.reward.components
-    }
-    return ContinuousRewardWeights(**values)
+def _reward_settings(scenario: ScenarioBundle) -> ContinuousRewardSettings:
+    components = {component.name: component for component in scenario.reward.components}
+    goal_progress = components["goal_progress"]
+    wide_angle = components["wide_angle_penalty"]
+    rear_angle = components["rear_angle_penalty"]
+    inactive = components["inactive_penalty"]
+    if not isinstance(goal_progress, DistanceDeltaRewardComponent):
+        msg = "goal_progress reward type was not validated"
+        raise TypeError(msg)
+    if not isinstance(wide_angle, MinimumAbsoluteAngleRewardComponent):
+        msg = "wide_angle_penalty reward type was not validated"
+        raise TypeError(msg)
+    if not isinstance(rear_angle, MinimumAbsoluteAngleRewardComponent):
+        msg = "rear_angle_penalty reward type was not validated"
+        raise TypeError(msg)
+    if not isinstance(inactive, MaximumAbsoluteForwardRewardComponent):
+        msg = "inactive_penalty reward type was not validated"
+        raise TypeError(msg)
+    return ContinuousRewardSettings(
+        goal_reached=components["goal_reached"].weight,
+        goal_progress=goal_progress.weight,
+        goal_progress_minimum_delta_meters=goal_progress.minimum_delta_meters,
+        collision_penalty=components["collision_penalty"].weight,
+        step_penalty=components["step_penalty"].weight,
+        wide_angle_penalty=wide_angle.weight,
+        wide_angle_minimum_absolute_degrees=(wide_angle.minimum_absolute_angle_degrees),
+        rear_angle_penalty=rear_angle.weight,
+        rear_angle_minimum_absolute_degrees=(rear_angle.minimum_absolute_angle_degrees),
+        inactive_penalty=inactive.weight,
+        inactive_maximum_absolute_forward=inactive.maximum_absolute_forward,
+    )
 
 
-def _wall_to_obstacle(wall_index: int, wall: StaticWall) -> ContinuousBoxObstacle:
+def _wall_to_obstacle(wall: StaticWall) -> ContinuousBoxObstacle:
     return ContinuousBoxObstacle(
-        obstacle_id=wall.id or f"wall_{wall_index:03d}",
+        obstacle_id=wall.id,
         center_x=wall.center.x,
         center_z=wall.center.z,
         size_x=wall.size.x,
@@ -151,13 +187,11 @@ def convert_submission_to_spec(
     goal = scenario.world.goal
     start_pose = scenario.robot.start_pose
     obstacles = [
-        *(
-            _wall_to_obstacle(index, wall)
-            for index, wall in enumerate(scenario.world.static_walls)
-        ),
+        *(_wall_to_obstacle(wall) for wall in scenario.world.static_walls),
         *(_box_to_obstacle(obstacle) for obstacle in scenario.world.static_obstacles),
     ]
     distance_sensor = _distance_sensor(scenario)
+    goal_vector = _goal_vector_sensor(scenario)
 
     return ContinuousNavigationSpec(
         bounds=ContinuousBounds(
@@ -180,10 +214,21 @@ def convert_submission_to_spec(
         ),
         robot_type=scenario.robot.type.value,
         robot_radius=scenario.robot.radius,
-        distance_sensor_id=distance_sensor.id,
-        distance_sensor_range_meters=distance_sensor.range_meters,
+        distance_sensor_id=(
+            distance_sensor.id if distance_sensor is not None else None
+        ),
+        distance_sensor_range_meters=(
+            distance_sensor.range_meters if distance_sensor is not None else None
+        ),
         camera=_camera_spec(scenario),
-        reward_weights=_reward_weights(scenario),
-        forward_step_meters=POLICY_FORWARD_STEP_METERS,
-        turn_degrees_per_step=POLICY_TURN_DEGREES_PER_STEP,
+        goal_vector=ContinuousGoalVectorSpec(
+            sensor_id=goal_vector.id,
+            target=goal_vector.target,
+            observation_name=goal_vector.observation_name,
+            values=tuple(goal_vector.values),
+        ),
+        reward_settings=_reward_settings(scenario),
+        forward_step_meters=scenario.robot.action_space.forward_step_meters,
+        turn_degrees_per_step=scenario.robot.action_space.turn_degrees_per_step,
+        step_duration_seconds=scenario.robot.action_space.step_duration_seconds,
     )

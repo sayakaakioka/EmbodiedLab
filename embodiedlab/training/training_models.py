@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ContinuousBounds:
-    """Axis-aligned x/z training bounds in EnvForge meters."""
+    """Axis-aligned x/z training bounds in meters."""
 
     min_x: float
     min_z: float
@@ -17,7 +17,7 @@ class ContinuousBounds:
 
 @dataclass(frozen=True)
 class ContinuousBoxObstacle:
-    """Static box obstacle on the EnvForge x/z plane."""
+    """Static box obstacle on the x/z plane."""
 
     obstacle_id: str
     center_x: float
@@ -30,7 +30,7 @@ class ContinuousBoxObstacle:
 
 @dataclass(frozen=True)
 class ContinuousGoal:
-    """Circular goal region on the EnvForge x/z plane."""
+    """Circular goal region on the x/z plane."""
 
     goal_id: str
     x: float
@@ -40,7 +40,7 @@ class ContinuousGoal:
 
 @dataclass(frozen=True)
 class ContinuousRobotStart:
-    """Initial robot pose on the EnvForge x/z plane."""
+    """Initial robot pose on the x/z plane."""
 
     x: float
     z: float
@@ -60,25 +60,41 @@ class ContinuousCameraSpec:
     vertical_fov_degrees: float
     near_clip_meters: float
     far_clip_meters: float
+    semantic_mode: str
+    observation_name: str
+    channel_layout: tuple[str, ...]
 
 
 @dataclass(frozen=True)
-class ContinuousRewardWeights:
-    """Reward weights used by the continuous EnvForge runtime."""
+class ContinuousGoalVectorSpec:
+    """Goal-relative numeric observation contract."""
+
+    sensor_id: str
+    target: str
+    observation_name: str
+    values: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ContinuousRewardSettings:
+    """Reward weights and activation thresholds used by the runtime."""
 
     goal_reached: float
     goal_progress: float
+    goal_progress_minimum_delta_meters: float
     collision_penalty: float
     step_penalty: float
     wide_angle_penalty: float
+    wide_angle_minimum_absolute_degrees: float
     rear_angle_penalty: float
+    rear_angle_minimum_absolute_degrees: float
     inactive_penalty: float
-    movement_threshold: float
+    inactive_maximum_absolute_forward: float
 
 
 @dataclass(frozen=True)
 class ContinuousNavigationSpec:
-    """Continuous EnvForge-compatible navigation runtime specification."""
+    """Continuous navigation runtime specification."""
 
     bounds: ContinuousBounds
     obstacles: tuple[ContinuousBoxObstacle, ...]
@@ -86,9 +102,11 @@ class ContinuousNavigationSpec:
     robot_start: ContinuousRobotStart
     robot_type: str
     robot_radius: float
-    distance_sensor_id: str
-    distance_sensor_range_meters: float
+    distance_sensor_id: str | None
+    distance_sensor_range_meters: float | None
     camera: ContinuousCameraSpec
-    reward_weights: ContinuousRewardWeights
+    goal_vector: ContinuousGoalVectorSpec
+    reward_settings: ContinuousRewardSettings
     forward_step_meters: float
     turn_degrees_per_step: float
+    step_duration_seconds: float
