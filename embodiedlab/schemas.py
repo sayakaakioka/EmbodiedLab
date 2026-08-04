@@ -162,7 +162,7 @@ class WorldSpec(BaseModel):
         default_factory=lambda: GoalSpec(
             id="goal_001",
             position=Position2D(x=8.5, z=8.5),
-            radius=0.5,
+            radius=DEFAULT_ROBOT_RADIUS_METERS,
         ),
     )
 
