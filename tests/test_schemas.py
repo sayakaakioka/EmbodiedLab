@@ -32,6 +32,7 @@ def test_scenario_bundle_defaults_are_valid():
     assert scenario.compatibility.robot_version == "simple_robot.v1"
     assert scenario.robot.type == "simple_robot"
     assert scenario.robot.radius == 0.45
+    assert scenario.world.goal.radius == scenario.robot.radius
     assert scenario.robot.action_space.layout == ["forward", "turn"]
     assert [sensor.id for sensor in scenario.sensors] == [
         "front_camera",
@@ -195,11 +196,15 @@ def test_envforge_navigation_fixture_matches_scenario_bundle_contract():
         "height",
         "semantic_mode",
         "mount_height_meters",
+        "mount_height_min_meters",
+        "mount_height_max_meters",
         "pitch_degrees",
         "vertical_fov_degrees",
         "near_clip_meters",
         "far_clip_meters",
     }
+    assert scenario.sensors[0].mount_height_min_meters == 0.6
+    assert scenario.sensors[0].mount_height_max_meters == 0.6
     assert scenario.training.max_episode_steps == 1000
     assert set(payload["training"]) >= {
         "algorithm",
