@@ -33,6 +33,7 @@
           "x": 16.0,
           "z": 0.35
         },
+        "height": 2.0,
         "rotation_y_degrees": 0.0
       },
       {
@@ -45,6 +46,7 @@
           "x": 16.0,
           "z": 0.35
         },
+        "height": 2.0,
         "rotation_y_degrees": 0.0
       },
       {
@@ -57,6 +59,7 @@
           "x": 0.35,
           "z": 12.0
         },
+        "height": 2.0,
         "rotation_y_degrees": 0.0
       },
       {
@@ -69,12 +72,13 @@
           "x": 0.35,
           "z": 12.0
         },
+        "height": 2.0,
         "rotation_y_degrees": 0.0
       }
     ],
     "static_obstacles": [
       {
-        "id": "inner_wall_a",
+        "id": "obstacle_a",
         "shape": "box",
         "center": {
           "x": -1.5,
@@ -84,10 +88,11 @@
           "x": 0.35,
           "z": 4.2
         },
+        "height": 1.0,
         "rotation_y_degrees": 0.0
       },
       {
-        "id": "inner_wall_b",
+        "id": "obstacle_b",
         "shape": "box",
         "center": {
           "x": 2.8,
@@ -97,10 +102,11 @@
           "x": 4.4,
           "z": 0.35
         },
+        "height": 1.0,
         "rotation_y_degrees": 0.0
       },
       {
-        "id": "inner_wall_c",
+        "id": "obstacle_c",
         "shape": "box",
         "center": {
           "x": 4.8,
@@ -110,10 +116,11 @@
           "x": 0.35,
           "z": 2.5
         },
+        "height": 1.0,
         "rotation_y_degrees": 0.0
       },
       {
-        "id": "inner_wall_d",
+        "id": "obstacle_d",
         "shape": "box",
         "center": {
           "x": -4.2,
@@ -123,6 +130,7 @@
           "x": 2.4,
           "z": 0.35
         },
+        "height": 1.0,
         "rotation_y_degrees": 0.0
       }
     ],
@@ -159,7 +167,12 @@
       "type": "forward_camera",
       "width": 112,
       "height": 84,
-      "semantic_mode": "traversable_vs_blocked"
+      "semantic_mode": "traversable_vs_blocked",
+      "mount_height_meters": 0.6,
+      "pitch_degrees": 0.0,
+      "vertical_fov_degrees": 70.0,
+      "near_clip_meters": 0.05,
+      "far_clip_meters": 100.0
     },
     {
       "id": "front_distance",
@@ -218,8 +231,12 @@
     "timesteps": 5000,
     "seed": 10,
     "max_episode_steps": 1000,
+    "n_envs": 1,
+    "cpu_count": null,
+    "torch_num_threads": null,
     "n_steps": 32,
     "batch_size": 32,
+    "n_epochs": 3,
     "gamma": 0.99,
     "learning_rate": 0.0003,
     "ent_coef": 0.0,
