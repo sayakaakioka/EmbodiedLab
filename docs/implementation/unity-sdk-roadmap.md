@@ -119,6 +119,8 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 - SDK は高エントロピーの idempotency key と cancel capability を request 前に
   生成し、response 消失後も同一 submission を回収できる。
 - SDK は ONNX Runtime Quickstart と bounded Replay Bundle loader を持つ。
+- canonical `navigation_default` の `goal.radius` は robot radius と同じ 0.45 m とし、
+  training、Unity inference、Unity 表示の到達範囲を一致させる。
 
 状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
 HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
