@@ -1,6 +1,10 @@
 from embodiedlab.result_models import failed_progress
-from embodiedlab.schemas import ScenarioBundle
-from tests.fakes import FakeDb, FakeResultRepository, FakeSubmissionRepository
+from tests.fakes import (
+    FakeDb,
+    FakeResultRepository,
+    FakeSubmissionRepository,
+    scenario_bundle,
+)
 
 IDEMPOTENCY_KEY = "submission-recovery-key-0000000001"
 
@@ -47,7 +51,7 @@ def test_fake_submission_repository_persists_and_fetches_submission():
     repository.bind_result_repository(result_repository)
 
     submission_id = repository.accept(
-        ScenarioBundle(),
+        scenario_bundle(),
         cancel_token_hash="a" * 64,
         total_steps=5000,
         idempotency_key=IDEMPOTENCY_KEY,

@@ -1,27 +1,86 @@
-"""Pydantic schemas for EnvForge scenario submissions."""
+"""Pydantic schemas for EmbodiedLab scenario submissions."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated, Literal
+from types import UnionType
+from typing import Annotated, Literal, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SCENARIO_SCHEMA_VERSION = "scenario-bundle.v0"
-ROBOT_VERSION = "simple_robot.v1"
-DEFAULT_ROBOT_RADIUS_METERS = 0.45
 MAX_REPLAY_CHUNK_STEPS = 100_000
+MAX_CAMERA_DIMENSION_PIXELS = 512
+MAX_TRAINING_TIMESTEPS = 10_000_000
+MAX_PARALLEL_ENVS = 32
+MAX_TRAINING_CPU_COUNT = 32
+MAX_PPO_ROLLOUT_STEPS = 65_536
+MAX_PPO_EPOCHS = 100
+MAX_STATS_WINDOW_SIZE = 100_000
+MAX_RANDOM_SEED = (2**32) - 1
+MAX_IDENTIFIER_LENGTH = 128
+MAX_WORLD_GEOMETRY_ELEMENTS = 128
+MAX_SCENARIO_SENSORS = 3
+
+
+class ContractModel(BaseModel):
+    """Strict base for every public wire-contract object."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_primitive_type_coercion(cls, value: object) -> object:
+        """Keep server validation aligned with JSON Schema primitive types."""
+        if not isinstance(value, dict):
+            return value
+        for name, raw_value in value.items():
+            field = cls.model_fields.get(name)
+            if field is None or raw_value is None:
+                continue
+            primitive_types = _primitive_types(field.annotation)
+            if bool in primitive_types and type(raw_value) is not bool:
+                msg = f"{name} must be a JSON boolean"
+                raise ValueError(msg)
+            if (
+                int in primitive_types
+                and float not in primitive_types
+                and type(raw_value) is not int
+            ):
+                msg = f"{name} must be a JSON integer"
+                raise ValueError(msg)
+            if float in primitive_types and (
+                not isinstance(raw_value, int | float) or isinstance(raw_value, bool)
+            ):
+                msg = f"{name} must be a JSON number"
+                raise ValueError(msg)
+        return value
+
+
+def _primitive_types(annotation: object) -> set[type]:
+    """Return primitive JSON number/bool types accepted by one annotation."""
+    if annotation in {bool, int, float}:
+        return {annotation}
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        return _primitive_types(get_args(annotation)[0])
+    if origin in {UnionType, Union}:
+        primitive_types: set[type] = set()
+        for member in get_args(annotation):
+            primitive_types.update(_primitive_types(member))
+        return primitive_types
+    return set()
 
 
 class CoordinateSystem(StrEnum):
     """Supported world coordinate systems for scenario bundles."""
 
-    ENVFORGE_XZ_METERS = "envforge_xz_meters"
+    LEFT_HANDED_Y_UP_METERS = "left_handed_y_up_meters"
 
 
 class RobotType(StrEnum):
-    """Robot archetypes supported by the first EnvForge integration."""
+    """Robot archetypes supported by the current scenario contract."""
 
     SIMPLE_ROBOT = "simple_robot"
 
@@ -37,12 +96,25 @@ class SensorType(StrEnum):
 
     FORWARD_CAMERA = "forward_camera"
     DISTANCE_SENSOR = "distance_sensor"
+    GOAL_VECTOR = "goal_vector"
 
 
 class SemanticMode(StrEnum):
     """Supported semantic camera encodings."""
 
     TRAVERSABLE_VS_BLOCKED = "traversable_vs_blocked"
+
+
+def semantic_channel_layout(mode: SemanticMode) -> tuple[str, ...]:
+    """Return the policy channel order defined by a semantic mode."""
+    if mode is SemanticMode.TRAVERSABLE_VS_BLOCKED:
+        return (
+            "channel_0_unused",
+            "channel_1_traversable",
+            "channel_2_blocked_or_background",
+        )
+    msg = f"Unsupported semantic mode: {mode}"
+    raise ValueError(msg)
 
 
 class SensorDirection(StrEnum):
@@ -58,12 +130,20 @@ class RewardComponentType(StrEnum):
     DISTANCE_DELTA = "distance_delta"
     COLLISION = "collision"
     PER_STEP = "per_step"
+    MINIMUM_ABSOLUTE_ANGLE = "minimum_absolute_angle"
+    MAXIMUM_ABSOLUTE_FORWARD = "maximum_absolute_forward"
 
 
 class TrainingAlgorithm(StrEnum):
-    """Supported training algorithms for EnvForge scenarios."""
+    """Supported training algorithms for scenario bundles."""
 
     PPO = "ppo"
+
+
+class TrainingDevice(StrEnum):
+    """Training devices supported by the current Cloud Run runtime."""
+
+    CPU = "cpu"
 
 
 class DispatchState(StrEnum):
@@ -85,36 +165,35 @@ class CancellationState(StrEnum):
     REQUESTED = "requested"
 
 
-class CreatedBy(BaseModel):
+class CreatedBy(ContractModel):
     """Metadata about the tool that created a scenario bundle."""
 
-    tool: str = Field(default="EnvForge", min_length=1)
-    version: str = Field(default="0.1.0", min_length=1)
+    tool: str = Field(min_length=1)
+    version: str = Field(min_length=1)
 
 
-class Compatibility(BaseModel):
-    """Compatibility metadata required by EnvForge and EmbodiedLab."""
+class Compatibility(ContractModel):
+    """Compatibility metadata required by EmbodiedLab clients."""
 
-    envforge_min_version: str = Field(default="0.1.0", min_length=1)
-    robot_version: str = Field(default=ROBOT_VERSION, min_length=1)
-    sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
+    robot_version: str = Field(min_length=1)
+    sensor_version: str = Field(min_length=1)
 
 
-class Position2D(BaseModel):
-    """A point on the EnvForge horizontal x/z plane."""
+class Position2D(ContractModel):
+    """A point on the horizontal x/z plane."""
 
     x: float
     z: float
 
 
-class Size2D(BaseModel):
+class Size2D(ContractModel):
     """A positive x/z footprint size in meters."""
 
     x: float = Field(gt=0)
     z: float = Field(gt=0)
 
 
-class Bounds2D(BaseModel):
+class Bounds2D(ContractModel):
     """Axis-aligned world bounds on the x/z plane."""
 
     min: Position2D
@@ -136,58 +215,57 @@ class Bounds2D(BaseModel):
         )
 
 
-class StaticWall(BaseModel):
+class StaticWall(ContractModel):
     """A fixed wall segment in the scenario."""
 
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     center: Position2D
     size: Size2D
-    height: float = Field(default=2.0, gt=0)
-    rotation_y_degrees: float = 0.0
+    height: float = Field(gt=0)
+    rotation_y_degrees: float
 
 
-class StaticObstacle(BaseModel):
+class StaticObstacle(ContractModel):
     """A fixed obstacle in the scenario."""
 
-    id: str = Field(min_length=1)
-    shape: Literal["box"] = "box"
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    shape: Literal["box"]
     center: Position2D
     size: Size2D
-    height: float = Field(default=1.0, gt=0)
-    rotation_y_degrees: float = 0.0
+    height: float = Field(gt=0)
+    rotation_y_degrees: float
 
 
-class GoalSpec(BaseModel):
+class GoalSpec(ContractModel):
     """Goal region used for navigation training."""
 
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     position: Position2D
     radius: float = Field(gt=0)
 
 
-class WorldSpec(BaseModel):
-    """Static world geometry for the first EnvForge contract."""
+class WorldSpec(ContractModel):
+    """Static world geometry for the current scenario contract."""
 
-    coordinate_system: CoordinateSystem = CoordinateSystem.ENVFORGE_XZ_METERS
-    bounds: Bounds2D = Field(
-        default_factory=lambda: Bounds2D(
-            min=Position2D(x=0.0, z=0.0),
-            max=Position2D(x=10.0, z=10.0),
-        ),
+    coordinate_system: CoordinateSystem
+    bounds: Bounds2D
+    static_walls: list[StaticWall] = Field(max_length=MAX_WORLD_GEOMETRY_ELEMENTS)
+    static_obstacles: list[StaticObstacle] = Field(
+        max_length=MAX_WORLD_GEOMETRY_ELEMENTS,
     )
-    static_walls: list[StaticWall] = Field(default_factory=list)
-    static_obstacles: list[StaticObstacle] = Field(default_factory=list)
-    goal: GoalSpec = Field(
-        default_factory=lambda: GoalSpec(
-            id="goal_001",
-            position=Position2D(x=8.5, z=8.5),
-            radius=DEFAULT_ROBOT_RADIUS_METERS,
-        ),
-    )
+    goal: GoalSpec
 
     @model_validator(mode="after")
     def validate_world_positions(self) -> WorldSpec:
         """Ensure point-based world objects are inside the declared bounds."""
+        if len(self.static_walls) + len(self.static_obstacles) > (
+            MAX_WORLD_GEOMETRY_ELEMENTS
+        ):
+            msg = (
+                "static_walls and static_obstacles together cannot exceed "
+                f"{MAX_WORLD_GEOMETRY_ELEMENTS}"
+            )
+            raise ValueError(msg)
         positions = [
             ("goal.position", self.goal.position),
             *(
@@ -206,22 +284,24 @@ class WorldSpec(BaseModel):
         return self
 
 
-class Pose2D(BaseModel):
+class Pose2D(ContractModel):
     """Robot pose on the x/z plane."""
 
     position: Position2D
-    rotation_y_degrees: float = 0.0
+    rotation_y_degrees: float
 
 
-class ActionSpace(BaseModel):
+class ActionSpace(ContractModel):
     """Robot action layout expected by the policy."""
 
-    type: ActionSpaceType = ActionSpaceType.CONTINUOUS
+    type: ActionSpaceType
     layout: list[Literal["forward", "turn"]] = Field(
-        default_factory=lambda: ["forward", "turn"],
         min_length=2,
         max_length=2,
     )
+    forward_step_meters: float = Field(gt=0)
+    turn_degrees_per_step: float = Field(gt=0)
+    step_duration_seconds: float = Field(gt=0)
 
     @model_validator(mode="after")
     def validate_layout(self) -> ActionSpace:
@@ -232,35 +312,31 @@ class ActionSpace(BaseModel):
         return self
 
 
-class RobotSpec(BaseModel):
-    """Robot descriptor for an EnvForge scenario."""
+class RobotSpec(ContractModel):
+    """Robot descriptor for a scenario bundle."""
 
-    type: RobotType = RobotType.SIMPLE_ROBOT
-    radius: float = Field(default=DEFAULT_ROBOT_RADIUS_METERS, gt=0)
-    start_pose: Pose2D = Field(
-        default_factory=lambda: Pose2D(
-            position=Position2D(x=1.0, z=1.0),
-            rotation_y_degrees=0.0,
-        ),
-    )
-    action_space: ActionSpace = Field(default_factory=ActionSpace)
+    type: RobotType
+    radius: float = Field(gt=0)
+    start_pose: Pose2D
+    action_space: ActionSpace
 
 
-class ForwardCameraSensor(BaseModel):
+class ForwardCameraSensor(ContractModel):
     """Forward semantic camera sensor configuration."""
 
-    id: str = Field(min_length=1)
-    type: Literal[SensorType.FORWARD_CAMERA] = SensorType.FORWARD_CAMERA
-    width: int = Field(default=112, ge=1)
-    height: int = Field(default=84, ge=1)
-    semantic_mode: SemanticMode = SemanticMode.TRAVERSABLE_VS_BLOCKED
-    mount_height_meters: float = Field(default=0.6, gt=0)
-    mount_height_min_meters: float | None = Field(default=None, gt=0)
-    mount_height_max_meters: float | None = Field(default=None, gt=0)
-    pitch_degrees: float = Field(default=0.0)
-    vertical_fov_degrees: float = Field(default=70.0, gt=0, lt=180)
-    near_clip_meters: float = Field(default=0.05, gt=0)
-    far_clip_meters: float = Field(default=100.0, gt=0)
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    type: Literal[SensorType.FORWARD_CAMERA]
+    width: int = Field(ge=20, le=MAX_CAMERA_DIMENSION_PIXELS)
+    height: int = Field(ge=20, le=MAX_CAMERA_DIMENSION_PIXELS)
+    semantic_mode: SemanticMode
+    mount_height_meters: float = Field(gt=0)
+    mount_height_min_meters: float | None = Field(gt=0)
+    mount_height_max_meters: float | None = Field(gt=0)
+    pitch_degrees: float
+    vertical_fov_degrees: float = Field(gt=0, lt=180)
+    near_clip_meters: float = Field(gt=0)
+    far_clip_meters: float = Field(gt=0)
+    observation_name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
 
     @model_validator(mode="after")
     def validate_mount_height_range(self) -> ForwardCameraSensor:
@@ -280,94 +356,151 @@ class ForwardCameraSensor(BaseModel):
         return self
 
 
-class DistanceSensor(BaseModel):
+class DistanceSensor(ContractModel):
     """Forward distance sensor configuration."""
 
-    id: str = Field(min_length=1)
-    type: Literal[SensorType.DISTANCE_SENSOR] = SensorType.DISTANCE_SENSOR
-    range_meters: float = Field(default=5.0, gt=0)
-    direction: SensorDirection = SensorDirection.FORWARD
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    type: Literal[SensorType.DISTANCE_SENSOR]
+    range_meters: float = Field(gt=0)
+    direction: SensorDirection
+
+
+class GoalVectorSensor(ContractModel):
+    """Goal-relative numeric observation consumed by the policy."""
+
+    id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    type: Literal[SensorType.GOAL_VECTOR]
+    target: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    observation_name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    values: list[Literal["goal_angle_degrees", "goal_distance_meters"]] = Field(
+        min_length=2,
+        max_length=2,
+    )
+
+    @model_validator(mode="after")
+    def validate_values(self) -> GoalVectorSensor:
+        """Require the current numeric observation order."""
+        if self.values != ["goal_angle_degrees", "goal_distance_meters"]:
+            msg = (
+                "goal vector values must be "
+                "['goal_angle_degrees', 'goal_distance_meters']"
+            )
+            raise ValueError(msg)
+        return self
 
 
 SensorSpec = Annotated[
-    ForwardCameraSensor | DistanceSensor,
+    ForwardCameraSensor | DistanceSensor | GoalVectorSensor,
     Field(discriminator="type"),
 ]
 
 
-class TerminalRewardComponent(BaseModel):
+class TerminalRewardComponent(ContractModel):
     """Terminal reward paid when the task succeeds."""
 
     name: str = Field(min_length=1)
-    type: Literal[RewardComponentType.TERMINAL_REWARD] = (
-        RewardComponentType.TERMINAL_REWARD
-    )
+    type: Literal[RewardComponentType.TERMINAL_REWARD]
     weight: float
 
 
-class DistanceDeltaRewardComponent(BaseModel):
+class DistanceDeltaRewardComponent(ContractModel):
     """Reward based on distance progress toward a target object."""
 
     name: str = Field(min_length=1)
-    type: Literal[RewardComponentType.DISTANCE_DELTA] = (
-        RewardComponentType.DISTANCE_DELTA
-    )
+    type: Literal[RewardComponentType.DISTANCE_DELTA]
     target: str = Field(min_length=1)
     weight: float
+    minimum_delta_meters: float = Field(gt=0)
 
 
-class CollisionRewardComponent(BaseModel):
+class CollisionRewardComponent(ContractModel):
     """Reward component emitted on collisions."""
 
     name: str = Field(min_length=1)
-    type: Literal[RewardComponentType.COLLISION] = RewardComponentType.COLLISION
+    type: Literal[RewardComponentType.COLLISION]
     weight: float
 
 
-class PerStepRewardComponent(BaseModel):
+class PerStepRewardComponent(ContractModel):
     """Reward component emitted at each simulation step."""
 
     name: str = Field(min_length=1)
-    type: Literal[RewardComponentType.PER_STEP] = RewardComponentType.PER_STEP
+    type: Literal[RewardComponentType.PER_STEP]
     weight: float
+
+
+class MinimumAbsoluteAngleRewardComponent(ContractModel):
+    """Penalty enabled above an absolute goal-angle threshold."""
+
+    name: str = Field(min_length=1)
+    type: Literal[RewardComponentType.MINIMUM_ABSOLUTE_ANGLE]
+    weight: float
+    minimum_absolute_angle_degrees: float = Field(gt=0, le=180)
+
+
+class MaximumAbsoluteForwardRewardComponent(ContractModel):
+    """Penalty enabled when forward action stays below a threshold."""
+
+    name: str = Field(min_length=1)
+    type: Literal[RewardComponentType.MAXIMUM_ABSOLUTE_FORWARD]
+    weight: float
+    maximum_absolute_forward: float = Field(ge=0, le=1)
 
 
 RewardComponent = Annotated[
     TerminalRewardComponent
     | DistanceDeltaRewardComponent
     | CollisionRewardComponent
-    | PerStepRewardComponent,
+    | PerStepRewardComponent
+    | MinimumAbsoluteAngleRewardComponent
+    | MaximumAbsoluteForwardRewardComponent,
     Field(discriminator="type"),
 ]
 
 
-class RewardSpec(BaseModel):
+class RewardSpec(ContractModel):
     """Declarative reward configuration for training."""
 
     components: list[RewardComponent] = Field(
-        default_factory=list,
-        min_length=8,
-        max_length=8,
+        min_length=7,
+        max_length=7,
     )
 
 
-class TrainingSpec(BaseModel):
-    """Training request parameters for EnvForge scenario bundles."""
+class TrainingSpec(ContractModel):
+    """Training request parameters for scenario bundles."""
 
-    algorithm: TrainingAlgorithm = TrainingAlgorithm.PPO
-    timesteps: int = Field(default=5_000, ge=1)
-    seed: int = 10
-    max_episode_steps: int = Field(default=512, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
-    n_envs: int = Field(default=1, ge=1)
-    cpu_count: int | None = Field(default=None, ge=1)
-    torch_num_threads: int | None = Field(default=None, ge=1)
-    n_steps: int = Field(default=32, ge=1)
-    batch_size: int = Field(default=32, ge=1)
-    n_epochs: int = Field(default=3, ge=1)
-    gamma: float = Field(default=0.99, gt=0.0, le=1.0)
-    learning_rate: float = Field(default=3e-4, gt=0.0)
-    ent_coef: float = Field(default=0.0, ge=0.0)
-    eval_episodes: int = Field(default=20, ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    algorithm: TrainingAlgorithm
+    device: TrainingDevice
+    timesteps: int = Field(ge=1, le=MAX_TRAINING_TIMESTEPS)
+    seed: int = Field(ge=0, le=MAX_RANDOM_SEED)
+    max_episode_steps: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    n_envs: int = Field(ge=1, le=MAX_PARALLEL_ENVS)
+    cpu_count: int | None = Field(ge=1, le=MAX_TRAINING_CPU_COUNT)
+    torch_num_threads: int | None = Field(ge=1, le=MAX_TRAINING_CPU_COUNT)
+    n_steps: int = Field(ge=1, le=MAX_PPO_ROLLOUT_STEPS)
+    batch_size: int = Field(ge=1, le=MAX_PPO_ROLLOUT_STEPS)
+    n_epochs: int = Field(ge=1, le=MAX_PPO_EPOCHS)
+    gamma: float = Field(gt=0.0, le=1.0)
+    gae_lambda: float = Field(gt=0.0, le=1.0)
+    learning_rate: float = Field(gt=0.0)
+    clip_range: float = Field(gt=0.0)
+    clip_range_vf: float | None = Field(gt=0.0)
+    normalize_advantage: bool
+    ent_coef: float = Field(ge=0.0)
+    vf_coef: float = Field(ge=0.0)
+    max_grad_norm: float = Field(ge=0.0)
+    use_sde: bool
+    sde_sample_freq: int = Field(ge=-1)
+    target_kl: float | None = Field(gt=0.0)
+    stats_window_size: int = Field(ge=1, le=MAX_STATS_WINDOW_SIZE)
+    eval_episodes: int = Field(ge=1, le=MAX_REPLAY_CHUNK_STEPS)
+    replay_eval_interval_steps: int = Field(ge=0)
+    replay_train_chunk_steps: int = Field(
+        ge=1,
+        le=MAX_REPLAY_CHUNK_STEPS,
+    )
+    randomize_start: bool
 
     @model_validator(mode="after")
     def validate_eval_replay_size(self) -> TrainingSpec:
@@ -378,71 +511,38 @@ class TrainingSpec(BaseModel):
                 f"to {MAX_REPLAY_CHUNK_STEPS}"
             )
             raise ValueError(msg)
+        rollout_steps = self.n_steps * self.n_envs
+        if rollout_steps > MAX_PPO_ROLLOUT_STEPS:
+            msg = (
+                "n_steps * n_envs must be less than or equal to "
+                f"{MAX_PPO_ROLLOUT_STEPS}"
+            )
+            raise ValueError(msg)
+        if rollout_steps % self.batch_size != 0:
+            msg = "n_steps * n_envs must be divisible by batch_size"
+            raise ValueError(msg)
         return self
 
 
-class ScenarioBundle(BaseModel):
+class ScenarioBundle(ContractModel):
     """Top-level request body for POST /submissions."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    schema_version: Literal[SCENARIO_SCHEMA_VERSION] = SCENARIO_SCHEMA_VERSION
-    scenario_id: str = Field(default="scenario_demo_001", min_length=1)
-    created_by: CreatedBy = Field(default_factory=CreatedBy)
-    compatibility: Compatibility = Field(default_factory=Compatibility)
-    world: WorldSpec = Field(default_factory=WorldSpec)
-    robot: RobotSpec = Field(default_factory=RobotSpec)
+    schema_version: Literal[SCENARIO_SCHEMA_VERSION]
+    scenario_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
+    created_by: CreatedBy
+    compatibility: Compatibility
+    world: WorldSpec
+    robot: RobotSpec
     sensors: list[SensorSpec] = Field(
-        default_factory=lambda: [
-            ForwardCameraSensor(id="front_camera"),
-            DistanceSensor(id="front_distance"),
-        ],
         min_length=1,
+        max_length=MAX_SCENARIO_SENSORS,
     )
-    reward: RewardSpec = Field(
-        default_factory=lambda: RewardSpec(
-            components=[
-                TerminalRewardComponent(
-                    name="goal_reached",
-                    weight=100.0,
-                ),
-                DistanceDeltaRewardComponent(
-                    name="goal_progress",
-                    target="goal_001",
-                    weight=0.1,
-                ),
-                CollisionRewardComponent(
-                    name="collision_penalty",
-                    weight=-50.0,
-                ),
-                PerStepRewardComponent(
-                    name="step_penalty",
-                    weight=-0.01,
-                ),
-                PerStepRewardComponent(
-                    name="wide_angle_penalty",
-                    weight=-0.1,
-                ),
-                PerStepRewardComponent(
-                    name="rear_angle_penalty",
-                    weight=-5.0,
-                ),
-                PerStepRewardComponent(
-                    name="inactive_penalty",
-                    weight=-0.1,
-                ),
-                PerStepRewardComponent(
-                    name="movement_threshold",
-                    weight=0.001,
-                ),
-            ],
-        ),
-    )
-    training: TrainingSpec = Field(default_factory=TrainingSpec)
+    reward: RewardSpec
+    training: TrainingSpec
 
     @model_validator(mode="after")
-    def validate_scenario(self) -> ScenarioBundle:
-        """Validate cross-field references in the scenario bundle."""
+    def validate_world_and_sensors(self) -> ScenarioBundle:
+        """Validate world and sensor cross-field references."""
         if not self.world.bounds.contains(self.robot.start_pose.position):
             msg = "robot.start_pose.position must be inside world bounds"
             raise ValueError(msg)
@@ -452,15 +552,44 @@ class ScenarioBundle(BaseModel):
             msg = "sensor ids must be unique"
             raise ValueError(msg)
 
+        camera_sensors = [
+            sensor for sensor in self.sensors if isinstance(sensor, ForwardCameraSensor)
+        ]
+        goal_vector_sensors = [
+            sensor for sensor in self.sensors if isinstance(sensor, GoalVectorSensor)
+        ]
+        distance_sensors = [
+            sensor for sensor in self.sensors if isinstance(sensor, DistanceSensor)
+        ]
+        if len(camera_sensors) != 1 or len(goal_vector_sensors) != 1:
+            msg = "scenario requires exactly one forward camera and one goal vector"
+            raise ValueError(msg)
+        if len(distance_sensors) > 1:
+            msg = "scenario supports at most one forward distance sensor"
+            raise ValueError(msg)
+        observation_names = [
+            camera_sensors[0].observation_name,
+            goal_vector_sensors[0].observation_name,
+        ]
+        if len(observation_names) != len(set(observation_names)):
+            msg = "policy observation names must be unique"
+            raise ValueError(msg)
+        if goal_vector_sensors[0].target != self.world.goal.id:
+            msg = "goal vector target must match world.goal.id"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def validate_reward_contract(self) -> ScenarioBundle:
+        """Validate reward names, types, and target references."""
         expected_reward_types = {
             "goal_reached": RewardComponentType.TERMINAL_REWARD,
             "goal_progress": RewardComponentType.DISTANCE_DELTA,
             "collision_penalty": RewardComponentType.COLLISION,
             "step_penalty": RewardComponentType.PER_STEP,
-            "wide_angle_penalty": RewardComponentType.PER_STEP,
-            "rear_angle_penalty": RewardComponentType.PER_STEP,
-            "inactive_penalty": RewardComponentType.PER_STEP,
-            "movement_threshold": RewardComponentType.PER_STEP,
+            "wide_angle_penalty": RewardComponentType.MINIMUM_ABSOLUTE_ANGLE,
+            "rear_angle_penalty": RewardComponentType.MINIMUM_ABSOLUTE_ANGLE,
+            "inactive_penalty": RewardComponentType.MAXIMUM_ABSOLUTE_FORWARD,
         }
         reward_names = [component.name for component in self.reward.components]
         if len(reward_names) != len(set(reward_names)):
@@ -494,6 +623,23 @@ class ScenarioBundle(BaseModel):
                     f"goal_progress target must match world.goal.id: {component.target}"
                 )
                 raise ValueError(msg)
+
+        components_by_name = {
+            component.name: component for component in self.reward.components
+        }
+        wide_angle = components_by_name["wide_angle_penalty"]
+        rear_angle = components_by_name["rear_angle_penalty"]
+        if (
+            isinstance(wide_angle, MinimumAbsoluteAngleRewardComponent)
+            and isinstance(rear_angle, MinimumAbsoluteAngleRewardComponent)
+            and wide_angle.minimum_absolute_angle_degrees
+            >= rear_angle.minimum_absolute_angle_degrees
+        ):
+            msg = (
+                "wide_angle_penalty threshold must be less than "
+                "rear_angle_penalty threshold"
+            )
+            raise ValueError(msg)
 
         return self
 

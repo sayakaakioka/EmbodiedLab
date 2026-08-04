@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -9,23 +10,22 @@ from statistics import mean
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import stable_baselines3
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.vec_env import SubprocVecEnv, VecEnv
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
+from embodiedlab.schemas import MAX_TRAINING_CPU_COUNT, TrainingAlgorithm
 from embodiedlab.training.navigation_final_policy import (
     NavigationFinalPolicy,
     navigation_final_deterministic_raw_action,
 )
 from embodiedlab.training.replay_bundle import ReplayBundleWriter
-from embodiedlab.training.training_config import (
-    TrainingAlgorithm,
-    TrainingConfig,
-)
 
 if TYPE_CHECKING:
+    from embodiedlab.training.training_config import TrainingConfig
     from embodiedlab.training.training_models import ContinuousNavigationSpec
 
 TrainingProgressCallback = Callable[[int, int], None]
@@ -125,6 +125,7 @@ class TrainingProgressReporter(BaseCallback):
             step = build_continuous_replay_step(
                 goal_id=self._eval_spec.goal.goal_id,
                 distance_sensor_id=self._eval_spec.distance_sensor_id,
+                step_duration_seconds=self._eval_spec.step_duration_seconds,
                 episode_index=self._episode_indices[env_index],
                 step_index=self._episode_steps[env_index],
                 action=action,
@@ -157,7 +158,7 @@ class TrainingProgressReporter(BaseCallback):
         eval_env = ContinuousNavigationEnv(
             spec=self._eval_spec,
             max_steps=self._training.max_steps,
-            randomize_start=True,
+            randomize_start=self._training.randomize_start,
         )
         try:
             evaluation = evaluate_continuous_policy(
@@ -203,7 +204,8 @@ def _termination_reason(
 def build_continuous_replay_step(  # noqa: PLR0913
     *,
     goal_id: str,
-    distance_sensor_id: str,
+    distance_sensor_id: str | None,
+    step_duration_seconds: float,
     episode_index: int,
     step_index: int,
     action: np.ndarray,
@@ -217,7 +219,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
     env_index: int = 0,
     policy_mode: str = "deterministic",
 ) -> dict[str, Any]:
-    """Build a replay row directly from the continuous EnvForge runtime."""
+    """Build a replay row directly from the continuous runtime."""
     _ = obs
     action_array = np.asarray(action, dtype=np.float32)
     action_values = np.array(
@@ -261,6 +263,23 @@ def build_continuous_replay_step(  # noqa: PLR0913
             },
         )
 
+    sensors = [
+        {
+            "id": "camera_mount_height",
+            "type": "camera_mount_height_meters",
+            "value": float(info["camera_mount_height_meters"]),
+        },
+    ]
+    if distance_sensor_id is not None:
+        sensors.insert(
+            0,
+            {
+                "id": distance_sensor_id,
+                "type": "distance_meters",
+                "value": float(info["front_distance"]),
+            },
+        )
+
     return {
         "phase": phase,
         "checkpoint_step": checkpoint_step,
@@ -268,7 +287,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
         "policy_mode": policy_mode,
         "episode_id": f"{phase}_env_{env_index:02d}_episode_{episode_index + 1:06d}",
         "step_index": step_index,
-        "time_seconds": round(step_index * 0.1, 6),
+        "time_seconds": round(step_index * step_duration_seconds, 6),
         "robot": {
             "position": {
                 "x": float(info["robot_x"]),
@@ -293,18 +312,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
             "components": reward_components,
         },
         "events": events,
-        "sensors": [
-            {
-                "id": distance_sensor_id,
-                "type": "envforge_distance_sensor_meters",
-                "value": float(info["front_distance"]),
-            },
-            {
-                "id": "camera_mount_height",
-                "type": "envforge_camera_mount_height_meters",
-                "value": float(info["camera_mount_height_meters"]),
-            },
-        ],
+        "sensors": sensors,
         "terminated": terminated or truncated,
         "termination_reason": _termination_reason(
             terminated=terminated,
@@ -346,6 +354,7 @@ def evaluate_continuous_policy(
                 build_continuous_replay_step(
                     goal_id=env.spec.goal.goal_id,
                     distance_sensor_id=env.spec.distance_sensor_id,
+                    step_duration_seconds=env.spec.step_duration_seconds,
                     episode_index=episode_index,
                     step_index=episode_steps - 1,
                     action=action_array,
@@ -384,8 +393,8 @@ def _predict_navigation_final_raw_action(
         action = navigation_final_deterministic_raw_action(
             model.policy,
             {
-                "obs_0": torch.as_tensor(obs["obs_0"][None], dtype=torch.float32),
-                "obs_1": torch.as_tensor(obs["obs_1"][None], dtype=torch.float32),
+                name: torch.as_tensor(value[None], dtype=torch.float32)
+                for name, value in obs.items()
             },
         )
     return action.detach().cpu().numpy()[0].astype(np.float32)
@@ -401,18 +410,68 @@ def _emit_training_diagnostic(
     diagnostic_callback(event, fields)
 
 
-def _configure_torch_threads(
+def _configure_cpu_count(
     training: TrainingConfig,
     diagnostic_callback: TrainingDiagnosticCallback | None,
-) -> None:
-    if training.torch_num_threads is not None:
-        torch.set_num_threads(training.torch_num_threads)
+) -> int:
+    available_cpus = min(
+        MAX_TRAINING_CPU_COUNT,
+        len(os.sched_getaffinity(0))
+        if hasattr(os, "sched_getaffinity")
+        else (os.process_cpu_count() or 1),
+    )
+    requested_cpus = training.cpu_count
+    effective_cpus = requested_cpus or available_cpus
+    if effective_cpus > available_cpus:
+        msg = (
+            f"requested cpu_count {effective_cpus} exceeds available CPU count "
+            f"{available_cpus}"
+        )
+        raise ValueError(msg)
+    if requested_cpus is not None and requested_cpus < available_cpus:
+        if not hasattr(os, "sched_setaffinity"):
+            msg = "cpu_count overrides require process CPU affinity support"
+            raise ValueError(msg)
+        current_affinity = sorted(os.sched_getaffinity(0))
+        os.sched_setaffinity(0, current_affinity[:requested_cpus])
+        effective_cpus = len(os.sched_getaffinity(0))
+    if training.n_envs > effective_cpus:
+        msg = "n_envs must not exceed the effective CPU count"
+        raise ValueError(msg)
+    if (
+        training.torch_num_threads is not None
+        and training.torch_num_threads > effective_cpus
+    ):
+        msg = "torch_num_threads must not exceed the effective CPU count"
+        raise ValueError(msg)
+    _emit_training_diagnostic(
+        diagnostic_callback,
+        "cpu_count_configured",
+        requested_cpu_count=requested_cpus,
+        available_cpu_count=available_cpus,
+        cpu_count=effective_cpus,
+    )
+    return effective_cpus
+
+
+def _configure_torch_threads(
+    training: TrainingConfig,
+    effective_cpu_count: int,
+    diagnostic_callback: TrainingDiagnosticCallback | None,
+) -> int:
+    resolved_threads = training.torch_num_threads or effective_cpu_count
+    torch.set_num_threads(resolved_threads)
+    effective_threads = torch.get_num_threads()
+    if effective_threads > effective_cpu_count:
+        msg = "effective torch thread count exceeds the effective CPU count"
+        raise ValueError(msg)
     _emit_training_diagnostic(
         diagnostic_callback,
         "torch_threads_configured",
         requested_torch_num_threads=training.torch_num_threads,
-        torch_num_threads=torch.get_num_threads(),
+        torch_num_threads=effective_threads,
     )
+    return effective_threads
 
 
 def _train_model(  # noqa: PLR0913
@@ -427,6 +486,11 @@ def _train_model(  # noqa: PLR0913
     if training.algorithm != TrainingAlgorithm.PPO:
         msg = f"Unsupported algorithm: {training.algorithm}"
         raise ValueError(msg)
+    contract_spec = eval_spec or getattr(env, "spec", None)
+    if contract_spec is None:
+        msg = "training requires an explicit navigation contract"
+        raise ValueError(msg)
+    goal_values = contract_spec.goal_vector.values
 
     _emit_training_diagnostic(
         diagnostic_callback,
@@ -447,9 +511,30 @@ def _train_model(  # noqa: PLR0913
         batch_size=training.batch_size,
         n_epochs=training.n_epochs,
         gamma=training.gamma,
+        gae_lambda=training.gae_lambda,
         learning_rate=training.learning_rate,
+        clip_range=training.clip_range,
+        clip_range_vf=training.clip_range_vf,
+        normalize_advantage=training.normalize_advantage,
         ent_coef=training.ent_coef,
+        vf_coef=training.vf_coef,
+        max_grad_norm=training.max_grad_norm,
+        use_sde=training.use_sde,
+        sde_sample_freq=training.sde_sample_freq,
+        target_kl=training.target_kl,
+        stats_window_size=training.stats_window_size,
         seed=training.seed,
+        device=training.device.value,
+        policy_kwargs={
+            "features_extractor_kwargs": {
+                "image_observation_name": contract_spec.camera.observation_name,
+                "goal_vector_observation_name": (
+                    contract_spec.goal_vector.observation_name
+                ),
+                "goal_angle_index": goal_values.index("goal_angle_degrees"),
+                "goal_distance_index": goal_values.index("goal_distance_meters"),
+            },
+        },
     )
     _emit_training_diagnostic(
         diagnostic_callback,
@@ -497,7 +582,7 @@ def _build_training_env(
         env = ContinuousNavigationEnv(
             spec=spec,
             max_steps=training.max_steps,
-            randomize_start=True,
+            randomize_start=training.randomize_start,
         )
         _emit_training_diagnostic(
             diagnostic_callback,
@@ -508,7 +593,12 @@ def _build_training_env(
         return env
 
     env_fns = [
-        partial(_make_continuous_navigation_env, spec, training.max_steps)
+        partial(
+            _make_continuous_navigation_env,
+            spec,
+            training.max_steps,
+            randomize_start=training.randomize_start,
+        )
         for _ in range(training.n_envs)
     ]
     env = SubprocVecEnv(env_fns, start_method=SUBPROC_START_METHOD)
@@ -529,11 +619,13 @@ def _training_env_kind(training: TrainingConfig) -> str:
 def _make_continuous_navigation_env(
     spec: ContinuousNavigationSpec,
     max_steps: int,
+    *,
+    randomize_start: bool,
 ) -> ContinuousNavigationEnv:
     return ContinuousNavigationEnv(
         spec=spec,
         max_steps=max_steps,
-        randomize_start=True,
+        randomize_start=randomize_start,
     )
 
 
@@ -565,7 +657,12 @@ def run_continuous_navigation_training(  # noqa: PLR0913
         requested_torch_num_threads=training.torch_num_threads,
         timesteps=training.timesteps,
     )
-    _configure_torch_threads(training, diagnostic_callback)
+    effective_cpu_count = _configure_cpu_count(training, diagnostic_callback)
+    effective_torch_num_threads = _configure_torch_threads(
+        training,
+        effective_cpu_count,
+        diagnostic_callback,
+    )
     replay_root = (
         Path(model_output_path).parent / "replay_bundle"
         if model_output_path
@@ -587,7 +684,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
     eval_env = ContinuousNavigationEnv(
         spec=spec,
         max_steps=training.max_steps,
-        randomize_start=True,
+        randomize_start=training.randomize_start,
     )
     _emit_training_diagnostic(diagnostic_callback, "eval_env_built")
 
@@ -647,8 +744,40 @@ def run_continuous_navigation_training(  # noqa: PLR0913
             "success_rate": evaluation["success_rate"],
             "avg_reward": evaluation["avg_reward"],
             "avg_steps": evaluation["avg_steps"],
-            "training_timesteps": training.timesteps,
-            "training_seed": training.seed,
+            "training_configuration": {
+                "library": "stable-baselines3",
+                "library_version": stable_baselines3.__version__,
+                "algorithm": training.algorithm.value,
+                "device": training.device.value,
+                "timesteps": training.timesteps,
+                "seed": training.seed,
+                "max_episode_steps": training.max_steps,
+                "n_envs": training.n_envs,
+                "requested_cpu_count": training.cpu_count,
+                "cpu_count": effective_cpu_count,
+                "requested_torch_num_threads": training.torch_num_threads,
+                "torch_num_threads": effective_torch_num_threads,
+                "n_steps": training.n_steps,
+                "batch_size": training.batch_size,
+                "n_epochs": training.n_epochs,
+                "gamma": training.gamma,
+                "gae_lambda": training.gae_lambda,
+                "learning_rate": training.learning_rate,
+                "clip_range": training.clip_range,
+                "clip_range_vf": training.clip_range_vf,
+                "normalize_advantage": training.normalize_advantage,
+                "ent_coef": training.ent_coef,
+                "vf_coef": training.vf_coef,
+                "max_grad_norm": training.max_grad_norm,
+                "use_sde": training.use_sde,
+                "sde_sample_freq": training.sde_sample_freq,
+                "target_kl": training.target_kl,
+                "stats_window_size": training.stats_window_size,
+                "eval_episodes": training.eval_episodes,
+                "replay_eval_interval_steps": training.replay_eval_interval_steps,
+                "replay_train_chunk_steps": training.replay_train_chunk_steps,
+                "randomize_start": training.randomize_start,
+            },
             "replay_bundle_dir": str(replay_writer.root_dir),
             "replay_manifest": replay_manifest,
         }

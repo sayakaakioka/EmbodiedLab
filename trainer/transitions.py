@@ -23,13 +23,12 @@ class TrainerResultTransitions:
     result_repository: ResultStore
     publish_event: PublishEvent
 
-    def write(  # noqa: PLR0913
+    def write(
         self,
         *,
         expected_statuses: set[ResultStatus],
         status: ResultStatus,
         progress: Progress,
-        summary: dict[str, Any] | None = None,
         error: str | None = None,
         result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> bool:
@@ -39,7 +38,6 @@ class TrainerResultTransitions:
             expected_statuses=expected_statuses,
             status=status,
             progress=progress,
-            summary=summary,
             error=error,
             result_bundle=result_bundle,
         )
@@ -50,7 +48,6 @@ class TrainerResultTransitions:
             submission_id=self.submission_id,
             status=status,
             progress=progress,
-            summary=summary,
             error=error,
             result_bundle=result_bundle,
         )

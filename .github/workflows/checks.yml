@@ -31,7 +31,7 @@ jobs:
         run: uv run ruff check embodiedlab server trainer tests notification
 
       - name: Check Markdown
-        run: uv run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs
+        run: uv run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs rules
 
       - name: Check contract schema drift
         run: uv run python -m tools.export_contract_schemas --check

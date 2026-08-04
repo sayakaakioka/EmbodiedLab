@@ -91,6 +91,8 @@ contract の再生成と差分検査には次を使う。
 5. 完了: EmbodiedLab を正本とする schema/fixture drift test を追加する。
 6. 現在: backend producer、schema、generated DTO、SDK resource limit を
    同じ v0 contract へ厳密に揃える。
+   JSON Schema で表現できない train chunk の step 範囲と Replay path 一意性は、
+   Unity semantic validator と contract test で固定する。
 7. 第二段階: EnvForge を SDK 利用へ変更し、移行済みの重複コードを削除する。
 8. 後続: `generated` mode の schema/runtime と frontend 選択を追加する。
 

@@ -1,12 +1,16 @@
 from pathlib import Path
 
-from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import describe_runtime_conversion
+from tests.fakes import (
+    completed_artifacts,
+    resolved_training_configuration,
+    scenario_bundle,
+)
 from trainer.training_service import execute_training_run, parse_training_submission
 
 
 def test_execute_training_run_uploads_replay_bundle():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
     captured = {}
 
     def train_model(*, spec, training, model_output_path, scenario_id, job_id):
@@ -22,6 +26,7 @@ def test_execute_training_run_uploads_replay_bundle():
         }
         return {
             "score": 1.0,
+            "training_configuration": resolved_training_configuration(),
             "replay_bundle_dir": str(replay_bundle_dir),
             "replay_manifest": {"schema_version": "replay-bundle.v0"},
         }
@@ -31,20 +36,16 @@ def test_execute_training_run_uploads_replay_bundle():
         local_model_base_path,
         bucket_name,
         submission_id,
+        scenario,
         replay_bundle_dir,
     ):
+        assert scenario == inputs.scenario
         captured["upload"] = {
             "bucket_name": bucket_name,
             "submission_id": submission_id,
             "replay_bundle_dir": replay_bundle_dir,
         }
-        return {
-            "replay_bundle": {
-                "bucket": bucket_name,
-                "path": f"results/{submission_id}/replay/manifest.json",
-                "format": "json",
-            },
-        }
+        return completed_artifacts(bucket_name, submission_id)
 
     inputs = parse_training_submission(
         {"scenario": scenario.model_dump(mode="json")},
@@ -58,8 +59,6 @@ def test_execute_training_run_uploads_replay_bundle():
         upload_model=upload_model,
     )
 
-    assert "replay_bundle_dir" not in execution.summary
-    assert "replay_manifest" not in execution.summary
     assert captured["train"] == {
         "scenario_id": "scenario_demo_001",
         "job_id": "submission-1",
@@ -69,7 +68,7 @@ def test_execute_training_run_uploads_replay_bundle():
 
 
 def test_parse_training_submission_uses_continuous_runtime_spec():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
     scenario.training.n_envs = 4
     scenario.training.cpu_count = 4
     scenario.training.torch_num_threads = 1

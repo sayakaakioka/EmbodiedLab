@@ -35,6 +35,7 @@ notification = [
 dev = [
     "anyio",
     "httpx",
+    "jsonschema>=4.25,<5",
     "pymarkdownlnt>=0.9.37",
     "pytest",
     "pytest-asyncio",

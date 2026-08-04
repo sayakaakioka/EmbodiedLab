@@ -1,16 +1,16 @@
 import pytest
 from pydantic import ValidationError
 
-from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.training_converter import (
     convert_submission_to_spec,
     describe_runtime_conversion,
     parse_scenario_bundle,
 )
+from tests.fakes import scenario_bundle
 
 
 def test_parse_scenario_bundle_from_model():
-    scenario = ScenarioBundle()
+    scenario = scenario_bundle()
 
     parsed = parse_scenario_bundle(scenario)
 
@@ -18,7 +18,7 @@ def test_parse_scenario_bundle_from_model():
 
 
 def test_parse_scenario_bundle_from_firestore_document():
-    scenario = ScenarioBundle().model_dump(mode="json")
+    scenario = scenario_bundle().model_dump(mode="json")
     submission = {
         "submission_id": "submission-1",
         "created_at": "2026-04-17T00:00:00+00:00",
@@ -31,7 +31,7 @@ def test_parse_scenario_bundle_from_firestore_document():
 
 
 def test_convert_scenario_to_continuous_runtime_spec():
-    scenario = ScenarioBundle(
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -5.0, "z": -2.0},
@@ -81,7 +81,17 @@ def test_convert_scenario_to_continuous_runtime_spec():
                 "near_clip_meters": 0.1,
                 "far_clip_meters": 6.5,
             },
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 7.5,
+                "direction": "forward",
+            },
         ],
         reward={
             "components": [
@@ -91,13 +101,28 @@ def test_convert_scenario_to_continuous_runtime_spec():
                     "type": "distance_delta",
                     "target": "goal_001",
                     "weight": 0.25,
+                    "minimum_delta_meters": 0.01,
                 },
                 {"name": "collision_penalty", "type": "collision", "weight": -12.0},
                 {"name": "step_penalty", "type": "per_step", "weight": -0.2},
-                {"name": "wide_angle_penalty", "type": "per_step", "weight": -0.4},
-                {"name": "rear_angle_penalty", "type": "per_step", "weight": -7.0},
-                {"name": "inactive_penalty", "type": "per_step", "weight": -0.5},
-                {"name": "movement_threshold", "type": "per_step", "weight": 0.02},
+                {
+                    "name": "wide_angle_penalty",
+                    "type": "minimum_absolute_angle",
+                    "weight": -0.4,
+                    "minimum_absolute_angle_degrees": 80.0,
+                },
+                {
+                    "name": "rear_angle_penalty",
+                    "type": "minimum_absolute_angle",
+                    "weight": -7.0,
+                    "minimum_absolute_angle_degrees": 140.0,
+                },
+                {
+                    "name": "inactive_penalty",
+                    "type": "maximum_absolute_forward",
+                    "weight": -0.5,
+                    "maximum_absolute_forward": 0.02,
+                },
             ],
         },
     )
@@ -105,8 +130,8 @@ def test_convert_scenario_to_continuous_runtime_spec():
     conversion = describe_runtime_conversion(scenario)
     spec = convert_submission_to_spec(scenario)
 
-    assert conversion.runtime_coordinate_system == "envforge_xz_meters"
-    assert conversion.coordinate_mapping == "direct_envforge_xz_meters"
+    assert conversion.runtime_coordinate_system == "left_handed_y_up_meters"
+    assert conversion.coordinate_mapping == "direct_left_handed_y_up_meters"
     assert conversion.lossy is True
     assert "reward.components" not in conversion.omitted_contract_fields
     assert spec.bounds.min_x == -5.0
@@ -125,14 +150,17 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.camera.vertical_fov_degrees == 55.0
     assert spec.camera.near_clip_meters == 0.1
     assert spec.camera.far_clip_meters == 6.5
-    assert spec.reward_weights.goal_reached == 101.0
-    assert spec.reward_weights.goal_progress == 0.25
-    assert spec.reward_weights.collision_penalty == -12.0
-    assert spec.reward_weights.step_penalty == -0.2
-    assert spec.reward_weights.wide_angle_penalty == -0.4
-    assert spec.reward_weights.rear_angle_penalty == -7.0
-    assert spec.reward_weights.inactive_penalty == -0.5
-    assert spec.reward_weights.movement_threshold == 0.02
+    assert spec.reward_settings.goal_reached == 101.0
+    assert spec.reward_settings.goal_progress == 0.25
+    assert spec.reward_settings.goal_progress_minimum_delta_meters == 0.01
+    assert spec.reward_settings.collision_penalty == -12.0
+    assert spec.reward_settings.step_penalty == -0.2
+    assert spec.reward_settings.wide_angle_penalty == -0.4
+    assert spec.reward_settings.wide_angle_minimum_absolute_degrees == 80.0
+    assert spec.reward_settings.rear_angle_penalty == -7.0
+    assert spec.reward_settings.rear_angle_minimum_absolute_degrees == 140.0
+    assert spec.reward_settings.inactive_penalty == -0.5
+    assert spec.reward_settings.inactive_maximum_absolute_forward == 0.02
     assert [obstacle.obstacle_id for obstacle in spec.obstacles] == [
         "wall_001",
         "box_001",
@@ -142,8 +170,8 @@ def test_convert_scenario_to_continuous_runtime_spec():
     assert spec.obstacles[1].rotation_y_degrees == 45.0
 
 
-def test_camera_far_clip_uses_current_envforge_default_when_unspecified():
-    scenario = ScenarioBundle(
+def test_camera_far_clip_uses_declared_value():
+    scenario = scenario_bundle(
         world={
             "bounds": {
                 "min": {"x": -5.0, "z": -2.0},
@@ -151,8 +179,22 @@ def test_camera_far_clip_uses_current_envforge_default_when_unspecified():
             },
         },
         sensors=[
-            {"id": "front_camera", "type": "forward_camera"},
-            {"id": "front_distance", "type": "distance_sensor", "range_meters": 7.5},
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "far_clip_meters": 100.0,
+            },
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+            {
+                "id": "front_distance",
+                "type": "distance_sensor",
+                "range_meters": 7.5,
+                "direction": "forward",
+            },
         ],
     )
 

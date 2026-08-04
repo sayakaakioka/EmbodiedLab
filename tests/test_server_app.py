@@ -21,7 +21,14 @@ from server.services.jobs import (
     CancellationRequestRejectedError,
     TrainingDispatchRejectedError,
 )
-from tests.fakes import FakeResultRepository, FakeSubmissionRepository
+from tests.fakes import (
+    FakeResultRepository,
+    FakeSubmissionRepository,
+    completed_artifacts,
+    resolved_training_configuration,
+    result_document,
+    scenario_payload,
+)
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 EXECUTION_NAME = (
@@ -103,7 +110,9 @@ def test_create_submission_persists_default_payload():
     result_repository = FakeResultRepository()
     client = TestClient(build_test_app(submission_repository, result_repository))
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 200
     submission_id = response.json()["submission_id"]
@@ -141,8 +150,12 @@ def test_create_submission_replays_same_response_for_same_recovery_headers():
         ),
     )
 
-    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
-    replay = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    first = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
+    replay = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert first.status_code == 200
     assert replay.status_code == 200
@@ -160,16 +173,20 @@ def test_create_submission_rejects_recovery_key_reuse_with_different_request():
     submission_repository = FakeSubmissionRepository()
     result_repository = FakeResultRepository()
     client = TestClient(build_test_app(submission_repository, result_repository))
-    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    first = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
+    different_payload = scenario_payload()
+    different_payload["scenario_id"] = "different"
 
     different_scenario = client.post(
         "/submissions",
-        json={"scenario_id": "different"},
+        json=different_payload,
         headers=IDEMPOTENCY_HEADERS,
     )
     different_token = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers={
             **IDEMPOTENCY_HEADERS,
             "X-EmbodiedLab-Cancel-Token": "different-capability-000000000000001",
@@ -188,10 +205,14 @@ def test_create_submission_rejects_unrecoverable_existing_submission():
     submission_repository = FakeSubmissionRepository()
     result_repository = FakeResultRepository()
     client = TestClient(build_test_app(submission_repository, result_repository))
-    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    first = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
     result_repository.results.pop(first.json()["submission_id"])
 
-    replay = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    replay = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert replay.status_code == 409
     assert replay.json()["detail"] == (
@@ -208,12 +229,12 @@ def test_create_submission_requires_both_recovery_headers():
 
     only_key = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers={"Idempotency-Key": IDEMPOTENCY_KEY},
     )
     only_token = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers={"X-EmbodiedLab-Cancel-Token": CLIENT_CANCEL_TOKEN},
     )
 
@@ -230,7 +251,7 @@ def test_create_submission_rejects_short_recovery_headers():
 
     response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers={
             "Idempotency-Key": "too-short",
             "X-EmbodiedLab-Cancel-Token": "also-too-short",
@@ -285,7 +306,9 @@ def test_create_submission_queues_result_and_runs_job():
         ),
     )
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 200
     submission_id = response.json()["submission_id"]
@@ -312,7 +335,9 @@ def test_create_submission_returns_503_when_dispatch_claim_is_unavailable():
     )
     client = TestClient(build_test_app(submission_repository, result_repository))
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 503
     assert len(submission_repository.submissions) == 1
@@ -338,7 +363,9 @@ def test_create_submission_returns_job_when_dispatch_fails():
         ),
     )
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 200
     submission_id = response.json()["submission_id"]
@@ -359,10 +386,10 @@ def test_dispatch_failure_does_not_overwrite_completed_trainer_result():
     published_events = []
 
     def complete_then_reject(_config, submission_id):
-        result_repository.results[submission_id] = {
-            "submission_id": submission_id,
-            "status": "completed",
-        }
+        result_repository.results[submission_id] = result_document(
+            submission_id,
+            "completed",
+        )
         raise TrainingDispatchRejectedError
 
     client = TestClient(
@@ -374,7 +401,9 @@ def test_dispatch_failure_does_not_overwrite_completed_trainer_result():
         ),
     )
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 200
     submission_id = response.json()["submission_id"]
@@ -401,8 +430,12 @@ def test_create_submission_does_not_redispatch_ambiguous_outcome():
         ),
     )
 
-    first = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
-    replay = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    first = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
+    replay = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert first.status_code == 200
     assert replay.json() == first.json()
@@ -431,7 +464,9 @@ def test_create_submission_retries_only_execution_metadata_write():
     submission_repository.mark_dispatched = flaky_mark_dispatched
     client = TestClient(build_test_app(submission_repository, result_repository))
 
-    response = client.post("/submissions", json={}, headers=IDEMPOTENCY_HEADERS)
+    response = client.post(
+        "/submissions", json=scenario_payload(), headers=IDEMPOTENCY_HEADERS
+    )
 
     assert response.status_code == 200
     assert len(attempts) == 3
@@ -463,7 +498,7 @@ def test_cancel_running_job_persists_and_publishes_transitions():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -527,7 +562,7 @@ def test_cancel_records_cloud_acceptance_before_waiting_for_completion():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
 
@@ -558,7 +593,7 @@ def test_cancel_does_not_roll_back_progress_advanced_while_waiting():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -600,16 +635,16 @@ def test_cancel_claim_loser_returns_terminal_result_without_pending_status():
     client = TestClient(build_test_app(submission_repository, result_repository))
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
 
     def complete_before_claim(*_args, **_kwargs):
-        result_repository.results[submission_id] = {
-            "submission_id": submission_id,
-            "status": "completed",
-        }
+        result_repository.results[submission_id] = result_document(
+            submission_id,
+            "completed",
+        )
 
     submission_repository.claim_cancellation = complete_before_claim
 
@@ -640,7 +675,7 @@ def test_cancel_pending_submission_prevents_cloud_dispatch():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
 
@@ -671,7 +706,7 @@ def test_cancel_rejects_missing_or_invalid_capability_token():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -709,7 +744,7 @@ def test_cancel_returns_accepted_while_cloud_run_cancellation_is_pending():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -753,7 +788,7 @@ def test_cancel_reclaims_stale_intent_after_owner_stops_before_rpc():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -810,7 +845,7 @@ def test_cancel_retries_stale_ambiguous_request_without_restoring_result():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -867,7 +902,7 @@ def test_cancel_does_not_redispatch_after_accepted_operation_failure():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -913,7 +948,7 @@ def test_cancel_definitive_rejection_leaves_starting_result_active():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -958,7 +993,7 @@ def test_cancel_does_not_overwrite_result_completed_before_transition():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -976,10 +1011,10 @@ def test_cancel_does_not_overwrite_result_completed_before_transition():
     original_transition = result_repository.transition_status_preserving_progress
 
     def complete_before_transition(*args, **kwargs):
-        result_repository.results[submission_id] = {
-            "submission_id": submission_id,
-            "status": "completed",
-        }
+        result_repository.results[submission_id] = result_document(
+            submission_id,
+            "completed",
+        )
         return original_transition(*args, **kwargs)
 
     result_repository.transition_status_preserving_progress = complete_before_transition
@@ -1003,16 +1038,16 @@ def test_cancel_rejects_completed_job():
     client = TestClient(build_test_app(submission_repository, result_repository))
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
     cancel_token = create_response.json()["cancel_token"]
     submission_repository.mark_dispatched(submission_id, EXECUTION_NAME)
-    result_repository.results[submission_id] = {
-        "submission_id": submission_id,
-        "status": "completed",
-    }
+    result_repository.results[submission_id] = result_document(
+        submission_id,
+        "completed",
+    )
 
     response = client.post(
         f"/submissions/{submission_id}/cancel",
@@ -1037,22 +1072,18 @@ def test_cancel_is_idempotent_after_job_is_cancelled():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
     cancel_token = create_response.json()["cancel_token"]
     submission_repository.mark_dispatched(submission_id, EXECUTION_NAME)
-    result_repository.results[submission_id] = {
-        "submission_id": submission_id,
-        "status": "cancelled",
-        "progress": {
-            "phase": "cancelled",
-            "current_step": 12,
-            "total_steps": 100,
-            "message": "Training cancelled",
-        },
-    }
+    result_repository.results[submission_id] = result_document(
+        submission_id,
+        "cancelled",
+        current_step=12,
+        total_steps=100,
+    )
 
     response = client.post(
         f"/submissions/{submission_id}/cancel",
@@ -1070,10 +1101,7 @@ def test_get_result_returns_existing_result():
     submission_repository = FakeSubmissionRepository()
     result_repository = FakeResultRepository(
         initial_results={
-            "submission-1": {
-                "submission_id": "submission-1",
-                "status": "completed",
-            },
+            "submission-1": result_document("submission-1", "completed"),
         },
     )
     client = TestClient(build_test_app(submission_repository, result_repository))
@@ -1081,10 +1109,8 @@ def test_get_result_returns_existing_result():
     response = client.get("/results/submission-1")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "submission_id": "submission-1",
-        "status": "completed",
-    }
+    assert response.json()["submission_id"] == "submission-1"
+    assert response.json()["status"] == "completed"
 
 
 def test_get_result_fails_stale_ambiguous_dispatch_without_redispatching():
@@ -1107,7 +1133,7 @@ def test_get_result_fails_stale_ambiguous_dispatch_without_redispatching():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -1143,17 +1169,17 @@ def test_get_result_does_not_fail_stale_dispatch_after_trainer_progress():
     )
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
     submission_repository.submissions[submission_id]["control"][
         "dispatch_started_at"
     ] = (datetime.now(UTC) - timedelta(minutes=6)).isoformat()
-    result_repository.results[submission_id] = {
-        "submission_id": submission_id,
-        "status": "running",
-    }
+    result_repository.results[submission_id] = result_document(
+        submission_id,
+        "running",
+    )
 
     response = client.get(f"/results/{submission_id}")
 
@@ -1178,16 +1204,12 @@ def test_get_result_marks_active_result_failed_after_exact_cloud_run_failure():
     }
     result_repository = FakeResultRepository(
         initial_results={
-            "submission-1": {
-                "submission_id": "submission-1",
-                "status": "running",
-                "progress": {
-                    "phase": "running",
-                    "current_step": 12,
-                    "total_steps": 1500000,
-                    "message": "Training",
-                },
-            },
+            "submission-1": result_document(
+                "submission-1",
+                "running",
+                current_step=12,
+                total_steps=1500000,
+            ),
         },
     )
 
@@ -1236,20 +1258,17 @@ def test_execution_reconciliation_does_not_overwrite_concurrent_completion():
     )
     result_repository = FakeResultRepository(
         initial_results={
-            "submission-1": {
-                "submission_id": "submission-1",
-                "status": "running",
-            },
+            "submission-1": result_document("submission-1", "running"),
         },
     )
     published_events = []
     original_transition = result_repository.transition_status_preserving_progress
 
     def complete_before_transition(*args, **kwargs):
-        result_repository.results["submission-1"] = {
-            "submission_id": "submission-1",
-            "status": "completed",
-        }
+        result_repository.results["submission-1"] = result_document(
+            "submission-1",
+            "completed",
+        )
         return original_transition(*args, **kwargs)
 
     result_repository.transition_status_preserving_progress = complete_before_transition
@@ -1290,16 +1309,12 @@ def test_get_result_marks_cancelling_result_cancelled_after_exact_execution():
     )
     result_repository = FakeResultRepository(
         initial_results={
-            "submission-1": {
-                "submission_id": "submission-1",
-                "status": "cancelling",
-                "progress": {
-                    "phase": "cancelling",
-                    "current_step": 12,
-                    "total_steps": 100,
-                    "message": "Cancelling training",
-                },
-            },
+            "submission-1": result_document(
+                "submission-1",
+                "cancelling",
+                current_step=12,
+                total_steps=100,
+            ),
         },
     )
     published_events = []
@@ -1359,13 +1374,16 @@ def test_submission_and_result_flow_integrates_with_trainer():
             create_db=lambda db_id: object(),
             create_submission_repository=lambda db: submission_repository,
             create_result_repository=lambda db: result_repository,
-            train_model=lambda **kwargs: {"score": 1.0},
-            upload_model=lambda **kwargs: {
-                "model": {
-                    "bucket": "model-bucket",
-                    "path": f"results/{submission_id}/model/policy.zip",
-                },
+            train_model=lambda **kwargs: {
+                "score": 1.0,
+                "training_configuration": resolved_training_configuration(),
+                "replay_bundle_dir": "replay_bundle",
+                "replay_manifest": {"schema_version": "replay-bundle.v0"},
             },
+            upload_model=lambda **kwargs: completed_artifacts(
+                "model-bucket",
+                submission_id,
+            ),
             publish_event=lambda **kwargs: published_events.append(kwargs),
         )
         return EXECUTION_NAME
@@ -1380,7 +1398,7 @@ def test_submission_and_result_flow_integrates_with_trainer():
 
     create_response = client.post(
         "/submissions",
-        json={},
+        json=scenario_payload(),
         headers=IDEMPOTENCY_HEADERS,
     )
     submission_id = create_response.json()["submission_id"]
@@ -1390,20 +1408,16 @@ def test_submission_and_result_flow_integrates_with_trainer():
     assert create_response.status_code == 200
     assert result_response.status_code == 200
     assert result_response.json()["status"] == "completed"
-    summary = result_response.json()["summary"]
-    assert summary["score"] == 1.0
-    assert summary["training_timesteps"] == 5000
-    assert summary["training_seed"] == 10
+    assert "summary" not in result_response.json()
     assert result_response.json()["result_bundle"]["summary"] == {
-        "training_timesteps": 5000,
-        "training_seed": 10,
         "success_rate": None,
         "average_episode_reward": None,
         "average_episode_steps": None,
+        "configuration": resolved_training_configuration(),
     }
     assert "artifacts" not in result_response.json()
     assert (
-        result_response.json()["result_bundle"]["artifacts"]["model"]["bucket"]
+        result_response.json()["result_bundle"]["artifacts"]["onnx_model"]["bucket"]
         == "model-bucket"
     )
     assert [event["status"].value for event in published_events] == [

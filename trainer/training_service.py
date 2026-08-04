@@ -45,7 +45,6 @@ class TrainingInputs:
 class TrainingExecution:
     """Outcome of a completed training run."""
 
-    summary: dict[str, Any]
     result_bundle: ResultBundle
 
 
@@ -54,12 +53,7 @@ def parse_training_submission(
 ) -> TrainingInputs:
     """Validate a submission payload and convert it into runtime training inputs."""
     scenario = parse_scenario_bundle(submission)
-    training = TrainingConfig.model_validate(
-        {
-            **scenario.training.model_dump(mode="json"),
-            "max_steps": scenario.training.max_episode_steps,
-        },
-    )
+    training = TrainingConfig.model_validate(scenario.training.model_dump(mode="json"))
     spec = convert_submission_to_spec(scenario)
     conversion = describe_runtime_conversion(scenario)
     return TrainingInputs(
@@ -96,23 +90,16 @@ def execute_training_run(  # noqa: PLR0913
             train_kwargs["diagnostic_callback"] = diagnostic_callback
 
         summary = train_model(**train_kwargs)
-        replay_bundle_dir = summary.pop("replay_bundle_dir", None)
-        summary.pop("replay_manifest", None)
+        replay_bundle_dir = summary.pop("replay_bundle_dir")
+        summary.pop("replay_manifest")
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
             submission_id=submission_id,
+            scenario=inputs.scenario,
             replay_bundle_dir=replay_bundle_dir,
         )
 
-    summary = {
-        **summary,
-        "training_timesteps": summary.get(
-            "training_timesteps",
-            inputs.training.timesteps,
-        ),
-        "training_seed": summary.get("training_seed", inputs.training.seed),
-    }
     result_bundle = build_result_bundle(
         scenario=inputs.scenario,
         job_id=submission_id,
@@ -121,7 +108,4 @@ def execute_training_run(  # noqa: PLR0913
         artifacts=artifacts,
     )
 
-    return TrainingExecution(
-        summary=summary,
-        result_bundle=result_bundle,
-    )
+    return TrainingExecution(result_bundle=result_bundle)

@@ -35,39 +35,65 @@ class SigmoidGateLayer(nn.Module):
 
 
 class NavigationFinalFeaturesExtractor(BaseFeaturesExtractor):
-    """Extract obs_0 image and obs_1 numeric features as in Figure 2.3."""
+    """Extract the Scenario-declared image and goal-vector observations."""
 
-    def __init__(self, observation_space: spaces.Dict) -> None:
+    def __init__(
+        self,
+        observation_space: spaces.Dict,
+        *,
+        image_observation_name: str,
+        goal_vector_observation_name: str,
+        goal_angle_index: int,
+        goal_distance_index: int,
+    ) -> None:
         """Build the two-branch NavigationFinal feature extractor."""
-        super().__init__(observation_space, features_dim=258)
-        obs_1_space = observation_space.spaces["obs_1"]
-        max_distance = float(obs_1_space.high[1])
+        goal_vector_space = observation_space.spaces[goal_vector_observation_name]
+        numeric_size = int(goal_vector_space.shape[0])
+        super().__init__(observation_space, features_dim=256 + numeric_size)
+        self.image_observation_name = image_observation_name
+        self.goal_vector_observation_name = goal_vector_observation_name
+        self.goal_angle_index = goal_angle_index
+        self.goal_distance_index = goal_distance_index
+        max_distance = float(goal_vector_space.high[goal_distance_index])
         self.register_buffer(
             "max_distance",
             torch.tensor(max(max_distance, 1.0), dtype=torch.float32),
         )
-        self.image_branch = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=8, stride=4),
+        image_space = observation_space.spaces[image_observation_name]
+        image_channels = int(image_space.shape[0])
+        convolution = nn.Sequential(
+            nn.Conv2d(image_channels, 16, kernel_size=8, stride=4),
             nn.LeakyReLU(),
             nn.Conv2d(16, 32, kernel_size=4, stride=2),
             nn.LeakyReLU(),
             nn.Flatten(),
-            nn.Linear(3456, 256),
+        )
+        with torch.no_grad():
+            sample = torch.zeros((1, *image_space.shape), dtype=torch.float32)
+            flattened_size = int(convolution(sample).shape[1])
+        self.image_branch = nn.Sequential(
+            convolution,
+            nn.Linear(flattened_size, 256),
             nn.LeakyReLU(),
         )
 
     def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
         """Return concatenated image and standardized numeric features."""
-        image_features = self.image_branch(observations["obs_0"].float())
-        numeric = observations["obs_1"].float()
-        angle = numeric[:, 0:1] / 180.0
-        distance = (numeric[:, 1:2] / self.max_distance) * 2.0 - 1.0
+        image_features = self.image_branch(
+            observations[self.image_observation_name].float(),
+        )
+        numeric = observations[self.goal_vector_observation_name].float()
+        angle = numeric[:, self.goal_angle_index : self.goal_angle_index + 1] / 180.0
+        distance = (
+            numeric[:, self.goal_distance_index : self.goal_distance_index + 1]
+            / self.max_distance
+        ) * 2.0 - 1.0
         numeric_features = torch.cat([angle, distance], dim=1)
         return torch.cat([image_features, numeric_features], dim=1)
 
 
 class NavigationFinalMlpExtractor(nn.Module):
-    """Actor and critic towers with the actor layout from Figure 2.3."""
+    """Actor and critic towers for the current continuous navigation policy."""
 
     latent_dim_pi = 256
     latent_dim_vf = 256
@@ -137,7 +163,7 @@ class NavigationFinalPolicy(MultiInputActorCriticPolicy):
 
 
 def navigation_final_contract_action(raw_actions: torch.Tensor) -> torch.Tensor:
-    """Map strict raw actions to EnvForge [forward, turn] values."""
+    """Map strict raw actions to contract [forward, turn] values."""
     forward = torch.sigmoid(raw_actions[..., 0:1])
     turn = (
         torch.clamp(
@@ -163,7 +189,7 @@ def navigation_final_deterministic_action(
     policy: MultiInputActorCriticPolicy,
     observations: dict[str, torch.Tensor],
 ) -> torch.Tensor:
-    """Return EnvForge-ready deterministic [forward, turn] action values."""
+    """Return contract-ready deterministic [forward, turn] action values."""
     return navigation_final_contract_action(
         navigation_final_deterministic_raw_action(policy, observations),
     )

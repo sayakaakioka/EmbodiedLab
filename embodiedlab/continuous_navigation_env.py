@@ -22,19 +22,11 @@ if TYPE_CHECKING:
         ContinuousNavigationSpec,
     )
 
-IMAGE_OBSERVATION_CHANNELS = 3
-IMAGE_OBSERVATION_HEIGHT = 84
-IMAGE_OBSERVATION_WIDTH = 112
-NUMERIC_OBSERVATION_SIZE = 2
 ACTION_SIZE = 2
 FORWARD_ACTION_INDEX = 0
 TURN_ACTION_INDEX = 1
 MOVEMENT_COLLISION_STEP_METERS = 0.005
-MIN_GOAL_PROGRESS_METERS = MOVEMENT_COLLISION_STEP_METERS
 RAY_STEP_METERS = MOVEMENT_COLLISION_STEP_METERS
-WIDE_ANGLE_DEGREES = 90.0
-REAR_ANGLE_DEGREES = 150.0
-BOUNDARY_WALL_THICKNESS_METERS = 0.02
 RAY_EPSILON = 1e-6
 
 
@@ -50,6 +42,7 @@ class CameraBox:
     rotation_cos: float = 1.0
     rotation_sin: float = 0.0
 
+
 MAX_RANDOM_START_ATTEMPTS = 256
 RANDOM_START_CLEARANCE_RADIUS_METERS = 0.65
 RANDOM_START_CLEARANCE_PROBE_COUNT = 16
@@ -57,7 +50,7 @@ RANDOM_START_BOUNDARY_INSET_METERS = 1.35
 
 
 class ContinuousNavigationEnv(gym.Env):
-    """Continuous x/z navigation runtime for EnvForge scenario bundles."""
+    """Continuous x/z navigation runtime for scenario bundles."""
 
     metadata: ClassVar[dict] = {"render_modes": []}
 
@@ -91,20 +84,20 @@ class ContinuousNavigationEnv(gym.Env):
         )
         self.observation_space = spaces.Dict(
             {
-                "obs_0": spaces.Box(
+                spec.camera.observation_name: spaces.Box(
                     low=0.0,
                     high=1.0,
                     shape=(
-                        IMAGE_OBSERVATION_CHANNELS,
-                        IMAGE_OBSERVATION_HEIGHT,
-                        IMAGE_OBSERVATION_WIDTH,
+                        len(spec.camera.channel_layout),
+                        spec.camera.height,
+                        spec.camera.width,
                     ),
                     dtype=np.float32,
                 ),
-                "obs_1": spaces.Box(
+                spec.goal_vector.observation_name: spaces.Box(
                     low=np.array([-180.0, 0.0], dtype=np.float32),
                     high=np.array([180.0, max_goal_distance], dtype=np.float32),
-                    shape=(NUMERIC_OBSERVATION_SIZE,),
+                    shape=(len(spec.goal_vector.values),),
                     dtype=np.float32,
                 ),
             },
@@ -159,9 +152,7 @@ class ContinuousNavigationEnv(gym.Env):
             self.action_space.low,
             self.action_space.high,
         ).astype(np.float32)
-        applied_forward = 1.0 / (
-            1.0 + np.exp(-float(raw_action[FORWARD_ACTION_INDEX]))
-        )
+        applied_forward = 1.0 / (1.0 + np.exp(-float(raw_action[FORWARD_ACTION_INDEX])))
         applied_turn = float(raw_action[TURN_ACTION_INDEX]) / POLICY_TURN_ACTION_HIGH
         applied_action = np.array(
             [applied_forward, applied_turn],
@@ -238,6 +229,9 @@ class ContinuousNavigationEnv(gym.Env):
 
     def _ray_hits(self, ray_degrees: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         max_range = self.spec.distance_sensor_range_meters
+        if max_range is None:
+            msg = "distance sensor range is unavailable"
+            raise RuntimeError(msg)
         sample_count = max(1, ceil(max_range / RAY_STEP_METERS))
         distances = np.minimum(
             np.arange(1, sample_count + 1, dtype=np.float32) * RAY_STEP_METERS,
@@ -261,8 +255,8 @@ class ContinuousNavigationEnv(gym.Env):
 
     def _get_obs(self) -> dict[str, np.ndarray]:
         return {
-            "obs_0": self._render_segmentation_observation(),
-            "obs_1": np.array(
+            self.spec.camera.observation_name: self._render_segmentation_observation(),
+            self.spec.goal_vector.observation_name: np.array(
                 [
                     self._signed_angle_to_goal_degrees(),
                     self._distance_to_goal(),
@@ -274,9 +268,9 @@ class ContinuousNavigationEnv(gym.Env):
     def _render_segmentation_observation(self) -> np.ndarray:
         image = np.zeros(
             (
-                IMAGE_OBSERVATION_CHANNELS,
-                IMAGE_OBSERVATION_HEIGHT,
-                IMAGE_OBSERVATION_WIDTH,
+                len(self.spec.camera.channel_layout),
+                self.spec.camera.height,
+                self.spec.camera.width,
             ),
             dtype=np.float32,
         )
@@ -292,34 +286,28 @@ class ContinuousNavigationEnv(gym.Env):
         )
         background_mask = ~(floor_mask | blocked_mask)
 
-        image[1, floor_mask] = 1.0
-        image[2, blocked_mask | background_mask] = 1.0
+        traversable_index = self.spec.camera.channel_layout.index(
+            "channel_1_traversable",
+        )
+        blocked_index = self.spec.camera.channel_layout.index(
+            "channel_2_blocked_or_background",
+        )
+        image[traversable_index, floor_mask] = 1.0
+        image[blocked_index, blocked_mask | background_mask] = 1.0
         return image
 
     def _build_camera_ray_directions(self) -> np.ndarray:
         camera = self.spec.camera
-        if (
-            camera.width != IMAGE_OBSERVATION_WIDTH
-            or camera.height != IMAGE_OBSERVATION_HEIGHT
-        ):
-            msg = "camera dimensions must match the policy observation shape"
-            raise ValueError(msg)
-
         vertical_fov_radians = radians(camera.vertical_fov_degrees)
-        aspect = IMAGE_OBSERVATION_WIDTH / IMAGE_OBSERVATION_HEIGHT
+        aspect = camera.width / camera.height
         half_height = tan(vertical_fov_radians / 2.0)
         half_width = half_height * aspect
         x = (
-            (np.arange(IMAGE_OBSERVATION_WIDTH, dtype=np.float32) + 0.5)
-            / IMAGE_OBSERVATION_WIDTH
-            * 2.0
-            - 1.0
+            (np.arange(camera.width, dtype=np.float32) + 0.5) / camera.width * 2.0 - 1.0
         ) * half_width
         y = (
             1.0
-            - (np.arange(IMAGE_OBSERVATION_HEIGHT, dtype=np.float32) + 0.5)
-            / IMAGE_OBSERVATION_HEIGHT
-            * 2.0
+            - (np.arange(camera.height, dtype=np.float32) + 0.5) / camera.height * 2.0
         ) * half_height
         ray_x, ray_y = np.meshgrid(x, y)
         ray_z = np.ones_like(ray_x, dtype=np.float32)
@@ -360,9 +348,8 @@ class ContinuousNavigationEnv(gym.Env):
         distances = np.full(dy.shape, np.inf, dtype=np.float32)
         downward = dy < -RAY_EPSILON
         floor_distances = -self._camera_mount_height_meters / dy[downward]
-        valid = (
-            (floor_distances >= camera.near_clip_meters)
-            & (floor_distances <= camera.far_clip_meters)
+        valid = (floor_distances >= camera.near_clip_meters) & (
+            floor_distances <= camera.far_clip_meters
         )
         downward_indices = np.nonzero(downward)
         distances[downward_indices[0][valid], downward_indices[1][valid]] = (
@@ -373,7 +360,7 @@ class ContinuousNavigationEnv(gym.Env):
     def _blocked_intersection_distances(self, directions: np.ndarray) -> np.ndarray:
         camera = self.spec.camera
         distances = np.full(
-            (IMAGE_OBSERVATION_HEIGHT, IMAGE_OBSERVATION_WIDTH),
+            (camera.height, camera.width),
             np.inf,
             dtype=np.float32,
         )
@@ -392,16 +379,8 @@ class ContinuousNavigationEnv(gym.Env):
             )
             distances = np.minimum(distances, obstacle_distances)
 
-        for boundary in self._boundary_boxes():
-            boundary_distances = self._box_intersection_distances(
-                directions,
-                boundary,
-            )
-            distances = np.minimum(distances, boundary_distances)
-
         distances[
-            (distances < camera.near_clip_meters)
-            | (distances > camera.far_clip_meters)
+            (distances < camera.near_clip_meters) | (distances > camera.far_clip_meters)
         ] = np.inf
         return distances
 
@@ -417,12 +396,10 @@ class ContinuousNavigationEnv(gym.Env):
         local_origin_x = origin_x * rotation_cos - origin_z * rotation_sin
         local_origin_z = origin_x * rotation_sin + origin_z * rotation_cos
         local_direction_x = (
-            directions[:, :, 0] * rotation_cos
-            - directions[:, :, 2] * rotation_sin
+            directions[:, :, 0] * rotation_cos - directions[:, :, 2] * rotation_sin
         )
         local_direction_z = (
-            directions[:, :, 0] * rotation_sin
-            + directions[:, :, 2] * rotation_cos
+            directions[:, :, 0] * rotation_sin + directions[:, :, 2] * rotation_cos
         )
 
         t_min_x, t_max_x, valid_x = self._axis_intersection_interval(
@@ -471,44 +448,6 @@ class ContinuousNavigationEnv(gym.Env):
         t_min[parallel] = -np.inf
         t_max[parallel] = np.inf
         return t_min, t_max, valid
-
-    def _boundary_boxes(self) -> tuple[CameraBox, ...]:
-        bounds = self.spec.bounds
-        span_x = bounds.max_x - bounds.min_x
-        span_z = bounds.max_z - bounds.min_z
-        center_x = (bounds.min_x + bounds.max_x) / 2.0
-        center_z = (bounds.min_z + bounds.max_z) / 2.0
-        height = max([2.0, *(float(value) for value in self._obstacle_height)])
-        return (
-            CameraBox(
-                center_x=bounds.min_x,
-                center_z=center_z,
-                half_x=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
-                half_z=span_z / 2.0,
-                height=height,
-            ),
-            CameraBox(
-                center_x=bounds.max_x,
-                center_z=center_z,
-                half_x=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
-                half_z=span_z / 2.0,
-                height=height,
-            ),
-            CameraBox(
-                center_x=center_x,
-                center_z=bounds.min_z,
-                half_x=span_x / 2.0,
-                half_z=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
-                height=height,
-            ),
-            CameraBox(
-                center_x=center_x,
-                center_z=bounds.max_z,
-                half_x=span_x / 2.0,
-                half_z=BOUNDARY_WALL_THICKNESS_METERS / 2.0,
-                height=height,
-            ),
-        )
 
     def _valid_random_start_position(self, position: np.ndarray) -> bool:
         return (
@@ -642,7 +581,6 @@ class ContinuousNavigationEnv(gym.Env):
             "distance_delta": distance_delta,
             "collision": collision_id is not None,
             "collision_id": collision_id,
-            "front_distance": self._front_distance(),
             "camera_mount_height_meters": self._camera_mount_height_meters,
             "robot_x": float(self.robot_pos[0]),
             "robot_z": float(self.robot_pos[1]),
@@ -650,6 +588,8 @@ class ContinuousNavigationEnv(gym.Env):
             "goal_angle_degrees": self._signed_angle_to_goal_degrees(),
             "reward_components": reward_components or [],
         }
+        if self.spec.distance_sensor_id is not None:
+            info["front_distance"] = self._front_distance()
         if raw_action is not None and applied_action is not None:
             info.update(
                 {
@@ -669,36 +609,45 @@ class ContinuousNavigationEnv(gym.Env):
         collision_id: str | None,
         goal_reached: bool,
     ) -> list[dict[str, float | str]]:
-        weights = self.spec.reward_weights
+        settings = self.spec.reward_settings
         components: list[dict[str, float | str]] = [
-            {"name": "step_penalty", "value": weights.step_penalty},
+            {"name": "step_penalty", "value": settings.step_penalty},
         ]
-        if distance_delta >= MIN_GOAL_PROGRESS_METERS:
+        if distance_delta >= settings.goal_progress_minimum_delta_meters:
             components.append(
-                {"name": "goal_progress", "value": weights.goal_progress},
+                {"name": "goal_progress", "value": settings.goal_progress},
             )
 
         signed_angle_to_goal = self._signed_angle_to_goal_degrees()
-        if abs(signed_angle_to_goal) > REAR_ANGLE_DEGREES:
+        if abs(signed_angle_to_goal) >= settings.rear_angle_minimum_absolute_degrees:
             components.append(
-                {"name": "rear_angle_penalty", "value": weights.rear_angle_penalty},
+                {
+                    "name": "rear_angle_penalty",
+                    "value": settings.rear_angle_penalty,
+                },
             )
-        elif abs(signed_angle_to_goal) > WIDE_ANGLE_DEGREES:
+        elif abs(signed_angle_to_goal) >= settings.wide_angle_minimum_absolute_degrees:
             components.append(
-                {"name": "wide_angle_penalty", "value": weights.wide_angle_penalty},
+                {
+                    "name": "wide_angle_penalty",
+                    "value": settings.wide_angle_penalty,
+                },
             )
 
-        if abs(applied_forward) <= weights.movement_threshold:
+        if abs(applied_forward) <= settings.inactive_maximum_absolute_forward:
             components.append(
-                {"name": "inactive_penalty", "value": weights.inactive_penalty},
+                {"name": "inactive_penalty", "value": settings.inactive_penalty},
             )
         if collision_id is not None:
             components.append(
-                {"name": "collision_penalty", "value": weights.collision_penalty},
+                {
+                    "name": "collision_penalty",
+                    "value": settings.collision_penalty,
+                },
             )
         if goal_reached:
             components.append(
-                {"name": "goal_reached", "value": weights.goal_reached},
+                {"name": "goal_reached", "value": settings.goal_reached},
             )
         return components
 

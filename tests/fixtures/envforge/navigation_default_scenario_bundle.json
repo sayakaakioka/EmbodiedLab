@@ -6,12 +6,11 @@
     "version": "0.1.0"
   },
   "compatibility": {
-    "envforge_min_version": "0.1.0",
     "robot_version": "simple_robot.v1",
     "sensor_version": "basic_sensors.v0"
   },
   "world": {
-    "coordinate_system": "envforge_xz_meters",
+    "coordinate_system": "left_handed_y_up_meters",
     "bounds": {
       "min": {
         "x": -8.0,
@@ -158,7 +157,10 @@
       "layout": [
         "forward",
         "turn"
-      ]
+      ],
+      "forward_step_meters": 0.2,
+      "turn_degrees_per_step": 15.0,
+      "step_duration_seconds": 0.1
     }
   },
   "sensors": [
@@ -174,13 +176,18 @@
       "pitch_degrees": 0.0,
       "vertical_fov_degrees": 70.0,
       "near_clip_meters": 0.05,
-      "far_clip_meters": 100.0
+      "far_clip_meters": 100.0,
+      "observation_name": "obs_0"
     },
     {
-      "id": "front_distance",
-      "type": "distance_sensor",
-      "range_meters": 5.0,
-      "direction": "forward"
+      "id": "goal_vector",
+      "type": "goal_vector",
+      "target": "goal_001",
+      "observation_name": "obs_1",
+      "values": [
+        "goal_angle_degrees",
+        "goal_distance_meters"
+      ]
     }
   ],
   "reward": {
@@ -194,7 +201,8 @@
         "name": "goal_progress",
         "type": "distance_delta",
         "target": "goal_001",
-        "weight": 0.5
+        "weight": 0.5,
+        "minimum_delta_meters": 0.005
       },
       {
         "name": "collision_penalty",
@@ -208,28 +216,27 @@
       },
       {
         "name": "wide_angle_penalty",
-        "type": "per_step",
-        "weight": -0.1
+        "type": "minimum_absolute_angle",
+        "weight": -0.1,
+        "minimum_absolute_angle_degrees": 90.0
       },
       {
         "name": "rear_angle_penalty",
-        "type": "per_step",
-        "weight": -5.0
+        "type": "minimum_absolute_angle",
+        "weight": -5.0,
+        "minimum_absolute_angle_degrees": 150.0
       },
       {
         "name": "inactive_penalty",
-        "type": "per_step",
-        "weight": -0.1
-      },
-      {
-        "name": "movement_threshold",
-        "type": "per_step",
-        "weight": 0.001
+        "type": "maximum_absolute_forward",
+        "weight": -0.1,
+        "maximum_absolute_forward": 0.001
       }
     ]
   },
   "training": {
     "algorithm": "ppo",
+    "device": "cpu",
     "timesteps": 5000,
     "seed": 10,
     "max_episode_steps": 1000,
@@ -240,8 +247,21 @@
     "batch_size": 32,
     "n_epochs": 3,
     "gamma": 0.99,
+    "gae_lambda": 0.95,
     "learning_rate": 0.0003,
+    "clip_range": 0.2,
+    "clip_range_vf": null,
+    "normalize_advantage": true,
     "ent_coef": 0.0,
-    "eval_episodes": 20
+    "vf_coef": 0.5,
+    "max_grad_norm": 0.5,
+    "use_sde": false,
+    "sde_sample_freq": -1,
+    "target_kl": null,
+    "stats_window_size": 100,
+    "eval_episodes": 20,
+    "replay_eval_interval_steps": 1000000,
+    "replay_train_chunk_steps": 10000,
+    "randomize_start": true
   }
 }

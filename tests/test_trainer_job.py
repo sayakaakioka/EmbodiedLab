@@ -3,8 +3,13 @@ from dataclasses import replace
 import pytest
 
 from embodiedlab.result_models import build_queued_result_document
-from embodiedlab.schemas import ScenarioBundle
-from tests.fakes import FakeResultRepository, FakeSubmissionRepository
+from tests.fakes import (
+    FakeResultRepository,
+    FakeSubmissionRepository,
+    completed_artifacts,
+    resolved_training_configuration,
+    scenario_bundle,
+)
 from trainer.config import TrainerConfig
 from trainer.job import run_training_job
 
@@ -19,6 +24,15 @@ _CONFIG = TrainerConfig(
 _NO_PUBLISH = lambda **kwargs: None  # noqa: E731
 
 
+def _training_summary():
+    return {
+        "score": 1.0,
+        "training_configuration": resolved_training_configuration(),
+        "replay_bundle_dir": "replay_bundle",
+        "replay_manifest": {"schema_version": "replay-bundle.v0"},
+    }
+
+
 def _queued_result_repository() -> FakeResultRepository:
     return FakeResultRepository(
         initial_results={
@@ -31,7 +45,7 @@ def _queued_result_repository() -> FakeResultRepository:
 
 
 def test_run_training_job_updates_result_to_completed():
-    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission = {"scenario": scenario_bundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
@@ -51,7 +65,7 @@ def test_run_training_job_updates_result_to_completed():
         assert progress_callback is not None
         calls.append(("train", spec, training, model_output_path, scenario_id, job_id))
         return {
-            "score": 1.0,
+            **_training_summary(),
             "replay_bundle_dir": str(model_output_path) + "_replay",
         }
 
@@ -60,8 +74,10 @@ def test_run_training_job_updates_result_to_completed():
         local_model_base_path,
         bucket_name,
         submission_id,
+        scenario,
         replay_bundle_dir=None,
     ):
+        assert scenario == scenario_bundle()
         calls.append(
             (
                 "upload",
@@ -71,56 +87,7 @@ def test_run_training_job_updates_result_to_completed():
                 replay_bundle_dir,
             ),
         )
-        return {
-            "model": {
-                "bucket": bucket_name,
-                "path": f"results/{submission_id}/model/policy.zip",
-            },
-            "onnx_model": {
-                "bucket": bucket_name,
-                "path": f"results/{submission_id}/model/policy.onnx",
-                "target": "onnx-runtime",
-                "opset_version": 17,
-                "inputs": [
-                    {
-                        "name": "obs_0",
-                        "shape": [-1, 3, 84, 112],
-                        "dtype": "float32",
-                    },
-                    {
-                        "name": "obs_1",
-                        "shape": [-1, 2],
-                        "dtype": "float32",
-                    },
-                ],
-                "output": {
-                    "name": "action",
-                    "layout": ["forward", "turn"],
-                },
-            },
-            "sentis_model": {
-                "bucket": bucket_name,
-                "path": f"results/{submission_id}/model/policy.sentis.onnx",
-                "target": "unity-sentis",
-                "opset_version": 15,
-                "inputs": [
-                    {
-                        "name": "observation",
-                        "shape": [1, 28226],
-                        "dtype": "float32",
-                    },
-                ],
-                "output": {
-                    "name": "action",
-                    "layout": ["forward", "turn"],
-                },
-            },
-            "replay_bundle": {
-                "bucket": bucket_name,
-                "path": f"results/{submission_id}/replay/manifest.json",
-                "format": "json",
-            },
-        }
+        return completed_artifacts(bucket_name, submission_id)
 
     run_training_job(
         _CONFIG,
@@ -135,26 +102,18 @@ def test_run_training_job_updates_result_to_completed():
     payloads = result_repository.payloads_for("submission-1")
     statuses = [payload["data"]["status"] for payload in payloads]
     assert statuses == ["starting", "running", "completed"]
-    assert payloads[-1]["data"]["summary"] == {
-        "score": 1.0,
-        "training_timesteps": 5000,
-        "training_seed": 10,
-    }
+    assert "summary" not in payloads[-1]["data"]
     assert "artifacts" not in payloads[-1]["data"]
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
     )
     assert payloads[-1]["data"]["result_bundle"]["summary"] == {
-        "training_timesteps": 5000,
-        "training_seed": 10,
         "success_rate": None,
         "average_episode_reward": None,
         "average_episode_steps": None,
+        "configuration": resolved_training_configuration(),
     }
-    assert (
-        payloads[-1]["data"]["result_bundle"]["artifacts"]["model"]["path"]
-        == "results/submission-1/model/policy.onnx"
-    )
+    assert "model" not in payloads[-1]["data"]["result_bundle"]["artifacts"]
     assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["onnx_model"]["path"]
         == "results/submission-1/model/policy.onnx"
@@ -174,7 +133,7 @@ def test_run_training_job_updates_result_to_completed():
 
 
 def test_run_training_job_writes_training_progress_updates():
-    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission = {"scenario": scenario_bundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
@@ -193,7 +152,7 @@ def test_run_training_job_writes_training_progress_updates():
     ):
         progress_callback(10000, training.timesteps)
         progress_callback(20000, training.timesteps)
-        return {"score": 1.0}
+        return _training_summary()
 
     run_training_job(
         _CONFIG,
@@ -201,7 +160,10 @@ def test_run_training_job_writes_training_progress_updates():
         create_submission_repository=lambda db: submission_repository,
         create_result_repository=lambda db: result_repository,
         train_model=train_model,
-        upload_model=lambda **kwargs: {},
+        upload_model=lambda **kwargs: completed_artifacts(
+            kwargs["bucket_name"],
+            kwargs["submission_id"],
+        ),
         publish_event=lambda **kwargs: published_events.append(kwargs),
     )
 
@@ -238,7 +200,7 @@ def test_run_training_job_marks_missing_submission_failed():
 
 
 def test_run_training_job_marks_invalid_submission_failed():
-    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission = {"scenario": scenario_bundle().model_dump(mode="json")}
     submission["scenario"]["training"]["timesteps"] = 0
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
@@ -263,7 +225,7 @@ def test_run_training_job_marks_invalid_submission_failed():
 
 
 def test_run_training_job_writes_failed_result_bundle_after_runtime_failure():
-    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission = {"scenario": scenario_bundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
@@ -297,7 +259,7 @@ def test_run_training_job_does_not_revive_closed_dispatch():
         "executions/test-trainer-abcde"
     )
     submission = {
-        "scenario": ScenarioBundle().model_dump(mode="json"),
+        "scenario": scenario_bundle().model_dump(mode="json"),
         "control": {
             "cancel_token_hash": "a" * 64,
             "dispatch_state": "failed",
@@ -340,7 +302,7 @@ def test_run_training_job_recovers_ambiguous_execution_before_training():
         "executions/test-trainer-abcde"
     )
     submission = {
-        "scenario": ScenarioBundle().model_dump(mode="json"),
+        "scenario": scenario_bundle().model_dump(mode="json"),
         "control": {
             "cancel_token_hash": "a" * 64,
             "dispatch_state": "ambiguous",
@@ -358,8 +320,11 @@ def test_run_training_job_recovers_ambiguous_execution_before_training():
         create_db=lambda db_id: object(),
         create_submission_repository=lambda db: submission_repository,
         create_result_repository=lambda db: result_repository,
-        train_model=lambda **kwargs: {"score": 1.0},
-        upload_model=lambda **kwargs: {},
+        train_model=lambda **kwargs: _training_summary(),
+        upload_model=lambda **kwargs: completed_artifacts(
+            kwargs["bucket_name"],
+            kwargs["submission_id"],
+        ),
         publish_event=_NO_PUBLISH,
     )
 
@@ -370,7 +335,7 @@ def test_run_training_job_recovers_ambiguous_execution_before_training():
 
 
 def test_run_training_job_preserves_completion_while_cancellation_is_pending():
-    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission = {"scenario": scenario_bundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
@@ -394,8 +359,11 @@ def test_run_training_job_preserves_completion_while_cancellation_is_pending():
         create_db=lambda db_id: object(),
         create_submission_repository=lambda db: submission_repository,
         create_result_repository=lambda db: result_repository,
-        train_model=lambda **kwargs: {"score": 1.0},
-        upload_model=lambda **kwargs: {},
+        train_model=lambda **kwargs: _training_summary(),
+        upload_model=lambda **kwargs: completed_artifacts(
+            kwargs["bucket_name"],
+            kwargs["submission_id"],
+        ),
         publish_event=_NO_PUBLISH,
     )
 

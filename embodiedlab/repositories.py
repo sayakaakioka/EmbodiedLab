@@ -139,7 +139,6 @@ class ResultTransitionWriter(Protocol):
         expected_statuses: set[ResultStatus],
         status: ResultStatus,
         progress: Progress,
-        summary: dict[str, Any] | None = None,
         error: str | None = None,
         result_bundle: dict[str, Any] | ResultBundle | None = None,
     ) -> dict[str, Any] | None:

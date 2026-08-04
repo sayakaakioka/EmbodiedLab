@@ -1,10 +1,16 @@
 # EmbodiedLab
 
-EmbodiedLab is an experimental platform for embodied AI research. The current
-prototype accepts EnvForge Scenario Bundle submissions through a Cloud Run API,
-starts a Cloud Run Job to train a reinforcement learning policy, stores ONNX,
-Sentis, and Replay Bundle artifacts in GCS, and streams status updates to
-clients over WebSockets.
+EmbodiedLab is the cloud training backend and wire-contract source of truth for
+the EmbodiedLab ecosystem. It owns the versioned Scenario Bundle, Result Bundle,
+and Replay Bundle schemas. The separate EmbodiedLab.Unity package provides Unity
+DTOs, transport, artifact validation, replay, and inference APIs over those
+contracts. EnvForge remains responsible for authoring scenarios and presenting
+results through that SDK.
+
+The current prototype accepts complete Scenario Bundle submissions through a
+Cloud Run API, starts a Cloud Run Job to train a reinforcement learning policy,
+stores ONNX, Sentis-oriented ONNX, and Replay Bundle artifacts in GCS, and streams
+status updates to clients over WebSockets.
 
 The project is intentionally small right now: it focuses on a minimal
 end-to-end loop from environment definition to training, artifact storage, and
@@ -177,16 +183,22 @@ Result documents include:
 - `status`: `queued`, `starting`, `running`, `cancelling`, `cancelled`,
   `completed`, or `failed`
 - `progress`: phase, current step, total steps, and message
-- `summary`: training and evaluation summary when completed
-- `result_bundle`: typed summary, artifact locations, compatibility metadata,
+- `result_bundle`: the sole typed training summary, artifact locations,
+  compatibility metadata,
   and structured failure details
 - `error`: failure detail when failed
 
+A `completed` result always contains a non-null `result_bundle`. A `failed`
+result always contains a non-empty top-level `error`; it also contains a failed
+`result_bundle` when the trainer had a validated Scenario Bundle from which it
+could build compatibility and configuration metadata. Earlier submission or
+scenario failures leave `result_bundle` as `null`.
+
 Canonical artifacts exist only under `result_bundle.artifacts`:
 
-- `onnx_model`: opset 17 model with `obs_0` and `obs_1` inputs
+- `onnx_model`: opset 17 model whose input names and shapes come from the
+  submitted Scenario Bundle
 - `sentis_model`: opset 15 model with one fixed-length observation input
-- `model`: compatibility alias for `policy.onnx`
 - `replay_bundle`: manifest location for gzip JSONL train and evaluation chunks
 
 See the complete canonical result at
