@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 RESULT_SCHEMA_VERSION = "result-bundle.v0"
 REPLAY_LOG_SCHEMA_VERSION = "replay-log.v0"
 REPLAY_BUNDLE_SCHEMA_VERSION = "replay-bundle.v0"
+MAX_REPLAY_BUNDLE_CHUNKS = 4_096
+MAX_REPLAY_CHUNK_PATH_LENGTH = 1_024
+MAX_REPLAY_CHUNK_STEPS = 100_000
 
 
 class ResultStatus(StrEnum):
@@ -75,10 +78,10 @@ class ModelOutput(BaseModel):
 class ModelArtifactLocation(ArtifactLocation):
     """Model artifact location with Unity compatibility metadata."""
 
-    target: str | None = None
-    opset_version: int | None = None
-    input: ModelInput | None = None
-    output: ModelOutput | None = None
+    target: str = Field(min_length=1)
+    opset_version: int = Field(ge=1)
+    inputs: list[ModelInput] = Field(min_length=1)
+    output: ModelOutput
 
 
 class ResultCompatibility(BaseModel):
@@ -90,10 +93,7 @@ class ResultCompatibility(BaseModel):
     sensor_version: str = Field(default="basic_sensors.v0", min_length=1)
     action_layout: list[str] = Field(default_factory=lambda: ["forward", "turn"])
     observation_layout: list[str] = Field(
-        default_factory=lambda: [
-            "front_camera_semantic",
-            "front_distance",
-        ],
+        default_factory=lambda: ["obs_0", "obs_1"],
     )
 
 
@@ -111,7 +111,7 @@ class ResultArtifacts(BaseModel):
     """Artifacts produced by a training run."""
 
     model: ArtifactLocation | None = None
-    onnx_model: ArtifactLocation | None = None
+    onnx_model: ModelArtifactLocation | None = None
     sentis_model: ModelArtifactLocation | None = None
     replay_bundle: ArtifactLocation | None = None
 
@@ -218,9 +218,9 @@ class ReplayBundleChunk(BaseModel):
     checkpoint_step: int = Field(ge=0)
     start_step: int | None = Field(default=None, ge=0)
     end_step: int | None = Field(default=None, ge=0)
-    path: str = Field(min_length=1)
+    path: str = Field(min_length=1, max_length=MAX_REPLAY_CHUNK_PATH_LENGTH)
     format: Literal["jsonl.gz"]
-    step_count: int = Field(ge=0)
+    step_count: int = Field(ge=0, le=MAX_REPLAY_CHUNK_STEPS)
     episode_count: int | None = Field(default=None, ge=0)
     success_rate: float | None = Field(default=None, ge=0.0, le=1.0)
     avg_reward: float | None = None
@@ -234,7 +234,10 @@ class ReplayBundleManifest(BaseModel):
     job_id: str = Field(min_length=1)
     scenario_id: str = Field(min_length=1)
     total_timesteps: int = Field(ge=0)
-    chunks: list[ReplayBundleChunk] = Field(default_factory=list)
+    chunks: list[ReplayBundleChunk] = Field(
+        default_factory=list,
+        max_length=MAX_REPLAY_BUNDLE_CHUNKS,
+    )
 
 
 def utc_now_iso() -> str:
@@ -320,23 +323,22 @@ def _model_artifact_from_payload(
         bucket=payload["bucket"],
         path=payload["path"],
         format=payload.get("format", default_format),
-        target=payload.get("target"),
-        opset_version=payload.get("opset_version"),
-        input=payload.get("input"),
-        output=payload.get("output"),
+        target=payload["target"],
+        opset_version=payload["opset_version"],
+        inputs=payload["inputs"],
+        output=payload["output"],
     )
 
 
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     """Build EnvForge compatibility metadata from the submitted scenario."""
-    sensor_layout = [sensor.id for sensor in scenario.sensors]
     return ResultCompatibility(
         scenario_schema_version=scenario.schema_version,
         envforge_min_version=scenario.compatibility.envforge_min_version,
         robot_version=scenario.compatibility.robot_version,
         sensor_version=scenario.compatibility.sensor_version,
         action_layout=list(scenario.robot.action_space.layout),
-        observation_layout=sensor_layout,
+        observation_layout=["obs_0", "obs_1"],
     )
 
 
@@ -386,7 +388,7 @@ def build_result_bundle(  # noqa: PLR0913
                 model_payload,
                 default_format=model_format,
             ),
-            onnx_model=_artifact_from_payload(
+            onnx_model=_model_artifact_from_payload(
                 artifacts.get("onnx_model"),
                 default_format=ArtifactFormat.ONNX,
             ),

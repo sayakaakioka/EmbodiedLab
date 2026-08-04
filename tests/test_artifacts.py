@@ -177,6 +177,38 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             "storage": "gcs",
             "bucket": "model-bucket",
             "path": "results/submission-1/model/policy.onnx",
+            "format": "onnx",
+            "target": "onnx-runtime",
+            "opset_version": 17,
+            "inputs": [
+                {
+                    "name": "obs_0",
+                    "shape": [-1, 3, 84, 112],
+                    "dtype": "float32",
+                    "layout": [
+                        "channel_0_unused",
+                        "channel_1_traversable",
+                        "channel_2_blocked_or_background",
+                    ],
+                },
+                {
+                    "name": "obs_1",
+                    "shape": [-1, 2],
+                    "dtype": "float32",
+                    "layout": [
+                        "goal_angle_degrees",
+                        "goal_distance_meters",
+                    ],
+                },
+            ],
+            "output": {
+                "name": "action",
+                "layout": ["forward", "turn"],
+                "action_mapping": {
+                    "forward": "sigmoid(policy_forward)",
+                    "turn": "clip(policy_turn, -3, 3) / 3",
+                },
+            },
         },
         "sentis_model": {
             "storage": "gcs",
@@ -185,16 +217,18 @@ def test_upload_model_to_gcs_uploads_zip_onnx_and_sentis(monkeypatch):
             "format": "onnx",
             "target": "unity-sentis",
             "opset_version": 15,
-            "input": {
-                "name": "observation",
-                "shape": [1, SENTIS_OBSERVATION_SIZE],
-                "dtype": "float32",
-                "layout": [
-                    "obs_0_chw_3x84x112",
-                    "obs_1_angle_degrees",
-                    "obs_1_distance_meters",
-                ],
-            },
+            "inputs": [
+                {
+                    "name": "observation",
+                    "shape": [1, SENTIS_OBSERVATION_SIZE],
+                    "dtype": "float32",
+                    "layout": [
+                        "obs_0_chw_3x84x112",
+                        "obs_1_angle_degrees",
+                        "obs_1_distance_meters",
+                    ],
+                },
+            ],
             "output": {
                 "name": "action",
                 "layout": ["forward", "turn"],

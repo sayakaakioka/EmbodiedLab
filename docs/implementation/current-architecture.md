@@ -98,19 +98,25 @@ observation は `obs_0` の semantic camera
 trainer job が完了すると、以下の成果物をアップロードする。
 
     results/<submission_id>/
-      policy.zip
-      policy.onnx
-      policy.sentis.onnx
-      replay/replay.jsonl
+      model/
+        policy.zip
+        policy.onnx
+        policy.sentis.onnx
+      replay/
+        manifest.json
+        train/chunk_<index>.jsonl.gz
+        eval/checkpoint_<step>.jsonl.gz
 
 `policy.zip` は Stable-Baselines3 model である。`policy.onnx` は
-continuous navigation の dict observation を `robot`、`goal`、
-`front_distance` input として公開する一般 ONNX artifact である。
+continuous navigation の dict observation を `obs_0`
+（dynamic batch x 3 x 84 x 112）と `obs_1`（dynamic batch x 2）の
+2 input として公開する opset 17 の一般 ONNX artifact である。
 `policy.sentis.onnx` は Unity Sentis 向けに固定長 `float32[1,28226]` input
-へまとめた ONNX artifact であり、output は `[forward, turn]` の
-continuous action である。Replay Log は EnvForge がローカル再生するための
-JSON Lines artifact である。Result Bundle には通常 ONNX と Sentis ONNX の
-artifact location と input/output layout metadata を含める。
+へまとめた opset 15 の ONNX artifact である。どちらも output は
+`[forward, turn]` の continuous action である。Replay Bundle は manifest と
+gzip 圧縮した JSON Lines chunk からなり、各行は `scenario_id` と `job_id` を含む
+`ReplayLogStep` として書き込み前に検証される。Result Bundle には両 ONNX の
+artifact location、target、opset、全 input/output metadata を含める。
 
 ## 現在の強み
 
@@ -134,20 +140,21 @@ Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge から�
 
 次に不足しているものは以下である。
 
-- Unity 向け API client、状態監視、artifact 取得、bundle DTO が EnvForge 内にあり、
-  ほかの Unity フロントエンドから再利用できない。
-- `EmbodiedLab.Unity` と EmbodiedLab API の version compatibility を検証する仕組みがない。
+- `EmbodiedLab.Unity` の contract snapshot と generated DTO を、
+  EmbodiedLab の公開 schema 更新に追従させる release 運用が未確定である。
+- package version と API contract version の compatibility 方針が未確定である。
 - 現在の Scenario Bundle は固定マップを表し、episode ごとの宣言的な環境生成規則を
   表現できない。
-- ONNX export は continuous 主経路と Result Bundle metadata に接続済みだが、
-  複数の Unity フロントエンドで同じ互換性検査を再利用する層がない。
+- ONNX export と Result Bundle metadata は continuous 主経路に接続済みであり、
+  SDK は実ファイルの tensor metadata も検証する。Sentis 実行経路は別途検証が必要である。
 - reward component の主要 weight は Scenario Bundle から continuous runtime へ
   反映する。現時点では `goal_reached`、`goal_progress`、
   `collision_penalty`、`step_penalty`、
   `wide_angle_penalty`、`rear_angle_penalty`、`inactive_penalty`、
   `movement_threshold` を扱う。
 - robot と sensor descriptor が最小限である。
-- forward camera observation はまだ抽象化されたままである。
+- forward camera observation は semantic 2.5D projection であり、
+  Unity の material、lighting、shadow、post-processing を再現するものではない。
 - artifact access が public-read 前提である。
 
 固定マップは今後も既定動作として維持する。episode ごとの環境生成は明示的な

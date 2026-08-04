@@ -123,6 +123,8 @@ class TrainingProgressReporter(BaseCallback):
             reward = float(rewards[env_index]) if rewards.size > env_index else 0.0
             done = bool(dones[env_index]) if dones.size > env_index else False
             step = build_continuous_replay_step(
+                goal_id=self._eval_spec.goal.goal_id,
+                distance_sensor_id=self._eval_spec.distance_sensor_id,
                 episode_index=self._episode_indices[env_index],
                 step_index=self._episode_steps[env_index],
                 action=action,
@@ -200,6 +202,8 @@ def _termination_reason(
 
 def build_continuous_replay_step(  # noqa: PLR0913
     *,
+    goal_id: str,
+    distance_sensor_id: str,
     episode_index: int,
     step_index: int,
     action: np.ndarray,
@@ -252,7 +256,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
         events.append(
             {
                 "type": "goal_reached",
-                "object_id": "goal_001",
+                "object_id": goal_id,
                 "message": "Goal reached",
             },
         )
@@ -291,7 +295,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
         "events": events,
         "sensors": [
             {
-                "id": "front_distance",
+                "id": distance_sensor_id,
                 "type": "envforge_distance_sensor_meters",
                 "value": float(info["front_distance"]),
             },
@@ -340,6 +344,8 @@ def evaluate_continuous_policy(
             done = terminated or truncated
             replay_steps.append(
                 build_continuous_replay_step(
+                    goal_id=env.spec.goal.goal_id,
+                    distance_sensor_id=env.spec.distance_sensor_id,
                     episode_index=episode_index,
                     step_index=episode_steps - 1,
                     action=action_array,

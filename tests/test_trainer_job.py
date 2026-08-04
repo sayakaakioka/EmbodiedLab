@@ -65,10 +65,41 @@ def test_run_training_job_updates_result_to_completed():
             "onnx_model": {
                 "bucket": bucket_name,
                 "path": f"results/{submission_id}/model/policy.onnx",
+                "target": "onnx-runtime",
+                "opset_version": 17,
+                "inputs": [
+                    {
+                        "name": "obs_0",
+                        "shape": [-1, 3, 84, 112],
+                        "dtype": "float32",
+                    },
+                    {
+                        "name": "obs_1",
+                        "shape": [-1, 2],
+                        "dtype": "float32",
+                    },
+                ],
+                "output": {
+                    "name": "action",
+                    "layout": ["forward", "turn"],
+                },
             },
             "sentis_model": {
                 "bucket": bucket_name,
                 "path": f"results/{submission_id}/model/policy.sentis.onnx",
+                "target": "unity-sentis",
+                "opset_version": 15,
+                "inputs": [
+                    {
+                        "name": "observation",
+                        "shape": [1, 28226],
+                        "dtype": "float32",
+                    },
+                ],
+                "output": {
+                    "name": "action",
+                    "layout": ["forward", "turn"],
+                },
             },
             "replay_bundle": {
                 "bucket": bucket_name,

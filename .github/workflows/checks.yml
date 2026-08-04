@@ -1,0 +1,40 @@
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Check Python
+        run: uv run ruff check embodiedlab server trainer tests notification
+
+      - name: Check Markdown
+        run: uv run pymarkdown scan --recurse --respect-gitignore README.md AGENTS.md docs
+
+      - name: Check contract schema drift
+        run: uv run python -m tools.export_contract_schemas --check
+
+      - name: Run tests
+        run: uv run pytest

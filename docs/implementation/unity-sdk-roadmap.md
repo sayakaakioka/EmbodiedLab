@@ -2,12 +2,12 @@
 
 ## 目的
 
-EnvForge に直接実装されている EmbodiedLab client 機能を独立した Unity Package へ
-移し、EnvForge 以外の Unity プロジェクトも EmbodiedLab のジョブ投入、進捗監視、
-成果物取得を利用できるようにする。
+EmbodiedLab client 機能を独立した Unity Package として維持し、EnvForge 以外の
+Unity プロジェクトも EmbodiedLab のジョブ投入、進捗監視、成果物取得を
+利用できるようにする。
 
-新規リポジトリ名は `EmbodiedLab.Unity`、UPM package ID は
-`com.embodiedlab.unity` を第一候補とする。
+リポジトリ名は `EmbodiedLab.Unity`、UPM package ID は
+`com.embodiedlab.unity` である。
 
 ## リポジトリ境界
 
@@ -83,14 +83,16 @@ contract の再生成と差分検査には次を使う。
 
 ## 実装順序
 
-1. EmbodiedLab API と現在の EnvForge client の動作を fixture と test で固定する。
-2. `EmbodiedLab.Unity` リポジトリと UPM package の最小構造を作る。
-3. DTO、HTTP submission、training start、result fetch を移す。
-4. WebSocket 監視、HTTP 再同期、artifact download、Replay Bundle 読み込みを移す。
-5. EnvForge を SDK 利用へ変更し、移行済みの重複コードを削除する。
-6. 三者の compatibility と contract fixture test を追加する。
-7. `fixed` mode を明文化した後、`generated` mode の schema と runtime を追加する。
-8. EnvForge または別サンプルから両 mode を選択して投入できるようにする。
+1. 完了: EmbodiedLab API の動作を fixture と test で固定する。
+2. 完了: `EmbodiedLab.Unity` リポジトリと UPM package を作る。
+3. 完了: DTO、HTTP submission、training start、result fetch を実装する。
+4. 完了: WebSocket 監視、HTTP 再同期、artifact download、
+   Replay Bundle 読み込みを実装する。
+5. 完了: EmbodiedLab を正本とする schema/fixture drift test を追加する。
+6. 現在: backend producer、schema、generated DTO、SDK resource limit を
+   同じ v0 contract へ厳密に揃える。
+7. 第二段階: EnvForge を SDK 利用へ変更し、移行済みの重複コードを削除する。
+8. 後続: `generated` mode の schema/runtime と frontend 選択を追加する。
 
 各段階は独立した Issue と PR にし、受入条件、非対象、変更可能範囲、検証コマンドを
 Issue 本文に記載する。Codex は実装、test、lint、review、文書追従まで進め、公開 API、
@@ -106,19 +108,17 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 
 ## 進行状況
 
-- Issue #24 で、SDK が読む completed Result Document と Replay Bundle manifest の
-  canonical fixture を追加し、現行 wire format を test で固定した。
-- Issue #26 で、現行 API response と Replay Bundle を Pydantic model に結び付け、
-  Unity DTO 生成元となる versioned JSON Schema の公開に着手した。
-- Issue #28 で、合意した `T-B2 + C-B` の前提となる capability token 付き
-  クラウドジョブキャンセル、正確な Cloud Run Execution name の保存、
-  `cancelling` / `cancelled` 契約と WebSocket 通知を実装する。
-- Issue #30 で、Result Document と result event の旧 top-level `artifacts` を
-  削除し、`result_bundle.artifacts` を唯一の artifact contract とする。
-  旧形式への fallback や互換 API は追加しない。
-- submission response 消失時の復旧では、SDKが高エントロピーのidempotency keyと
-  cancel capabilityをrequest前に生成する。APIは同じkey、Scenario Bundle、capabilityの
-  retryを同じsubmissionへ解決し、Firestoreにはcapability hashだけを保存する。
+- completed Result Document、Replay Bundle manifest、Replay Log、Scenario Bundle の
+  canonical fixture を両 repository で検証する。
+- EmbodiedLab が versioned JSON Schema 7件を出力し、SDK が snapshot hash と
+  generated C# DTO の drift を検査する。
+- capability token 付きキャンセル、正確な Cloud Run Execution name、
+  `cancelling` / `cancelled` 契約と WebSocket 通知を実装済みである。
+- `result_bundle.artifacts` を唯一の artifact contract とし、旧 top-level
+  `artifacts` fallback は持たない。
+- SDK は高エントロピーの idempotency key と cancel capability を request 前に
+  生成し、response 消失後も同一 submission を回収できる。
+- SDK は ONNX Runtime Quickstart と bounded Replay Bundle loader を持つ。
 
 状態監視は WebSocket を通常経路とし、接続失敗、切断、無通信、明示更新時だけ
 HTTP の Result Document へ再同期する。正常な WebSocket 接続中に定期 HTTP polling は
@@ -128,7 +128,6 @@ request/response として HTTP を使う。
 ## 保留事項
 
 - SDK repository の公開範囲、release、tag、package distribution の運用。
-- C# DTO generator の固定方法と、生成差分を SDK 側で検証する CI。
 - 一般ユーザ認証導入後の token storage と signed artifact URL。
 - quota、cost control。
 - `generated` mode の最初の schema と、生成結果を Replay のどこへ記録するか。

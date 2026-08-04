@@ -186,12 +186,32 @@
         "type": "collision",
         "weight": -5.0
       },
-      {
-        "name": "step_penalty",
-        "type": "per_step",
-        "weight": -0.01
-      }
-    ]
+    {
+      "name": "step_penalty",
+      "type": "per_step",
+      "weight": -0.01
+    },
+    {
+      "name": "wide_angle_penalty",
+      "type": "per_step",
+      "weight": -0.1
+    },
+    {
+      "name": "rear_angle_penalty",
+      "type": "per_step",
+      "weight": -5.0
+    },
+    {
+      "name": "inactive_penalty",
+      "type": "per_step",
+      "weight": -0.1
+    },
+    {
+      "name": "movement_threshold",
+      "type": "per_step",
+      "weight": 0.001
+    }
+  ]
   },
   "training": {
     "algorithm": "ppo",

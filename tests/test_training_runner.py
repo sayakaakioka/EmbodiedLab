@@ -130,6 +130,8 @@ def test_train_model_passes_configured_n_epochs_to_ppo(monkeypatch):
 
 def test_build_continuous_replay_step_returns_envforge_replay_shape():
     step = build_continuous_replay_step(
+        goal_id="target_goal",
+        distance_sensor_id="rangefinder",
         episode_index=0,
         step_index=2,
         action=np.array([0.7, -0.2], dtype=np.float32),
@@ -185,7 +187,7 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
     ]
     assert step["sensors"] == [
         {
-            "id": "front_distance",
+            "id": "rangefinder",
             "type": "envforge_distance_sensor_meters",
             "value": 1.25,
         },
@@ -200,6 +202,7 @@ def test_build_continuous_replay_step_returns_envforge_replay_shape():
 def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     class FakeEnv:
         def __init__(self):
+            self.spec = convert_submission_to_spec(ScenarioBundle())
             self.episode_index = -1
             self.step_index = 0
 
