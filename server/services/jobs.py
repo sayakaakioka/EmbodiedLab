@@ -6,6 +6,13 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from google.api_core.client_options import ClientOptions
+from google.api_core.exceptions import (
+    BadRequest,
+    FailedPrecondition,
+    Forbidden,
+    NotFound,
+    Unauthorized,
+)
 from google.cloud import run_v2
 
 from server.config import ServerConfig
@@ -16,6 +23,14 @@ if TYPE_CHECKING:
 
 CreateJobsClient = Callable[..., run_v2.JobsClient]
 CreateExecutionsClient = Callable[..., run_v2.ExecutionsClient]
+
+
+class TrainingDispatchRejectedError(Exception):
+    """Raised when Cloud Run definitively rejects a training dispatch."""
+
+
+class CancellationRequestRejectedError(Exception):
+    """Raised when Cloud Run definitively rejects execution cancellation."""
 
 
 def run_training_job(
@@ -46,7 +61,10 @@ def run_training_job(
             ],
         ),
     )
-    operation = jobs_client.run_job(request=request)
+    try:
+        operation = jobs_client.run_job(request=request)
+    except (BadRequest, FailedPrecondition, Forbidden, NotFound, Unauthorized) as exc:
+        raise TrainingDispatchRejectedError from exc
     metadata = operation.metadata
     execution_name = getattr(metadata, "name", "") if metadata is not None else ""
     if not execution_name:
@@ -67,6 +85,9 @@ def request_training_cancellation(
             api_endpoint=f"{config.region}-run.googleapis.com",
         ),
     )
-    return executions_client.cancel_execution(
-        request=run_v2.CancelExecutionRequest(name=execution_name),
-    )
+    try:
+        return executions_client.cancel_execution(
+            request=run_v2.CancelExecutionRequest(name=execution_name),
+        )
+    except (BadRequest, FailedPrecondition, Forbidden, NotFound, Unauthorized) as exc:
+        raise CancellationRequestRejectedError from exc

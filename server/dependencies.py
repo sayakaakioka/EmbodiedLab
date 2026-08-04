@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from fastapi import Depends
 from google.cloud import firestore
@@ -14,17 +14,19 @@ from server.repositories import (
     FirestoreResultRepository,
     FirestoreSubmissionRepository,
 )
+from server.services.cancellations import (
+    CancellationRequester,  # noqa: TC001 - FastAPI resolves annotations
+    ResultEventPublisher,  # noqa: TC001 - FastAPI resolves annotations
+)
 from server.services.execution_reconciliation import (
     ExecutionOutcomeReader,
     read_execution_outcome,
 )
-from server.services.jobs import request_training_cancellation
-
-if TYPE_CHECKING:
-    from server.services.cancellations import (
-        CancellationRequester,
-        ResultEventPublisher,
-    )
+from server.services.jobs import request_training_cancellation, run_training_job
+from server.services.submission_workflow import (
+    SubmissionWorkflow,
+    TrainingJobRunner,
+)
 
 
 @lru_cache(maxsize=1)
@@ -70,3 +72,29 @@ def get_cancellation_requester() -> CancellationRequester:
 def get_result_event_publisher() -> ResultEventPublisher:
     """Return the shared ordered result event publisher."""
     return publish_result_event
+
+
+def get_training_job_runner() -> TrainingJobRunner:
+    """Return the Cloud Run training job dispatcher."""
+    return run_training_job
+
+
+def get_submission_workflow(
+    config: Annotated[ServerConfig, Depends(get_config)],
+    submission_repository: Annotated[
+        FirestoreSubmissionRepository,
+        Depends(get_submission_repository),
+    ],
+    run_job: Annotated[TrainingJobRunner, Depends(get_training_job_runner)],
+    publish_event: Annotated[
+        ResultEventPublisher,
+        Depends(get_result_event_publisher),
+    ],
+) -> SubmissionWorkflow:
+    """Return the server-owned submission workflow."""
+    return SubmissionWorkflow(
+        submission_repository=submission_repository,
+        config=config,
+        run_job=run_job,
+        publish_event=publish_event,
+    )

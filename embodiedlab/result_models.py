@@ -126,7 +126,7 @@ class ErrorReport(BaseModel):
 class ResultBundle(BaseModel):
     """EnvForge-facing training result bundle."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[RESULT_SCHEMA_VERSION] = RESULT_SCHEMA_VERSION
     scenario_id: str = Field(min_length=1)
@@ -257,7 +257,7 @@ class Progress(BaseModel):
 class ResultDocument(BaseModel):
     """Full result document written to Firestore."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     submission_id: str = Field(min_length=1)
     status: ResultStatus
@@ -429,12 +429,12 @@ def build_progress(
     )
 
 
-def queued_progress() -> Progress:
+def queued_progress(total_steps: int = 0) -> Progress:
     """Return the queued-phase progress payload."""
     return build_progress(
         phase=ResultStatus.QUEUED,
         current_step=0,
-        total_steps=0,
+        total_steps=total_steps,
         message="Queued",
     )
 
@@ -499,12 +499,12 @@ def failed_progress(message: str, total_steps: int = 0) -> Progress:
     )
 
 
-def build_queued_result_document(submission_id: str) -> dict:
+def build_queued_result_document(submission_id: str, *, total_steps: int = 0) -> dict:
     """Return a Firestore-ready dict for a newly queued result."""
     document = ResultDocument(
         submission_id=submission_id,
         status=ResultStatus.QUEUED,
-        progress=queued_progress(),
+        progress=queued_progress(total_steps),
     )
     return document.model_dump(mode="json")
 

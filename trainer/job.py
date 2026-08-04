@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import traceback
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
-from embodiedlab.repositories import ResultUpdateWriter, SubmissionReader
+from embodiedlab.repositories import ResultStore
 from embodiedlab.result_models import (
     ResultStatus,
     build_result_bundle,
@@ -34,9 +34,27 @@ from trainer.training_service import (
 from trainer.transitions import TrainerResultTransitions
 
 CreateDb = Callable[[str], Any]
-CreateSubmissionRepository = Callable[[Any], SubmissionReader]
-CreateResultRepository = Callable[[Any], ResultUpdateWriter]
+
+
+class TrainerSubmissionRepository(Protocol):
+    """Submission reads plus exact Cloud Run execution recovery."""
+
+    def fetch(self, submission_id: str) -> dict[str, Any] | None:
+        """Return the submitted scenario."""
+
+    def mark_dispatched(self, submission_id: str, execution_name: str) -> bool:
+        """Recover an unresolved exact execution name."""
+
+
+CreateSubmissionRepository = Callable[[Any], TrainerSubmissionRepository]
+CreateResultRepository = Callable[[Any], ResultStore]
 PublishEvent = Callable[..., None]
+TRAINER_ACTIVE_STATUSES = {
+    ResultStatus.QUEUED,
+    ResultStatus.STARTING,
+    ResultStatus.RUNNING,
+    ResultStatus.CANCELLING,
+}
 
 
 def run_training_job(  # noqa: PLR0913
@@ -65,9 +83,21 @@ def run_training_job(  # noqa: PLR0913
 
     log_trainer_event("trainer_job_started", submission_id=submission_id)
 
+    if config.execution_name is not None and not submission_repository.mark_dispatched(
+        submission_id,
+        config.execution_name,
+    ):
+        log_trainer_event(
+            "trainer_dispatch_already_closed",
+            submission_id=submission_id,
+            execution_name=config.execution_name,
+        )
+        return
+
     submission = submission_repository.fetch(submission_id)
     if submission is None:
         transitions.write(
+            expected_statuses={ResultStatus.QUEUED},
             status=ResultStatus.FAILED,
             progress=failed_progress("Submission not found"),
             error="Submission not found",
@@ -97,15 +127,25 @@ def run_training_job(  # noqa: PLR0913
             max_steps=inputs.training.max_steps,
         )
 
-        transitions.write(
-            status=ResultStatus.STARTING,
-            progress=starting_progress(total_steps),
-        )
+        if (
+            not transitions.write(
+                expected_statuses={ResultStatus.QUEUED},
+                status=ResultStatus.STARTING,
+                progress=starting_progress(total_steps),
+            )
+            and transitions.current_status() is not ResultStatus.CANCELLING
+        ):
+            return
 
-        transitions.write(
-            status=ResultStatus.RUNNING,
-            progress=running_progress(total_steps),
-        )
+        if (
+            not transitions.write(
+                expected_statuses={ResultStatus.STARTING},
+                status=ResultStatus.RUNNING,
+                progress=running_progress(total_steps),
+            )
+            and transitions.current_status() is not ResultStatus.CANCELLING
+        ):
+            return
 
         def report_training_progress(current_step: int, total_steps: int) -> None:
             log_trainer_event(
@@ -115,6 +155,7 @@ def run_training_job(  # noqa: PLR0913
                 total_steps=total_steps,
             )
             transitions.write(
+                expected_statuses={ResultStatus.RUNNING},
                 status=ResultStatus.RUNNING,
                 progress=running_progress(
                     total_steps,
@@ -142,12 +183,24 @@ def run_training_job(  # noqa: PLR0913
             diagnostic_callback=report_training_diagnostic,
         )
 
-        transitions.write(
+        completed = transitions.write(
+            expected_statuses={
+                ResultStatus.STARTING,
+                ResultStatus.RUNNING,
+                ResultStatus.CANCELLING,
+            },
             status=ResultStatus.COMPLETED,
             progress=completed_progress(total_steps),
             summary=execution.summary,
             result_bundle=execution.result_bundle,
         )
+
+        if not completed:
+            log_trainer_event(
+                "trainer_result_already_closed",
+                submission_id=submission_id,
+            )
+            return
 
         log_trainer_event(
             "trainer_job_completed",
@@ -166,6 +219,7 @@ def run_training_job(  # noqa: PLR0913
                 error=error_message,
             )
         transitions.write(
+            expected_statuses=TRAINER_ACTIVE_STATUSES,
             status=ResultStatus.FAILED,
             progress=failed_progress("Training failed", total_steps=total_steps),
             error=error_message,

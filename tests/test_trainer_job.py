@@ -1,5 +1,8 @@
+from dataclasses import replace
+
 import pytest
 
+from embodiedlab.result_models import build_queued_result_document
 from embodiedlab.schemas import ScenarioBundle
 from tests.fakes import FakeResultRepository, FakeSubmissionRepository
 from trainer.config import TrainerConfig
@@ -16,12 +19,23 @@ _CONFIG = TrainerConfig(
 _NO_PUBLISH = lambda **kwargs: None  # noqa: E731
 
 
+def _queued_result_repository() -> FakeResultRepository:
+    return FakeResultRepository(
+        initial_results={
+            "submission-1": build_queued_result_document(
+                "submission-1",
+                total_steps=5000,
+            ),
+        },
+    )
+
+
 def test_run_training_job_updates_result_to_completed():
     submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
-    result_repository = FakeResultRepository()
+    result_repository = _queued_result_repository()
     calls = []
 
     def train_model(  # noqa: PLR0913
@@ -164,7 +178,7 @@ def test_run_training_job_writes_training_progress_updates():
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
-    result_repository = FakeResultRepository()
+    result_repository = _queued_result_repository()
     published_events = []
 
     def train_model(  # noqa: PLR0913
@@ -207,7 +221,7 @@ def test_run_training_job_writes_training_progress_updates():
 
 def test_run_training_job_marks_missing_submission_failed():
     submission_repository = FakeSubmissionRepository()
-    result_repository = FakeResultRepository()
+    result_repository = _queued_result_repository()
 
     run_training_job(
         _CONFIG,
@@ -229,7 +243,7 @@ def test_run_training_job_marks_invalid_submission_failed():
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
-    result_repository = FakeResultRepository()
+    result_repository = _queued_result_repository()
 
     with pytest.raises(Exception):
         run_training_job(
@@ -253,7 +267,7 @@ def test_run_training_job_writes_failed_result_bundle_after_runtime_failure():
     submission_repository = FakeSubmissionRepository(
         initial_submissions={"submission-1": submission},
     )
-    result_repository = FakeResultRepository()
+    result_repository = _queued_result_repository()
 
     def fail_training(**kwargs):
         msg = "runtime exploded"
@@ -275,3 +289,114 @@ def test_run_training_job_writes_failed_result_bundle_after_runtime_failure():
     assert "runtime exploded" in payload["error"]
     assert payload["result_bundle"]["status"] == "failed"
     assert "runtime exploded" in payload["result_bundle"]["error"]["message"]
+
+
+def test_run_training_job_does_not_revive_closed_dispatch():
+    execution_name = (
+        "projects/test-project/locations/asia-northeast1/jobs/test-trainer/"
+        "executions/test-trainer-abcde"
+    )
+    submission = {
+        "scenario": ScenarioBundle().model_dump(mode="json"),
+        "control": {
+            "cancel_token_hash": "a" * 64,
+            "dispatch_state": "failed",
+            "dispatch_error": "Dispatch outcome could not be confirmed",
+            "execution_name": None,
+        },
+    }
+    submission_repository = FakeSubmissionRepository(
+        initial_submissions={"submission-1": submission},
+    )
+    result_repository = FakeResultRepository(
+        initial_results={
+            "submission-1": {
+                "submission_id": "submission-1",
+                "status": "failed",
+            },
+        },
+    )
+    training_calls = []
+
+    run_training_job(
+        replace(_CONFIG, execution_name=execution_name),
+        create_db=lambda db_id: object(),
+        create_submission_repository=lambda db: submission_repository,
+        create_result_repository=lambda db: result_repository,
+        train_model=lambda **kwargs: training_calls.append(kwargs),
+        publish_event=_NO_PUBLISH,
+    )
+
+    assert training_calls == []
+    assert result_repository.fetch("submission-1")["status"] == "failed"
+    assert submission_repository.fetch_control("submission-1").dispatch_state == (
+        "failed"
+    )
+
+
+def test_run_training_job_recovers_ambiguous_execution_before_training():
+    execution_name = (
+        "projects/test-project/locations/asia-northeast1/jobs/test-trainer/"
+        "executions/test-trainer-abcde"
+    )
+    submission = {
+        "scenario": ScenarioBundle().model_dump(mode="json"),
+        "control": {
+            "cancel_token_hash": "a" * 64,
+            "dispatch_state": "ambiguous",
+            "dispatch_error": "Dispatch response was lost",
+            "execution_name": None,
+        },
+    }
+    submission_repository = FakeSubmissionRepository(
+        initial_submissions={"submission-1": submission},
+    )
+    result_repository = _queued_result_repository()
+
+    run_training_job(
+        replace(_CONFIG, execution_name=execution_name),
+        create_db=lambda db_id: object(),
+        create_submission_repository=lambda db: submission_repository,
+        create_result_repository=lambda db: result_repository,
+        train_model=lambda **kwargs: {"score": 1.0},
+        upload_model=lambda **kwargs: {},
+        publish_event=_NO_PUBLISH,
+    )
+
+    control = submission_repository.fetch_control("submission-1")
+    assert control.dispatch_state == "dispatched"
+    assert control.execution_name == execution_name
+    assert result_repository.fetch("submission-1")["status"] == "completed"
+
+
+def test_run_training_job_preserves_completion_while_cancellation_is_pending():
+    submission = {"scenario": ScenarioBundle().model_dump(mode="json")}
+    submission_repository = FakeSubmissionRepository(
+        initial_submissions={"submission-1": submission},
+    )
+    result_repository = FakeResultRepository(
+        initial_results={
+            "submission-1": {
+                "submission_id": "submission-1",
+                "status": "cancelling",
+                "progress": {
+                    "phase": "cancelling",
+                    "current_step": 0,
+                    "total_steps": 5000,
+                    "message": "Cancelling training",
+                },
+            },
+        },
+    )
+
+    run_training_job(
+        _CONFIG,
+        create_db=lambda db_id: object(),
+        create_submission_repository=lambda db: submission_repository,
+        create_result_repository=lambda db: result_repository,
+        train_model=lambda **kwargs: {"score": 1.0},
+        upload_model=lambda **kwargs: {},
+        publish_event=_NO_PUBLISH,
+    )
+
+    assert result_repository.fetch("submission-1")["status"] == "completed"

@@ -18,11 +18,12 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
           -> SDK は idempotency key と cancellation capability を生成して送る
           -> 同じ key、scenario、capability の再試行は同じ submission を返す
           -> client が保持する cancellation capability を response に返す
-          -> Firestore submissions/{submission_id} に token hash を保存
-      -> POST /submissions/{submission_id}/train
-          -> Firestore results/{submission_id} = queued
+          -> submission と queued Result を batch で原子的に作成
+          -> private dispatch state を pending から一度だけ claim
           -> Cloud Run Job with SUBMISSION_ID override
               -> Operation metadata の正確な Execution name を submission に保存
+              -> response 消失時は trainer が Cloud Run runtime の execution ID から
+                 同じ exact name をCAS保存してから学習を開始
               -> Firestore submission lookup
               -> Continuous navigation PPO training
               -> GCS artifact upload
@@ -44,15 +45,26 @@ Cloud Run Job を起動する。trainer は Stable-Baselines3 PPO で
 FastAPI API service である。
 submission の受理、result document の queued 化、Cloud Run Job の起動とキャンセル、
 result document の返却を担当する。キャンセルは submission ごとの capability token で
-保護し、Firestore には SHA-256 hash だけを保存する。
+保護し、Firestore には SHA-256 hash だけを保存する。private control の期限付き
+cancellation intent leaseとfencing tokenで同時RPCを一つにし、期限切れownerが
+新しいleaseを変更することを防ぐ。最初のRPCが受付結果を返さず不明になった場合だけ、
+lease期限後に同じexact executionへのcancelを再送し得る。Cloud RunがOperationを
+返したrequestは再送せず、exact executionから調停する。公開Resultを排他lockには
+使わない。
 submission response が失われた場合、client は同じ `Idempotency-Key` と
 `X-EmbodiedLab-Cancel-Token` で再試行する。server は同一 request を同じ submission へ
 解決し、異なる scenario または capability での key 再利用を拒否する。
+submission と queued Result は batch で原子的に作成し、server が private dispatch state を
+一度だけ claim して Cloud Run Job を開始する。確定拒否は terminal `failed` Result にし、
+RPC timeout や response loss は別 execution を自動起動せず `ambiguous` として調停する。
+trainer は `CLOUD_RUN_JOB`、`CLOUD_RUN_EXECUTION`、`REGION` から
+exact execution name を再構成し、dispatch が未解決の間だけCAS保存する。
+既にdispatchがterminalなら学習を
+開始しないため、terminal Resultは`starting`や`running`へ復活しない。
 
 主な endpoint は以下である。
 
 - `POST /submissions`
-- `POST /submissions/{submission_id}/train`
 - `POST /submissions/{submission_id}/cancel`
 - `GET /results/{submission_id}`
 
@@ -60,8 +72,9 @@ Cloud Run Job が timeout などで Python trainer の cleanup 前に終了し�
 trainer 自身は Firestore result を更新できない。このため API は
 `GET /results/{submission_id}` で active status
 （`queued`、`starting`、`running`、`cancelling`）の result を返す前に、学習開始時に
-保存した正確な Cloud Run Execution を取得する。対応 execution が失敗済みなら
-`failed`、キャンセル済みなら `cancelled` に更新して Pub/Sub へ publish する。
+保存した正確な Cloud Run Execution を取得する。対応 execution が失敗済み、または
+正常終了したのに terminal Result がなければ `failed`、キャンセル済みなら
+`cancelled` に更新して Pub/Sub へ publish する。
 recent execution の走査や `SUBMISSION_ID` override による推測は行わない。
 
 ### `trainer/`

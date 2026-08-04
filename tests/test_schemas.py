@@ -61,7 +61,14 @@ def test_build_submission_document_returns_firestore_payload():
     assert payload["scenario"]["training"]["algorithm"] == "ppo"
     assert payload["control"] == {
         "cancel_token_hash": "a" * 64,
+        "dispatch_state": "pending",
+        "dispatch_started_at": None,
+        "dispatch_error": None,
         "execution_name": None,
+        "cancellation_state": "idle",
+        "cancellation_started_at": None,
+        "cancellation_lease_token": None,
+        "cancellation_error": None,
     }
 
 

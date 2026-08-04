@@ -27,8 +27,7 @@ make server_local         # uvicorn on port 8000
 Requires deployed infra and `.env`.
 
 ```bash
-make submit               # POST the canonical Scenario fixture, saves submission_id
-make train                # POST /submissions/<id>/train
+make submit               # submit, queue, and dispatch the canonical Scenario fixture
 make get_result           # GET /results/<id>
 make get_result_ws        # WebSocket stream via tools/ws_client.py
 ```

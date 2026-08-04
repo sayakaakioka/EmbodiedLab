@@ -43,6 +43,7 @@ resolved runtime shape:
 | `SUBMISSION_ID` | string | Submission to train |
 | `PUBSUB_TOPIC` | string | Topic for ordered result events |
 | `PROJECT_ID` | string | GCP project ID |
+| `REGION` | string | Cloud Run region for exact execution names |
 
 resolved runtime shape:
 
@@ -52,7 +53,8 @@ resolved runtime shape:
   "model_bucket": "my-model-bucket",
   "submission_id": "submission-123",
   "pubsub_topic": "trainer-results",
-  "project_id": "my-project"
+  "project_id": "my-project",
+  "execution_name": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job/executions/my-trainer-job-abcde"
 }
 ```
 
@@ -93,10 +95,9 @@ Idempotency-Key: <32文字以上のURL-safe random value>
 X-EmbodiedLab-Cancel-Token: <32文字以上のURL-safe cancellation capability>
 ```
 
-二つのheaderは同時に指定する。両方省略した request も受理するが、response 消失時の
-復旧保証はない。同じ idempotency key、正規化後の Scenario Bundle、cancel token での
-再試行は同じ submission response を返す。scenario または token が異なる key 再利用は
-`409 Conflict` とする。
+二つのheaderは必須であり、同時に指定する。同じ idempotency key、正規化後の
+Scenario Bundle、cancel token での再試行は同じ submission response を返す。
+scenario または token が異なる key 再利用は `409 Conflict` とする。
 
 ```json
 {
@@ -199,40 +200,18 @@ response:
 }
 ```
 
-回収headerを使うclientは`cancel_token`をrequest前から保持し、responseでも同じ値を受け取る。
+client は両方の回収headerを必ず送り、`cancel_token`をrequest前から保持して
+responseでも同じ値を受け取る。
 server は平文を保存せず、
 `submissions/{submission_id}.control.cancel_token_hash` に SHA-256 digest だけを保存する。
 Unity client が再起動後もキャンセルする必要がある場合、client 側が token を保持する。
 
-### `POST /submissions/{submission_id}/train`
-
-request body はない。
-
-successful response:
-
-```json
-{
-  "status": "accepted",
-  "submission_id": "submission-123"
-}
-```
-
-学習開始時に Cloud Run `jobs.run` の Operation metadata から正確な Execution resource
-name を取得し、submission の private control data に保存してから response を返す。
-
-training failure responses:
-
-```json
-{
-  "detail": "Submission not found"
-}
-```
-
-```json
-{
-  "detail": "Failed to start trainer job"
-}
-```
+`POST /submissions` は submission と queued Result を原子的に保存し、同じ server-owned
+workflow で Cloud Run dispatch を開始する。dispatch の確定拒否は response を
+失敗させず、Result Document を terminal `failed` にする。RPC timeout、response loss、
+execution name の
+保存失敗は同じ submission を自動再dispatchせず、private control の `ambiguous` state として
+調停する。queued progress は Scenario の `training.timesteps` を total steps として持つ。
 
 ### `POST /submissions/{submission_id}/cancel`
 
@@ -242,11 +221,20 @@ request body はない。submission 作成時に返された capability を bear
 Authorization: Bearer <cancel_token>
 ```
 
-API は token hash を検証し、保存済みの正確な Execution resource に対してキャンセルを
-要求する。status は `cancelling`、完了後は `cancelled` となり、両 transition を
-Pub/Sub / WebSocket へ publish する。Cloud Run の完了待ちが timeout した場合は
-`202` と `cancelling` の Result Document を返し、後続の Result Document 再同期で
-`cancelled` を確定する。
+API は token hash を検証し、private control に期限付きの cancellation intent lease を
+CAS保存してから、正確な Execution resource にキャンセルを要求する。各leaseは一意な
+fencing tokenを持ち、markとreleaseも同じtokenのownerだけが行う。同時requestでは
+leaseを得たownerだけがRPCを送る。最初のRPCが受付結果を返さず不明になった場合は、
+stale leaseを同じrequestの再試行が回収し、同じexact executionへのcancelを再送し得る。
+Cloud RunがOperationを返した時点で`requested`を保存し、受付済みrequestは再送せず
+exact executionを再調停する。確定拒否だけleaseを解放する。
+
+status はRPC試行後に、受理済みまたは結果不明なら `cancelling`、完了後は `cancelled`
+となり、両 transition を Pub/Sub / WebSocket へ publish する。Cloud Run の完了待ちが
+timeoutした場合は
+`202`を返す。trainerが先に成果物生成まで完了した場合はterminal CASで`completed`が
+確定し、キャンセル処理はこれを上書きしない。stale lease後の再試行または後続の
+Result Document再同期で最終状態を確定する。
 
 token がない、または一致しない場合は `403`、`completed` / `failed` の job は `409`
 とする。すでに `cancelled` の job に対する再実行は idempotent に現在値を返す。
@@ -257,8 +245,13 @@ response model shape: `embodiedlab.result_models.ResultDocument`
 
 active status（`queued`、`starting`、`running`、`cancelling`）の result を返す場合、
 API は submission に保存された正確な Cloud Run Execution resource を取得する。
-対応する execution が timeout などで失敗済みなら `failed`、キャンセル済みなら
-`cancelled` に更新してから返し、更新を Pub/Sub へ publish する。
+APIがdispatch responseを失った場合も、trainerは`starting`へ遷移する前にruntimeの
+execution IDを同じcontrolへCAS保存する。既にdispatchがterminalならtrainerは学習を
+開始せず、terminal Resultを復活させない。
+対応する execution が timeout などで失敗済み、または正常終了したのに terminal Result が
+なければ `failed`、キャンセル済みなら `cancelled` に更新してから返し、更新を Pub/Sub へ
+publish する。dispatch が一定時間 `ambiguous` のままなら、別 execution を開始せず
+terminal `failed` として確定する。
 これは trainer process が Cloud Run に強制終了され、trainer 自身の失敗更新が
 実行されない場合の補正である。
 この取得には runtime service account の `run.executions.get` 権限が必要であり、
@@ -433,13 +426,21 @@ stored shape: `embodiedlab.schemas.SubmissionDocument`
   },
   "control": {
     "cancel_token_hash": "sha256-hex-digest",
-    "execution_name": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job/executions/my-trainer-job-abcde"
+    "dispatch_state": "dispatched",
+    "dispatch_started_at": "2026-04-24T12:34:57.000000+00:00",
+    "dispatch_error": null,
+    "execution_name": "projects/my-project/locations/asia-northeast1/jobs/my-trainer-job/executions/my-trainer-job-abcde",
+    "cancellation_state": "idle",
+    "cancellation_started_at": null,
+    "cancellation_lease_token": null,
+    "cancellation_error": null
   }
 }
 ```
 
-`control` は外部 API response に含めない private server data である。機能追加前に作成した
-submission にはこの field がないため、監視と成果物取得はできるがキャンセルはできない。
+`control` は外部 API response に含めない private server data である。現行dispatch fieldまたは
+Resultが欠けた旧submissionは、同じidempotency keyによる再受理を明示的に拒否する。
+既存Resultの直接監視と成果物取得は継続できる。
 idempotency key自体も保存せず、そのSHA-256 digestから安定したsubmission IDを導出する。
 
 ### `results/{submission_id}`
@@ -469,6 +470,9 @@ progress shape:
 
 API は trainer service に JSON を直接送らない。
 Cloud Run Job を起動し、環境変数 `SUBMISSION_ID` を override する。
+trainer は Cloud Run runtime が提供する `CLOUD_RUN_JOB` と `CLOUD_RUN_EXECUTION`、および
+deployment の `REGION` から exact execution resource name を再構成し、API側のresponseが
+失われた場合もdispatch controlへCAS保存してから学習を開始する。
 trainer job の task timeout は Makefile の `TRAINER_TASK_TIMEOUT` で指定し、
 現在の既定値は `24h` である。
 

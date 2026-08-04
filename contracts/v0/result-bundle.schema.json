@@ -373,7 +373,7 @@
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "description": "EnvForge-facing training result bundle.",
   "properties": {
     "artifacts": {

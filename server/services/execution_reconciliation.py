@@ -14,14 +14,11 @@ from google.cloud.run_v2.types import Condition
 from embodiedlab.result_models import (
     Progress,
     ResultStatus,
-    cancelled_progress,
-    failed_progress,
 )
 
 if TYPE_CHECKING:
     from embodiedlab.repositories import (
-        ResultReader,
-        ResultUpdateWriter,
+        ApiResultStore,
         SubmissionControlReader,
     )
     from server.config import ServerConfig
@@ -68,18 +65,22 @@ def read_execution_outcome(
             status=ResultStatus.CANCELLED,
             message="Cloud Run execution cancelled",
         )
-    if execution.failed_count <= 0:
-        return None
-
-    failure_condition = _failed_condition(execution)
-    return ExecutionOutcome(
-        status=ResultStatus.FAILED,
-        message=(
-            failure_condition.message
-            if failure_condition is not None and failure_condition.message
-            else "Cloud Run execution failed"
-        ),
-    )
+    if execution.failed_count > 0:
+        failure_condition = _failed_condition(execution)
+        return ExecutionOutcome(
+            status=ResultStatus.FAILED,
+            message=(
+                failure_condition.message
+                if failure_condition is not None and failure_condition.message
+                else "Cloud Run execution failed"
+            ),
+        )
+    if execution.completion_time:
+        return ExecutionOutcome(
+            status=ResultStatus.FAILED,
+            message="Cloud Run execution completed without a terminal result",
+        )
+    return None
 
 
 def reconcile_result_with_execution(  # noqa: PLR0913
@@ -87,7 +88,7 @@ def reconcile_result_with_execution(  # noqa: PLR0913
     config: ServerConfig,
     submission_id: str,
     submission_repository: SubmissionControlReader,
-    result_repository: ResultReader | ResultUpdateWriter,
+    result_repository: ApiResultStore,
     result: dict[str, Any],
     read_outcome: ExecutionOutcomeReader,
     publish_event: ResultEventPublisher,
@@ -113,22 +114,24 @@ def reconcile_result_with_execution(  # noqa: PLR0913
         return result
 
     outcome_status = ResultStatus(outcome.status)
-    current_step, total_steps = _result_steps(result)
     if outcome_status is ResultStatus.CANCELLED:
-        progress = cancelled_progress(current_step, total_steps)
+        message = "Training cancelled"
         error = None
     else:
         execution_id = control.execution_name.rsplit("/", maxsplit=1)[-1]
         message = f"Cloud Run execution {execution_id} failed: {outcome.message}"
-        progress = failed_progress(message, total_steps=total_steps)
         error = message
 
-    result_repository.write_update(
+    transitioned = result_repository.transition_status_preserving_progress(
         submission_id,
+        expected_statuses=ACTIVE_RESULT_STATUSES,
         status=outcome_status,
-        progress=progress,
+        message=message,
         error=error,
     )
+    if transitioned is None:
+        return result_repository.fetch(submission_id) or result
+    progress = Progress.model_validate(transitioned.get("progress"))
     _publish_reconciled_transition(
         config=config,
         submission_id=submission_id,
@@ -137,8 +140,7 @@ def reconcile_result_with_execution(  # noqa: PLR0913
         error=error,
         publish_event=publish_event,
     )
-    refreshed = result_repository.fetch(submission_id)
-    return refreshed if refreshed is not None else result
+    return transitioned
 
 
 def _parse_result_status(value: object) -> ResultStatus | None:
@@ -150,20 +152,6 @@ def _parse_result_status(value: object) -> ResultStatus | None:
         except ValueError:
             return None
     return None
-
-
-def _result_steps(result: dict[str, Any]) -> tuple[int, int]:
-    progress = result.get("progress")
-    if not isinstance(progress, dict):
-        return 0, 0
-
-    current_step = progress.get("current_step", 0)
-    total_steps = progress.get("total_steps", 0)
-    if not isinstance(current_step, int) or current_step < 0:
-        current_step = 0
-    if not isinstance(total_steps, int) or total_steps < 0:
-        total_steps = 0
-    return current_step, total_steps
 
 
 def _failed_condition(execution: run_v2.Execution) -> Condition | None:

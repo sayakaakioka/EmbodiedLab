@@ -66,6 +66,25 @@ class TrainingAlgorithm(StrEnum):
     PPO = "ppo"
 
 
+class DispatchState(StrEnum):
+    """Private server-owned dispatch states for a submission."""
+
+    PENDING = "pending"
+    DISPATCHING = "dispatching"
+    AMBIGUOUS = "ambiguous"
+    DISPATCHED = "dispatched"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class CancellationState(StrEnum):
+    """Private durable cancellation intent states for a submission."""
+
+    IDLE = "idle"
+    REQUESTING = "requesting"
+    REQUESTED = "requested"
+
+
 class CreatedBy(BaseModel):
     """Metadata about the tool that created a scenario bundle."""
 
@@ -472,8 +491,7 @@ class ScenarioBundle(BaseModel):
                 and component.target != self.world.goal.id
             ):
                 msg = (
-                    "goal_progress target must match world.goal.id: "
-                    f"{component.target}"
+                    f"goal_progress target must match world.goal.id: {component.target}"
                 )
                 raise ValueError(msg)
 
@@ -484,7 +502,14 @@ class SubmissionControl(BaseModel):
     """Private control data stored with a submitted scenario."""
 
     cancel_token_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    dispatch_state: DispatchState = DispatchState.PENDING
+    dispatch_started_at: datetime | None = None
+    dispatch_error: str | None = None
     execution_name: str | None = None
+    cancellation_state: CancellationState = CancellationState.IDLE
+    cancellation_started_at: datetime | None = None
+    cancellation_lease_token: str | None = None
+    cancellation_error: str | None = None
 
 
 class SubmissionDocument(BaseModel):

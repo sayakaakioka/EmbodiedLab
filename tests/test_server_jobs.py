@@ -1,9 +1,16 @@
+from datetime import UTC, datetime
+
 import pytest
+from google.api_core.exceptions import BadRequest
 from google.cloud import run_v2
 
 from server.config import ServerConfig
 from server.services.execution_reconciliation import read_execution_outcome
-from server.services.jobs import request_training_cancellation, run_training_job
+from server.services.jobs import (
+    CancellationRequestRejectedError,
+    request_training_cancellation,
+    run_training_job,
+)
 
 
 class FakeOperation:
@@ -29,6 +36,11 @@ class FakeExecutionsClient:
     def cancel_execution(self, *, request):
         self.requests.append(request)
         return self.operation
+
+
+class RejectingExecutionsClient:
+    def cancel_execution(self, *, request):
+        raise BadRequest("rejected")
 
 
 class FakeExecutionReader:
@@ -104,6 +116,20 @@ def test_request_training_cancellation_targets_exact_execution_name():
     assert client.requests == [run_v2.CancelExecutionRequest(name=execution_name)]
 
 
+def test_request_training_cancellation_wraps_definitive_rejection():
+    execution_name = (
+        "projects/test/locations/asia-northeast1/jobs/test-trainer/"
+        "executions/test-trainer-abcde"
+    )
+
+    with pytest.raises(CancellationRequestRejectedError):
+        request_training_cancellation(
+            build_config(),
+            execution_name,
+            create_executions_client=lambda **_kwargs: RejectingExecutionsClient(),
+        )
+
+
 def test_read_execution_outcome_treats_cancelled_execution_as_cancelled():
     execution = run_v2.Execution(
         name=(
@@ -123,3 +149,23 @@ def test_read_execution_outcome_treats_cancelled_execution_as_cancelled():
 
     assert outcome.status.value == "cancelled"
     assert client.requests == [run_v2.GetExecutionRequest(name=execution.name)]
+
+
+def test_read_execution_outcome_fails_completed_execution_without_result():
+    execution = run_v2.Execution(
+        name=(
+            "projects/test/locations/asia-northeast1/jobs/test-trainer/"
+            "executions/test-trainer-abcde"
+        ),
+        completion_time=datetime.now(UTC),
+    )
+    client = FakeExecutionReader(execution)
+
+    outcome = read_execution_outcome(
+        build_config(),
+        execution.name,
+        create_executions_client=lambda **_kwargs: client,
+    )
+
+    assert outcome.status.value == "failed"
+    assert outcome.message == "Cloud Run execution completed without a terminal result"
