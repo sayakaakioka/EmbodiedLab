@@ -182,11 +182,45 @@ def test_envforge_navigation_fixture_matches_scenario_bundle_contract():
     assert scenario.world.goal.radius == 0.45
     assert scenario.world.goal.radius == scenario.robot.radius
     assert scenario.robot.action_space.layout == ["forward", "turn"]
+    assert all("height" in wall for wall in payload["world"]["static_walls"])
+    assert all(
+        "height" in obstacle for obstacle in payload["world"]["static_obstacles"]
+    )
     assert [sensor.id for sensor in scenario.sensors] == [
         "front_camera",
         "front_distance",
     ]
+    assert set(payload["sensors"][0]) >= {
+        "width",
+        "height",
+        "semantic_mode",
+        "mount_height_meters",
+        "pitch_degrees",
+        "vertical_fov_degrees",
+        "near_clip_meters",
+        "far_clip_meters",
+    }
     assert scenario.training.max_episode_steps == 1000
+    assert set(payload["training"]) >= {
+        "algorithm",
+        "timesteps",
+        "seed",
+        "max_episode_steps",
+        "n_envs",
+        "cpu_count",
+        "torch_num_threads",
+        "n_steps",
+        "batch_size",
+        "n_epochs",
+        "gamma",
+        "learning_rate",
+        "ent_coef",
+        "eval_episodes",
+    }
+    assert scenario.training.n_envs == 1
+    assert scenario.training.cpu_count is None
+    assert scenario.training.torch_num_threads is None
+    assert scenario.training.n_epochs == 3
 
 
 @pytest.mark.parametrize(
