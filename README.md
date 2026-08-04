@@ -2,9 +2,9 @@
 
 EmbodiedLab is an experimental platform for embodied AI research. The current
 prototype accepts EnvForge Scenario Bundle submissions through a Cloud Run API,
-starts a
-Cloud Run Job to train a reinforcement learning policy, stores model artifacts
-in GCS, and streams status updates to clients over WebSockets.
+starts a Cloud Run Job to train a reinforcement learning policy, stores ONNX,
+Sentis, and Replay Bundle artifacts in GCS, and streams status updates to
+clients over WebSockets.
 
 The project is intentionally small right now: it focuses on a minimal
 end-to-end loop from environment definition to training, artifact storage, and
@@ -13,9 +13,9 @@ result streaming.
 ## Documentation Notes
 
 Markdown files under `docs/` are primarily agent-facing project notes. They
-record the overall design, implementation decisions, work history, and
-phase-specific context so that coding agents and collaborators can resume work
-with the right background.
+describe the current product direction, implementation, and operating rules.
+Completed phase notes are removed when they no longer explain the active
+system; Git history and pull requests retain the development history.
 
 ## Architecture
 
@@ -29,7 +29,7 @@ Client
       -> Cloud Run Job with SUBMISSION_ID
           -> Firestore submission lookup
           -> Continuous navigation PPO training
-          -> GCS model upload
+          -> GCS model and Replay Bundle upload
           -> Firestore result update
           -> Pub/Sub event
               -> notification service push endpoint
@@ -112,39 +112,18 @@ uv sync --frozen --group embodiedlab --group notification
 ```http
 POST /submissions
 Content-Type: application/json
+Idempotency-Key: {idempotency_key}
+X-EmbodiedLab-Cancel-Token: {cancel_token}
 ```
 
-Example payload:
+Use the complete canonical payload at
+[`tests/fixtures/envforge/navigation_default_scenario_bundle.json`](tests/fixtures/envforge/navigation_default_scenario_bundle.json).
+The canonical fixture makes the world, robot, sensor, reward, and training
+configuration explicit instead of relying on schema defaults.
 
-```json
-{
-  "schema_version": "scenario-bundle.v0",
-  "scenario_id": "navigation-demo",
-  "world": {
-    "bounds": {
-      "min": {"x": 0.0, "z": 0.0},
-      "max": {"x": 10.0, "z": 10.0}
-    },
-    "goal": {
-      "id": "goal_001",
-      "position": {"x": 8.5, "z": 8.5},
-      "radius": 0.5
-    }
-  },
-  "robot": {
-    "type": "simple_robot",
-    "radius": 0.45,
-    "start_pose": {
-      "position": {"x": 1.0, "z": 1.0},
-      "rotation_y_degrees": 0.0
-    }
-  },
-  "training": {
-    "algorithm": "ppo",
-    "timesteps": 5000
-  }
-}
-```
+The recovery headers are optional, but clients must send both or neither.
+`make submit` generates and persists both values so an identical retry can
+recover the same submission.
 
 Response:
 
@@ -152,7 +131,7 @@ Response:
 {
   "status": "accepted",
   "submission_id": "...",
-  "cancel_token": "..."
+  "cancel_token": "example_cancel_token_0123456789abcdef"
 }
 ```
 
@@ -168,6 +147,9 @@ POST /submissions/{submission_id}/train
 
 This creates or replaces `results/{submission_id}` with `queued` status, then
 starts the configured Cloud Run Job with `SUBMISSION_ID`.
+Creating a submission does not start training. This endpoint is currently a
+separate operation and is not idempotent; retrying it may start another Cloud
+Run execution.
 
 ### Cancel Training
 
@@ -196,6 +178,16 @@ Result documents include:
   and structured failure details
 - `error`: failure detail when failed
 
+Canonical artifacts exist only under `result_bundle.artifacts`:
+
+- `onnx_model`: opset 17 model with `obs_0` and `obs_1` inputs
+- `sentis_model`: opset 15 model with one fixed-length observation input
+- `model`: compatibility alias for `policy.onnx`
+- `replay_bundle`: manifest location for gzip JSONL train and evaluation chunks
+
+See the complete canonical result at
+[`tests/fixtures/envforge/navigation_completed_result_document.json`](tests/fixtures/envforge/navigation_completed_result_document.json).
+
 ### Stream Result Updates
 
 ```http
@@ -203,7 +195,8 @@ GET /ws/results/{submission_id}
 ```
 
 Clients can subscribe to live status updates through the notification service.
-The notification service also sends an initial connection message:
+The notification service sends an initial connection message, followed by the
+latest Firestore Result Document when one exists:
 
 ```json
 {
@@ -329,11 +322,20 @@ Submit the sample payload:
 make submit
 ```
 
+To submit another complete Scenario Bundle, override the fixture explicitly:
+
+```bash
+make submit SUBMISSION_PAYLOAD=path/to/scenario.json
+```
+
 Start training for the last submission:
 
 ```bash
 make train
 ```
+
+This is currently a separate, non-idempotent operation. Do not retry it unless
+starting another Cloud Run execution is intended.
 
 Fetch the last result:
 
@@ -355,7 +357,7 @@ The current implementation supports:
 - A simple robot descriptor
 - PPO training through Stable-Baselines3
 - Firestore-backed submissions and results
-- GCS model artifact upload
+- GCS model and Replay Bundle artifact upload
 - Pub/Sub-backed result notifications
 - capability-protected Cloud Run job cancellation
 - Cloud Run API, Cloud Run Job, and WebSocket relay deployment

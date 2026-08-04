@@ -122,7 +122,7 @@ X-EmbodiedLab-Cancel-Token: <32文字以上のURL-safe cancellation capability>
     "goal": {
       "id": "goal_001",
       "position": { "x": 8.5, "z": 8.5 },
-      "radius": 0.5
+      "radius": 0.45
     }
   },
   "robot": {
@@ -281,7 +281,7 @@ bootstrap では `roles/run.viewer` を付与する。キャンセルは project
     "score": 6.4,
     "episodes": 20,
     "obstacle_count": 1,
-    "goal": { "x": 8.5, "z": 8.5, "radius": 0.5 },
+    "goal": { "x": 8.5, "z": 8.5, "radius": 0.45 },
     "robot_start": {
       "x": 1.0,
       "z": 1.0,
