@@ -193,8 +193,8 @@ Result documents include:
 A `completed` result always contains a non-null `result_bundle`. A `failed`
 result always contains a non-empty top-level `error`; it also contains a failed
 `result_bundle` when the trainer had a validated Scenario Bundle from which it
-could build compatibility and configuration metadata. Earlier submission or
-scenario failures leave `result_bundle` as `null`.
+could build compatibility metadata. Earlier submission or scenario failures
+leave `result_bundle` as `null`.
 
 Canonical artifacts exist only under `result_bundle.artifacts`:
 
