@@ -722,7 +722,7 @@ def build_result_bundle(  # noqa: PLR0913
     scenario: ScenarioBundle,
     job_id: str,
     status: ResultStatus,
-    summary: dict[str, Any] | None = None,
+    summary: TrainingSummary | dict[str, Any] | None = None,
     artifacts: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> ResultBundle:

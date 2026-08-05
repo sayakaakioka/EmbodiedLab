@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from embodiedlab.training.training_converter import describe_runtime_conversion
 from tests.fakes import (
     completed_artifacts,
@@ -63,6 +66,31 @@ def test_execute_training_run_uploads_replay_bundle():
     }
     assert captured["upload"]["replay_bundle_dir"].endswith("replay_bundle")
     assert execution.result_bundle.artifacts.replay_bundle is not None
+
+
+def test_execute_training_run_validates_summary_before_upload():
+    inputs = parse_training_submission(
+        {"scenario": scenario_bundle().model_dump(mode="json")},
+    )
+    upload_calls = []
+
+    def upload_model(**kwargs):
+        upload_calls.append(kwargs)
+        return completed_artifacts("model-bucket", "submission-1")
+
+    with pytest.raises(ValidationError):
+        execute_training_run(
+            inputs=inputs,
+            model_bucket="model-bucket",
+            submission_id="submission-1",
+            train_model=lambda **_kwargs: {
+                "summary": {},
+                "replay_bundle_dir": "replay_bundle",
+            },
+            upload_model=upload_model,
+        )
+
+    assert upload_calls == []
 
 
 def test_parse_training_submission_uses_continuous_runtime_spec():

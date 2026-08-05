@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from embodiedlab.result_models import (
     ResultBundle,
     ResultStatus,
+    TrainingSummary,
     build_result_bundle,
 )
 from embodiedlab.training.training_config import TrainingConfig
@@ -90,6 +91,7 @@ def execute_training_run(  # noqa: PLR0913
             train_kwargs["diagnostic_callback"] = diagnostic_callback
 
         training_output = train_model(**train_kwargs)
+        summary = TrainingSummary.model_validate(training_output["summary"])
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
@@ -102,7 +104,7 @@ def execute_training_run(  # noqa: PLR0913
         scenario=inputs.scenario,
         job_id=submission_id,
         status=ResultStatus.COMPLETED,
-        summary=training_output["summary"],
+        summary=summary,
         artifacts=artifacts,
     )
 
