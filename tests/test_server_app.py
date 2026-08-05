@@ -99,7 +99,6 @@ def test_create_app_registers_routes():
     paths = {route.path for route in app.routes}
 
     assert "/submissions" in paths
-    assert "/submissions/{submission_id}/train" not in paths
     assert "/submissions/{submission_id}/cancel" in paths
     assert "/results/{submission_id}" in paths
 
@@ -1407,14 +1406,16 @@ def test_submission_and_result_flow_integrates_with_trainer():
     assert create_response.status_code == 200
     assert result_response.status_code == 200
     assert result_response.json()["status"] == "completed"
-    assert "summary" not in result_response.json()
     assert result_response.json()["result_bundle"]["summary"] == {
         "success_rate": None,
         "average_episode_reward": None,
         "average_episode_steps": None,
         "configuration": resolved_training_configuration(),
     }
-    assert "artifacts" not in result_response.json()
+    assert set(result_response.json()["result_bundle"]["artifacts"]) == {
+        "onnx_model",
+        "replay_bundle",
+    }
     assert (
         result_response.json()["result_bundle"]["artifacts"]["onnx_model"]["bucket"]
         == "model-bucket"

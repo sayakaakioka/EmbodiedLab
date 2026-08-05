@@ -45,7 +45,6 @@ def test_canonical_scenario_bundle_is_valid():
         "front_camera",
         "goal_vector",
     ]
-    assert "envforge_min_version" not in payload["compatibility"]
     assert payload["world"]["coordinate_system"] == "left_handed_y_up_meters"
     assert scenario.training.algorithm == "ppo"
     assert scenario.training.max_episode_steps == 512
@@ -56,9 +55,9 @@ def test_scenario_bundle_requires_all_wire_fields():
         ScenarioBundle.model_validate({})
 
 
-def test_scenario_bundle_rejects_deleted_nested_compatibility_field():
+def test_scenario_bundle_rejects_unknown_nested_fields():
     payload = scenario_payload()
-    payload["compatibility"]["envforge_min_version"] = "0.1.0"
+    payload["compatibility"]["unexpected"] = True
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ScenarioBundle.model_validate(payload)

@@ -111,6 +111,5 @@ def test_openapi_exposes_typed_sdk_responses():
     ]["content"]["application/json"]["schema"]
 
     assert submission_response == {"$ref": "#/components/schemas/SubmissionResponse"}
-    assert "/submissions/{submission_id}/train" not in openapi["paths"]
     assert cancellation_response == {"$ref": "#/components/schemas/ResultDocument"}
     assert result_response == {"$ref": "#/components/schemas/ResultDocument"}

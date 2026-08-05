@@ -44,6 +44,13 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 SHA256 = "0" * 64
 
 
+def _completed_result_document_payload():
+    fixture_path = (
+        FIXTURE_DIR / "envforge" / "navigation_completed_result_document.json"
+    )
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+
 def _training_configuration():
     return resolved_training_configuration()
 
@@ -59,9 +66,16 @@ def test_build_queued_result_document_returns_firestore_payload():
         "total_steps": 0,
         "message": "Queued",
     }
-    assert "summary" not in payload
     assert payload["error"] is None
-    assert "artifacts" not in payload
+    assert payload["result_bundle"] is None
+    assert set(payload) == {
+        "submission_id",
+        "status",
+        "progress",
+        "error",
+        "result_bundle",
+        "updated_at",
+    }
     assert isinstance(payload["updated_at"], str)
 
 
@@ -115,7 +129,7 @@ def test_parse_result_message_validates_and_normalizes_payload():
     assert parsed["submission_id"] == "submission-1"
     assert parsed["status"] == "running"
     assert parsed["progress"]["phase"] == "running"
-    assert "artifacts" not in parsed
+    assert parsed["result_bundle"] is None
 
 
 def test_result_message_rejects_unknown_progress_fields():
@@ -227,7 +241,7 @@ def test_result_bundle_serializes_downloadable_artifacts():
 
     assert payload["schema_version"] == "result-bundle.v0"
     assert payload["compatibility"]["action_layout"] == ["forward", "turn"]
-    assert "model" not in payload["artifacts"]
+    assert set(payload["artifacts"]) == {"onnx_model", "replay_bundle"}
     assert payload["artifacts"]["onnx_model"]["path"].endswith("policy.onnx")
     assert payload["artifacts"]["replay_bundle"]["format"] == "json"
 
@@ -276,42 +290,31 @@ def test_replay_manifest_artifact_rejects_non_json_format():
 
 
 def test_completed_result_document_fixture_matches_contract():
-    fixture_path = (
-        FIXTURE_DIR / "envforge" / "navigation_completed_result_document.json"
-    )
-    payload = json.loads(fixture_path.read_text(encoding="utf-8"))
+    payload = _completed_result_document_payload()
 
     document = ResultDocument.model_validate(payload)
     result_bundle = ResultBundle.model_validate(document.result_bundle)
 
     assert document.model_dump(mode="json") == payload
     assert result_bundle.model_dump(mode="json") == payload["result_bundle"]
-    assert "artifacts" not in payload
     assert result_bundle.artifacts.onnx_model is not None
     assert result_bundle.artifacts.replay_bundle is not None
 
 
 def test_result_document_rejects_unknown_top_level_fields():
+    payload = _completed_result_document_payload()
+    payload["unexpected"] = True
+
     with pytest.raises(ValidationError):
-        ResultDocument.model_validate(
-            {
-                "submission_id": "submission-1",
-                "status": "completed",
-                "private_control": {"secret": "must-not-leak"},
-            },
-        )
+        ResultDocument.model_validate(payload)
 
 
 def test_result_bundle_rejects_unknown_top_level_fields():
+    payload = _completed_result_document_payload()["result_bundle"]
+    payload["unexpected"] = True
+
     with pytest.raises(ValidationError):
-        ResultBundle.model_validate(
-            {
-                "scenario_id": "scenario_demo_001",
-                "job_id": "job_001",
-                "status": "completed",
-                "legacy_artifacts": {},
-            },
-        )
+        ResultBundle.model_validate(payload)
 
 
 def test_completed_result_bundle_requires_summary_and_every_artifact():
@@ -601,7 +604,7 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
 
     payload = bundle.model_dump(mode="json")
 
-    assert "model" not in payload["artifacts"]
+    assert set(payload["artifacts"]) == {"onnx_model", "replay_bundle"}
     assert payload["artifacts"]["replay_bundle"] == {
         "storage": "gcs",
         "bucket": "embodiedlab-models",
@@ -610,33 +613,3 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
         "size_bytes": 1,
         "sha256": SHA256,
     }
-
-
-def test_build_result_bundle_rejects_removed_compatibility_fields():
-    artifacts = completed_artifacts("embodiedlab-models", "job_001")
-    artifacts["sentis_model"] = artifacts["onnx_model"]
-
-    with pytest.raises(ValidationError):
-        build_result_bundle(
-            scenario=scenario_bundle(),
-            job_id="job_001",
-            status=ResultStatus.COMPLETED,
-            summary={
-                "success_rate": None,
-                "average_episode_reward": None,
-                "average_episode_steps": None,
-                "configuration": _training_configuration(),
-            },
-            artifacts=artifacts,
-        )
-
-    with pytest.raises(ValidationError):
-        build_result_bundle(
-            scenario=scenario_bundle(),
-            job_id="job_001",
-            status=ResultStatus.COMPLETED,
-            summary={
-                "training_configuration": _training_configuration(),
-            },
-            artifacts=completed_artifacts("embodiedlab-models", "job_001"),
-        )

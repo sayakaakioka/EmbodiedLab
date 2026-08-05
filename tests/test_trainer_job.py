@@ -101,8 +101,6 @@ def test_run_training_job_updates_result_to_completed():
     payloads = result_repository.payloads_for("submission-1")
     statuses = [payload["data"]["status"] for payload in payloads]
     assert statuses == ["starting", "running", "completed"]
-    assert "summary" not in payloads[-1]["data"]
-    assert "artifacts" not in payloads[-1]["data"]
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
     )
@@ -112,7 +110,10 @@ def test_run_training_job_updates_result_to_completed():
         "average_episode_steps": None,
         "configuration": resolved_training_configuration(),
     }
-    assert "model" not in payloads[-1]["data"]["result_bundle"]["artifacts"]
+    assert set(payloads[-1]["data"]["result_bundle"]["artifacts"]) == {
+        "onnx_model",
+        "replay_bundle",
+    }
     assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["onnx_model"]["path"]
         == "results/submission-1/model/policy.onnx"
