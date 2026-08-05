@@ -26,6 +26,7 @@ from tests.fakes import (
     FakeSubmissionRepository,
     completed_artifacts,
     resolved_training_configuration,
+    resolved_training_summary,
     result_document,
     scenario_payload,
 )
@@ -1375,10 +1376,8 @@ def test_submission_and_result_flow_integrates_with_trainer():
             create_submission_repository=lambda db: submission_repository,
             create_result_repository=lambda db: result_repository,
             train_model=lambda **kwargs: {
-                "score": 1.0,
-                "training_configuration": resolved_training_configuration(),
+                "summary": resolved_training_summary(),
                 "replay_bundle_dir": "replay_bundle",
-                "replay_manifest": {"schema_version": "replay-bundle.v0"},
             },
             upload_model=lambda **kwargs: completed_artifacts(
                 "model-bucket",

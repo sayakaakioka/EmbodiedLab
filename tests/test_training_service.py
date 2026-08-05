@@ -3,7 +3,7 @@ from pathlib import Path
 from embodiedlab.training.training_converter import describe_runtime_conversion
 from tests.fakes import (
     completed_artifacts,
-    resolved_training_configuration,
+    resolved_training_summary,
     scenario_bundle,
 )
 from trainer.training_service import execute_training_run, parse_training_submission
@@ -25,10 +25,8 @@ def test_execute_training_run_uploads_replay_bundle():
             "job_id": job_id,
         }
         return {
-            "score": 1.0,
-            "training_configuration": resolved_training_configuration(),
+            "summary": resolved_training_summary(),
             "replay_bundle_dir": str(replay_bundle_dir),
-            "replay_manifest": {"schema_version": "replay-bundle.v0"},
         }
 
     def upload_model(

@@ -94,24 +94,17 @@ class ModelOutput(ContractModel):
     action_mapping: dict[str, str] | None
 
 
-class ModelArtifactLocation(ArtifactLocation):
-    """Model artifact location with Unity compatibility metadata."""
+class OnnxModelArtifactLocation(ArtifactLocation):
+    """Canonical ONNX Runtime artifact metadata."""
 
     format: Literal["onnx"]
-    target: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
-    opset_version: int = Field(ge=1)
+    target: Literal["onnx-runtime"]
+    opset_version: Literal[18]
     inputs: list[ModelInput] = Field(
         min_length=1,
         max_length=MAX_MODEL_IO_ENTRIES,
     )
     output: ModelOutput
-
-
-class OnnxModelArtifactLocation(ModelArtifactLocation):
-    """Canonical ONNX Runtime artifact metadata."""
-
-    target: Literal["onnx-runtime"]
-    opset_version: Literal[18]
 
 
 class ResultCompatibility(ContractModel):
@@ -752,26 +745,6 @@ class ResultUpdate(ContractModel):
         return self
 
 
-def _artifact_from_payload(
-    payload: dict[str, Any] | None,
-) -> ArtifactLocation | None:
-    """Convert an uploaded artifact dict into a ResultBundle location."""
-    if payload is None:
-        return None
-
-    return ArtifactLocation.model_validate(payload)
-
-
-def _model_artifact_from_payload(
-    payload: dict[str, Any] | None,
-) -> OnnxModelArtifactLocation | None:
-    """Convert an uploaded model dict into compatibility-aware metadata."""
-    if payload is None:
-        return None
-
-    return OnnxModelArtifactLocation.model_validate(payload)
-
-
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     """Build client compatibility metadata from the submitted scenario."""
     camera = next(
@@ -789,22 +762,6 @@ def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     )
 
 
-def build_training_summary(summary: dict[str, Any]) -> TrainingSummary:
-    """Normalize the current runner summary into the ResultBundle summary."""
-    return TrainingSummary(
-        success_rate=summary.get("success_rate"),
-        average_episode_reward=summary.get(
-            "average_episode_reward",
-            summary.get("avg_reward"),
-        ),
-        average_episode_steps=summary.get(
-            "average_episode_steps",
-            summary.get("avg_steps"),
-        ),
-        configuration=summary["training_configuration"],
-    )
-
-
 def build_result_bundle(  # noqa: PLR0913
     *,
     scenario: ScenarioBundle,
@@ -815,7 +772,6 @@ def build_result_bundle(  # noqa: PLR0913
     error: str | None = None,
 ) -> ResultBundle:
     """Build the client-facing ResultBundle from trainer outputs."""
-    artifacts = artifacts or {}
     result_error = (
         ErrorReport(message=error, details=None) if error is not None else None
     )
@@ -825,12 +781,16 @@ def build_result_bundle(  # noqa: PLR0913
         job_id=job_id,
         status=status,
         compatibility=build_result_compatibility(scenario),
-        summary=build_training_summary(summary) if summary is not None else None,
-        artifacts=ResultArtifacts(
-            onnx_model=_model_artifact_from_payload(
-                artifacts.get("onnx_model"),
-            ),
-            replay_bundle=_artifact_from_payload(artifacts.get("replay_bundle")),
+        summary=(
+            TrainingSummary.model_validate(summary) if summary is not None else None
+        ),
+        artifacts=ResultArtifacts.model_validate(
+            artifacts
+            if artifacts is not None
+            else {
+                "onnx_model": None,
+                "replay_bundle": None,
+            },
         ),
         error=result_error,
     )

@@ -89,22 +89,20 @@ def execute_training_run(  # noqa: PLR0913
         if diagnostic_callback is not None:
             train_kwargs["diagnostic_callback"] = diagnostic_callback
 
-        summary = train_model(**train_kwargs)
-        replay_bundle_dir = summary.pop("replay_bundle_dir")
-        summary.pop("replay_manifest")
+        training_output = train_model(**train_kwargs)
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
             submission_id=submission_id,
             scenario=inputs.scenario,
-            replay_bundle_dir=replay_bundle_dir,
+            replay_bundle_dir=training_output["replay_bundle_dir"],
         )
 
     result_bundle = build_result_bundle(
         scenario=inputs.scenario,
         job_id=submission_id,
         status=ResultStatus.COMPLETED,
-        summary=summary,
+        summary=training_output["summary"],
         artifacts=artifacts,
     )
 

@@ -138,6 +138,16 @@ def resolved_training_configuration() -> dict:
     }
 
 
+def resolved_training_summary() -> dict:
+    """Return a complete canonical training summary for test doubles."""
+    return {
+        "success_rate": None,
+        "average_episode_reward": None,
+        "average_episode_steps": None,
+        "configuration": resolved_training_configuration(),
+    }
+
+
 def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
     """Return all downloadable artifacts required by a completed result."""
     integrity = {"size_bytes": 1, "sha256": TEST_SHA256}
@@ -207,9 +217,7 @@ def result_document(
             scenario=scenario_bundle(),
             job_id=submission_id,
             status=status,
-            summary={
-                "training_configuration": resolved_training_configuration(),
-            },
+            summary=resolved_training_summary(),
             artifacts=completed_artifacts("model-bucket", submission_id),
         )
     elif status is ResultStatus.FAILED:

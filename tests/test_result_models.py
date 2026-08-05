@@ -243,7 +243,7 @@ def test_model_artifact_rejects_non_onnx_format():
                 "size_bytes": 1,
                 "sha256": SHA256,
                 "target": "onnx-runtime",
-                "opset_version": 17,
+                "opset_version": 18,
                 "inputs": [
                     {
                         "name": "obs_0",
@@ -543,7 +543,10 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
         job_id="job_001",
         status=ResultStatus.COMPLETED,
         summary={
-            "training_configuration": _training_configuration(),
+            "success_rate": None,
+            "average_episode_reward": None,
+            "average_episode_steps": None,
+            "configuration": _training_configuration(),
         },
         artifacts={
             "onnx_model": {
@@ -607,3 +610,33 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
         "size_bytes": 1,
         "sha256": SHA256,
     }
+
+
+def test_build_result_bundle_rejects_removed_compatibility_fields():
+    artifacts = completed_artifacts("embodiedlab-models", "job_001")
+    artifacts["sentis_model"] = artifacts["onnx_model"]
+
+    with pytest.raises(ValidationError):
+        build_result_bundle(
+            scenario=scenario_bundle(),
+            job_id="job_001",
+            status=ResultStatus.COMPLETED,
+            summary={
+                "success_rate": None,
+                "average_episode_reward": None,
+                "average_episode_steps": None,
+                "configuration": _training_configuration(),
+            },
+            artifacts=artifacts,
+        )
+
+    with pytest.raises(ValidationError):
+        build_result_bundle(
+            scenario=scenario_bundle(),
+            job_id="job_001",
+            status=ResultStatus.COMPLETED,
+            summary={
+                "training_configuration": _training_configuration(),
+            },
+            artifacts=completed_artifacts("embodiedlab-models", "job_001"),
+        )

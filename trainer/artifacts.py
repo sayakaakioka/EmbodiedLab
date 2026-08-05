@@ -46,17 +46,11 @@ _PYTORCH_LEAFSPEC_WARNING = (
 _PYTORCH_LEAFSPEC_WARNING_PATTERN = rf"^{re.escape(_PYTORCH_LEAFSPEC_WARNING)}$"
 
 
-class _OptionalTorchvisionRegistrationFilter(logging.Filter):
+def _keep_relevant_onnx_registration_logs(record: logging.LogRecord) -> bool:
     """Hide only unavailable optional torchvision operator registrations."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Keep every log except the expected unused torchvision registrations."""
-        return not (
-            record.name == "torch.onnx._internal.exporter._registration"
-            and record.getMessage().startswith(
-                "torchvision is not installed. Skipping torchvision::",
-            )
-        )
+    return not record.getMessage().startswith(
+        "torchvision is not installed. Skipping torchvision::",
+    )
 
 
 class OnnxableContinuousNavigationPolicy(torch.nn.Module):
@@ -220,8 +214,7 @@ def export_model_to_onnx(
     registration_logger = logging.getLogger(
         "torch.onnx._internal.exporter._registration",
     )
-    registration_filter = _OptionalTorchvisionRegistrationFilter()
-    registration_logger.addFilter(registration_filter)
+    registration_logger.addFilter(_keep_relevant_onnx_registration_logs)
     try:
         with warnings.catch_warnings():
             # PyTorch 2.13.0 deep-copies LeafSpec during Dynamo export. Remove
@@ -234,8 +227,8 @@ def export_model_to_onnx(
             warnings.filterwarnings(
                 "ignore",
                 message=(
-                    r"Anomaly Detection has been enabled\. This mode will increase "
-                    r"the runtime and should only be enabled for debugging\."
+                    r"^Anomaly Detection has been enabled\. This mode will increase "
+                    r"the runtime and should only be enabled for debugging\.$"
                 ),
                 category=UserWarning,
             )
@@ -255,7 +248,7 @@ def export_model_to_onnx(
                 verbose=False,
             )
     finally:
-        registration_logger.removeFilter(registration_filter)
+        registration_logger.removeFilter(_keep_relevant_onnx_registration_logs)
     _validate_exported_onnx(
         onnx_path,
         expected_opset=18,
