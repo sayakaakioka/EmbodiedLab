@@ -9,7 +9,9 @@ Scenario Bundle を continuous navigation runtime へ変換し、Cloud Run Job �
 Stable-Baselines3 PPO により方策を学習する。成果物は Google Cloud Storage に
 保存し、Firestore、Pub/Sub、WebSocket を通して状態更新を届ける。
 
-次のプロダクト方針は、EmbodiedLab を EnvForge と接続することである。
+現在のプロダクト方針は、EmbodiedLab、`EmbodiedLab.Unity`、EnvForge を
+明示的な契約で接続し、同じ学習結果を再利用可能な Unity SDK と専用 frontend の
+両方から扱える状態を維持することである。
 EnvForge は、ユーザがロボット学習用シナリオを作る Unity アプリである。
 ユーザは壁や障害物を配置し、用意されたロボットとセンサを設定し、
 報酬体系を定義し、シナリオをクラウドへ送信する。
@@ -37,12 +39,18 @@ Scenario Bundle、continuous navigation runtime、宣言的 reward component、
 Result Bundle、Replay Bundle、ONNX artifact の主経路まで実装済みである。
 
 汎用 Unity client 機能は、独立した `EmbodiedLab.Unity` UPM package として
-分離済みである。現在は EmbodiedLab の Pydantic model と versioned JSON Schema を
+分離済みである。EmbodiedLab の Pydantic model と versioned JSON Schema を
 wire contract の正本とし、SDK の generated DTO、canonical fixture、transport test を
 同じ契約へ同期している。Scenario の実行値、学習値、観測 shape は JSON を正本とし、
-downloadable artifact は bytes 数と SHA-256 を持つ。次にこの更新を
-`EmbodiedLab.Unity` の公開 API と tutorial へ同期し、その後に EnvForge を SDK 利用へ
-移行する。
+downloadable artifact は bytes 数と SHA-256 を持つ。
+
+`EmbodiedLab.Unity` は server-owned job lifecycle、artifact 検証、Replay 読み込み、
+Windows x64 ONNX inference を提供し、固定環境の Quickstart は SDK の主要 API を順に
+確認できるチュートリアルへ整理済みである。EnvForge も同じ SDK revision と厳密な
+v0 contract へ移行し、旧 client、重複 DTO、重複 Replay／artifact 実装を削除済みである。
+
+現在は、三つのリポジトリを横断する人間のレビューと end-to-end 検証を行い、
+package version、tag、release、対応 platform の運用を確定する段階である。
 
 その後、学習環境の生成モードを次の二つへ拡張する。
 

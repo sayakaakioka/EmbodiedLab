@@ -154,7 +154,7 @@ def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
             "format": "onnx",
             **integrity,
             "target": "onnx-runtime",
-            "opset_version": 17,
+            "opset_version": 18,
             "inputs": [
                 {
                     "name": "obs_0",
@@ -167,24 +167,6 @@ def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
                     "shape": [-1, 2],
                     "dtype": "float32",
                     "layout": ["batch", "goal_vector"],
-                },
-            ],
-            "output": output,
-        },
-        "sentis_model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": f"results/{submission_id}/model/policy.sentis.onnx",
-            "format": "onnx",
-            **integrity,
-            "target": "unity-sentis",
-            "opset_version": 15,
-            "inputs": [
-                {
-                    "name": "observation",
-                    "shape": [1, 28226],
-                    "dtype": "float32",
-                    "layout": ["batch", "flattened_observation"],
                 },
             ],
             "output": output,

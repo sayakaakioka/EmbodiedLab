@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 TrainingProgressCallback = Callable[[int, int], None]
 TrainingDiagnosticCallback = Callable[[str, dict[str, object]], None]
 PROGRESS_LOG_INTERVAL_STEPS = 10_000
-SUBPROC_START_METHOD = "fork"
+SUBPROC_START_METHOD = "forkserver"
 TrainingEnv = ContinuousNavigationEnv | VecEnv
 
 

@@ -120,11 +120,10 @@ completed `ResultBundle` は次を必須とする。
 - metrics と、実行時に解決した Stable-Baselines3 version、全 PPO 値、CPU/thread 数、
   Replay 設定を含む training configuration
 - `policy.onnx`
-- `policy.sentis.onnx`
 - Replay Bundle の `manifest.json`
 
-公開する3成果物は `storage`、`bucket`、`path`、`format`、`size_bytes`、`sha256` を持つ。
-両 model artifact は target、opset、input/output metadata も持つ。`policy.zip` と重複した
+公開する2成果物は `storage`、`bucket`、`path`、`format`、`size_bytes`、`sha256` を持つ。
+model artifact は target、opset、input/output metadata も持つ。`policy.zip` と重複した
 `model` field は公開しない。artifact metadata の格納先は
 `result_bundle.artifacts` だけであり、Result Document top-level へ複製しない。
 

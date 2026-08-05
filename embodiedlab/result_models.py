@@ -111,14 +111,7 @@ class OnnxModelArtifactLocation(ModelArtifactLocation):
     """Canonical ONNX Runtime artifact metadata."""
 
     target: Literal["onnx-runtime"]
-    opset_version: Literal[17]
-
-
-class SentisModelArtifactLocation(ModelArtifactLocation):
-    """Canonical Unity Sentis artifact metadata."""
-
-    target: Literal["unity-sentis"]
-    opset_version: Literal[15]
+    opset_version: Literal[18]
 
 
 class ResultCompatibility(ContractModel):
@@ -198,7 +191,6 @@ class ResultArtifacts(ContractModel):
     model_config = ConfigDict(extra="forbid")
 
     onnx_model: OnnxModelArtifactLocation | None
-    sentis_model: SentisModelArtifactLocation | None
     replay_bundle: ArtifactLocation | None
 
 
@@ -225,7 +217,6 @@ class ResultBundle(ContractModel):
                         "artifacts": {
                             "properties": {
                                 "onnx_model": {"not": {"type": "null"}},
-                                "sentis_model": {"not": {"type": "null"}},
                                 "replay_bundle": {"not": {"type": "null"}},
                             },
                         },
@@ -239,7 +230,6 @@ class ResultBundle(ContractModel):
                         "artifacts": {
                             "properties": {
                                 "onnx_model": {"type": "null"},
-                                "sentis_model": {"type": "null"},
                                 "replay_bundle": {"type": "null"},
                             },
                         },
@@ -268,7 +258,6 @@ class ResultBundle(ContractModel):
                 raise ValueError(msg)
             if (
                 self.artifacts.onnx_model is None
-                or self.artifacts.sentis_model is None
                 or self.artifacts.replay_bundle is None
             ):
                 msg = "completed result bundles require all downloadable artifacts"
@@ -284,7 +273,6 @@ class ResultBundle(ContractModel):
                 artifact is not None
                 for artifact in (
                     self.artifacts.onnx_model,
-                    self.artifacts.sentis_model,
                     self.artifacts.replay_bundle,
                 )
             ):
@@ -776,13 +764,12 @@ def _artifact_from_payload(
 
 def _model_artifact_from_payload(
     payload: dict[str, Any] | None,
-    artifact_type: type[OnnxModelArtifactLocation | SentisModelArtifactLocation],
-) -> OnnxModelArtifactLocation | SentisModelArtifactLocation | None:
+) -> OnnxModelArtifactLocation | None:
     """Convert an uploaded model dict into compatibility-aware metadata."""
     if payload is None:
         return None
 
-    return artifact_type.model_validate(payload)
+    return OnnxModelArtifactLocation.model_validate(payload)
 
 
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
@@ -842,11 +829,6 @@ def build_result_bundle(  # noqa: PLR0913
         artifacts=ResultArtifacts(
             onnx_model=_model_artifact_from_payload(
                 artifacts.get("onnx_model"),
-                OnnxModelArtifactLocation,
-            ),
-            sentis_model=_model_artifact_from_payload(
-                artifacts.get("sentis_model"),
-                SentisModelArtifactLocation,
             ),
             replay_bundle=_artifact_from_payload(artifacts.get("replay_bundle")),
         ),

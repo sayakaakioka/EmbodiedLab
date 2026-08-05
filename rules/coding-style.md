@@ -13,8 +13,8 @@
   `ResultBundle.artifacts`. GCS artifacts use
   `{ "storage": "gcs", "bucket": "...", "path": "...", "format": "...",
   "size_bytes": 123, "sha256": "..." }`; completed results include
-  `onnx_model` (`policy.onnx`), `sentis_model`
-  (`policy.sentis.onnx`), and `replay_bundle`, each with byte size and SHA-256.
+  `onnx_model` (`policy.onnx`) and `replay_bundle`, each with byte size and
+  SHA-256.
   Result documents and events do not duplicate summary or artifact values at
   the top level.
 

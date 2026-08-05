@@ -34,7 +34,7 @@ Bundle, and Replay Log formats.
 This repository currently contains an early prototype rather than a production
 backend. The current implementation accepts EnvForge Scenario Bundle training
 requests through a FastAPI service, stores submissions and results in Firestore,
-launches a Cloud Run Job for training, uploads ONNX/Sentis/replay artifacts to
+launches a Cloud Run Job for training, uploads ONNX/replay artifacts to
 GCS, and relays result events through Pub/Sub and a WebSocket notification
 service.
 

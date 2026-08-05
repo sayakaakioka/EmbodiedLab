@@ -89,12 +89,14 @@ contract の再生成と差分検査には次を使う。
 4. 完了: WebSocket 監視、HTTP 再同期、artifact download、
    Replay Bundle 読み込みを実装する。
 5. 完了: EmbodiedLab を正本とする schema/fixture drift test を追加する。
-6. 現在: backend producer、schema、generated DTO、SDK resource limit を
-   同じ v0 contract へ厳密に揃える。
+6. 完了: backend producer、schema、generated DTO、SDK resource limit を
+   同じ v0 contract へ厳密に揃えた。
    JSON Schema で表現できない train chunk の step 範囲と Replay path 一意性は、
    Unity semantic validator と contract test で固定する。
-7. 第二段階: EnvForge を SDK 利用へ変更し、移行済みの重複コードを削除する。
-8. 後続: `generated` mode の schema/runtime と frontend 選択を追加する。
+7. 完了: EnvForge を SDK 利用へ変更し、移行済みの重複コードを削除した。
+8. 現在: 三つのリポジトリと Quickstart の人間によるレビュー、end-to-end 検証、
+   package version、tag、release 運用を確定する。
+9. 後続: `generated` mode の schema/runtime と frontend 選択を追加する。
 
 各段階は独立した Issue と PR にし、受入条件、非対象、変更可能範囲、検証コマンドを
 Issue 本文に記載する。Codex は実装、test、lint、review、文書追従まで進め、公開 API、
@@ -121,6 +123,8 @@ Issue 本文に記載する。Codex は実装、test、lint、review、文書追
 - SDK は高エントロピーの idempotency key と cancel capability を request 前に
   生成し、response 消失後も同一 submission を回収できる。
 - SDK は ONNX Runtime Quickstart と bounded Replay Bundle loader を持つ。
+- EnvForge は SDK の確定済み revision を固定し、cloud job、artifact、Replay、
+  local inference の主導線を SDK 公開 API 利用へ移行済みである。
 - canonical `navigation_default` の `goal.radius` は robot radius と同じ 0.45 m とし、
   training、Unity inference、Unity 表示の到達範囲を一致させる。
 

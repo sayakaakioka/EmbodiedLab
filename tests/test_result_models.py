@@ -19,7 +19,6 @@ from embodiedlab.result_models import (
     ResultCompatibility,
     ResultDocument,
     ResultStatus,
-    SentisModelArtifactLocation,
     TrainingSummary,
     build_queued_result_document,
     build_result_bundle,
@@ -184,7 +183,7 @@ def test_result_bundle_serializes_downloadable_artifacts():
                 size_bytes=1,
                 sha256=SHA256,
                 target="onnx-runtime",
-                opset_version=17,
+                opset_version=18,
                 inputs=[
                     {
                         "name": "obs_0",
@@ -212,33 +211,6 @@ def test_result_bundle_serializes_downloadable_artifacts():
                     "action_mapping": None,
                 },
             ),
-            sentis_model=SentisModelArtifactLocation(
-                storage="gcs",
-                bucket="embodiedlab-models",
-                path="results/job_001/model/policy.sentis.onnx",
-                format="onnx",
-                size_bytes=1,
-                sha256=SHA256,
-                target="unity-sentis",
-                opset_version=15,
-                inputs=[
-                    {
-                        "name": "observation",
-                        "shape": [1, 28226],
-                        "dtype": "float32",
-                        "layout": [
-                            "obs_0_chw_3x84x112",
-                            "obs_1_goal_angle_degrees",
-                            "obs_1_goal_distance_meters",
-                        ],
-                    },
-                ],
-                output={
-                    "name": "action",
-                    "layout": ["forward", "turn"],
-                    "action_mapping": None,
-                },
-            ),
             replay_bundle=ArtifactLocation(
                 storage="gcs",
                 bucket="embodiedlab-models",
@@ -257,11 +229,6 @@ def test_result_bundle_serializes_downloadable_artifacts():
     assert payload["compatibility"]["action_layout"] == ["forward", "turn"]
     assert "model" not in payload["artifacts"]
     assert payload["artifacts"]["onnx_model"]["path"].endswith("policy.onnx")
-    assert payload["artifacts"]["sentis_model"]["target"] == "unity-sentis"
-    assert payload["artifacts"]["sentis_model"]["inputs"][0]["shape"] == [
-        1,
-        28226,
-    ]
     assert payload["artifacts"]["replay_bundle"]["format"] == "json"
 
 
@@ -321,7 +288,6 @@ def test_completed_result_document_fixture_matches_contract():
     assert result_bundle.model_dump(mode="json") == payload["result_bundle"]
     assert "artifacts" not in payload
     assert result_bundle.artifacts.onnx_model is not None
-    assert result_bundle.artifacts.sentis_model is not None
     assert result_bundle.artifacts.replay_bundle is not None
 
 
@@ -588,7 +554,7 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
                 "size_bytes": 1,
                 "sha256": SHA256,
                 "target": "onnx-runtime",
-                "opset_version": 17,
+                "opset_version": 18,
                 "inputs": [
                     {
                         "name": "obs_0",
@@ -607,36 +573,6 @@ def test_build_result_bundle_maps_replay_bundle_artifact_metadata():
                         "layout": [
                             "goal_angle_degrees",
                             "goal_distance_meters",
-                        ],
-                    },
-                ],
-                "output": {
-                    "name": "action",
-                    "layout": ["forward", "turn"],
-                    "action_mapping": {
-                        "forward": "sigmoid(policy_forward)",
-                        "turn": "clip(policy_turn, -3, 3) / 3",
-                    },
-                },
-            },
-            "sentis_model": {
-                "storage": "gcs",
-                "bucket": "embodiedlab-models",
-                "path": "results/job_001/model/policy.sentis.onnx",
-                "format": "onnx",
-                "size_bytes": 1,
-                "sha256": SHA256,
-                "target": "unity-sentis",
-                "opset_version": 15,
-                "inputs": [
-                    {
-                        "name": "observation",
-                        "shape": [1, 28226],
-                        "dtype": "float32",
-                        "layout": [
-                            "obs_0_chw_3x84x112",
-                            "obs_1_goal_angle_degrees",
-                            "obs_1_goal_distance_meters",
                         ],
                     },
                 ],

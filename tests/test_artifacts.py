@@ -1,3 +1,4 @@
+import copy
 import gzip
 import hashlib
 from pathlib import Path
@@ -27,20 +28,12 @@ IMAGE_SHAPE = (
     CAMERA.height,
     CAMERA.width,
 )
-SENTIS_OBSERVATION_SIZE = int(np.prod(IMAGE_SHAPE)) + len(GOAL_VECTOR.values)
 
 
 def fake_onnx_export(local_model_base_path, scenario):
     assert scenario == SCENARIO
     path = Path(f"{local_model_base_path}.onnx")
     path.write_bytes(b"onnx")
-    return str(path)
-
-
-def fake_sentis_export(local_model_base_path, scenario):
-    assert scenario == SCENARIO
-    path = Path(f"{local_model_base_path}.sentis.onnx")
-    path.write_bytes(b"sentis")
     return str(path)
 
 
@@ -275,21 +268,15 @@ def test_onnxable_policy_maps_zero_raw_action_to_half_forward():
     assert torch.allclose(action, torch.tensor([[0.5, 0.0]], dtype=torch.float32))
 
 
-def test_sentis_policy_accepts_flattened_environment_observation():
-    policy = FakePolicy([[0.0, 0.0]])
-    sentis_policy = artifacts.SentisContinuousNavigationPolicy(
-        policy,
-        image_observation_name=CAMERA.observation_name,
-        goal_vector_observation_name=GOAL_VECTOR.observation_name,
-        image_shape=IMAGE_SHAPE,
-        goal_vector_size=len(GOAL_VECTOR.values),
-    )
+def test_pytorch_leafspec_export_workaround_is_still_needed():
+    # PyTorch's Dynamo ONNX exporter deep-copies the same LeafSpec structure.
+    _leaves, leaf_spec = torch.utils._pytree.tree_flatten(0)  # noqa: SLF001
 
-    action = sentis_policy(
-        torch.zeros((1, SENTIS_OBSERVATION_SIZE), dtype=torch.float32),
-    )
-
-    assert torch.allclose(action, torch.tensor([[0.5, 0.0]], dtype=torch.float32))
+    with pytest.warns(
+        FutureWarning,
+        match=artifacts._PYTORCH_LEAFSPEC_WARNING_PATTERN,  # noqa: SLF001
+    ):
+        copy.deepcopy(leaf_spec)
 
 
 def _onnx_shape(value_info):
@@ -330,19 +317,6 @@ def test_exported_onnx_graphs_match_published_metadata(monkeypatch, tmp_path):
     ]
     assert [value.name for value in onnx_graph.graph.output] == [
         onnx_metadata["output"]["name"]
-    ]
-
-    sentis_graph = onnx.load(f"{model_path}.sentis.onnx")
-    sentis_metadata = metadata["sentis_model"]
-    assert sentis_graph.opset_import[0].version == sentis_metadata["opset_version"]
-    assert [value.name for value in sentis_graph.graph.input] == [
-        item["name"] for item in sentis_metadata["inputs"]
-    ]
-    assert [_onnx_shape(value) for value in sentis_graph.graph.input] == [
-        item["shape"] for item in sentis_metadata["inputs"]
-    ]
-    assert [value.name for value in sentis_graph.graph.output] == [
-        sentis_metadata["output"]["name"]
     ]
 
 
@@ -394,7 +368,7 @@ def test_onnx_validation_rejects_an_undeclared_non_float_input(tmp_path):
     )
     model = onnx.helper.make_model(
         graph,
-        opset_imports=[onnx.helper.make_opsetid("", 17)],
+        opset_imports=[onnx.helper.make_opsetid("", 18)],
     )
     model_path = tmp_path / "unexpected-input.onnx"
     onnx.save(model, model_path)
@@ -402,13 +376,13 @@ def test_onnx_validation_rejects_an_undeclared_non_float_input(tmp_path):
     with pytest.raises(ValueError, match="inputs do not match contract"):
         artifacts._validate_exported_onnx(  # noqa: SLF001
             str(model_path),
-            expected_opset=17,
+            expected_opset=18,
             expected_inputs={"obs_0": [-1, 2]},
             expected_output_shape=[-1, 2],
         )
 
 
-def test_upload_model_to_gcs_uploads_onnx_and_sentis_with_integrity(
+def test_upload_model_to_gcs_uploads_onnx_with_integrity(
     monkeypatch,
     tmp_path,
 ):
@@ -423,11 +397,6 @@ def test_upload_model_to_gcs_uploads_onnx_and_sentis_with_integrity(
         artifacts,
         "export_model_to_onnx",
         fake_onnx_export,
-    )
-    monkeypatch.setattr(
-        artifacts,
-        "export_model_to_sentis_onnx",
-        fake_sentis_export,
     )
     replay_dir = tmp_path / "replay_bundle"
     manifest_path, _chunk_path = _write_replay_fixture(replay_dir)
@@ -448,7 +417,7 @@ def test_upload_model_to_gcs_uploads_onnx_and_sentis_with_integrity(
             "path": "results/submission-1/model/policy.onnx",
             "format": "onnx",
             "target": "onnx-runtime",
-            "opset_version": 17,
+            "opset_version": 18,
             "size_bytes": 4,
             "sha256": hashlib.sha256(b"onnx").hexdigest(),
             "inputs": [
@@ -481,36 +450,6 @@ def test_upload_model_to_gcs_uploads_onnx_and_sentis_with_integrity(
                 },
             },
         },
-        "sentis_model": {
-            "storage": "gcs",
-            "bucket": "model-bucket",
-            "path": "results/submission-1/model/policy.sentis.onnx",
-            "format": "onnx",
-            "target": "unity-sentis",
-            "opset_version": 15,
-            "size_bytes": 6,
-            "sha256": hashlib.sha256(b"sentis").hexdigest(),
-            "inputs": [
-                {
-                    "name": "observation",
-                    "shape": [1, SENTIS_OBSERVATION_SIZE],
-                    "dtype": "float32",
-                    "layout": [
-                        "obs_0_chw_3x84x112",
-                        "obs_1_goal_angle_degrees",
-                        "obs_1_goal_distance_meters",
-                    ],
-                },
-            ],
-            "output": {
-                "name": "action",
-                "layout": ["forward", "turn"],
-                "action_mapping": {
-                    "forward": "sigmoid(policy_forward)",
-                    "turn": "clip(policy_turn, -3, 3) / 3",
-                },
-            },
-        },
         "replay_bundle": {
             "storage": "gcs",
             "bucket": "model-bucket",
@@ -523,13 +462,6 @@ def test_upload_model_to_gcs_uploads_onnx_and_sentis_with_integrity(
     assert bucket.blobs["results/submission-1/model/policy.onnx"].uploads == [
         {
             "local_path": f"{model_base_path}.onnx",
-            "content_type": "application/octet-stream",
-            "if_generation_match": 0,
-        },
-    ]
-    assert bucket.blobs["results/submission-1/model/policy.sentis.onnx"].uploads == [
-        {
-            "local_path": f"{model_base_path}.sentis.onnx",
             "content_type": "application/octet-stream",
             "if_generation_match": 0,
         },
@@ -768,11 +700,6 @@ def test_upload_model_preflights_replay_before_any_gcs_write(monkeypatch, tmp_pa
         lambda: FakeStorageClient(bucket),
     )
     monkeypatch.setattr(artifacts, "export_model_to_onnx", fake_onnx_export)
-    monkeypatch.setattr(
-        artifacts,
-        "export_model_to_sentis_onnx",
-        fake_sentis_export,
-    )
     replay_dir = tmp_path / "replay_bundle"
     _manifest_path, chunk_path = _write_replay_fixture(replay_dir)
     chunk_path.write_bytes(b"tampered")

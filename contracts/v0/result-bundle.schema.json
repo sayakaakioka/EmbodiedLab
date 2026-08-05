@@ -193,7 +193,7 @@
           "type": "array"
         },
         "opset_version": {
-          "const": 17,
+          "const": 18,
           "title": "Opset Version",
           "type": "integer"
         },
@@ -507,21 +507,10 @@
               "type": "null"
             }
           ]
-        },
-        "sentis_model": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SentisModelArtifactLocation"
-            },
-            {
-              "type": "null"
-            }
-          ]
         }
       },
       "required": [
         "onnx_model",
-        "sentis_model",
         "replay_bundle"
       ],
       "title": "ResultArtifacts",
@@ -576,78 +565,6 @@
         "observation_layout"
       ],
       "title": "ResultCompatibility",
-      "type": "object"
-    },
-    "SentisModelArtifactLocation": {
-      "additionalProperties": false,
-      "description": "Canonical Unity Sentis artifact metadata.",
-      "properties": {
-        "bucket": {
-          "maxLength": 63,
-          "minLength": 3,
-          "title": "Bucket",
-          "type": "string"
-        },
-        "format": {
-          "const": "onnx",
-          "title": "Format",
-          "type": "string"
-        },
-        "inputs": {
-          "items": {
-            "$ref": "#/$defs/ModelInput"
-          },
-          "maxItems": 16,
-          "minItems": 1,
-          "title": "Inputs",
-          "type": "array"
-        },
-        "opset_version": {
-          "const": 15,
-          "title": "Opset Version",
-          "type": "integer"
-        },
-        "output": {
-          "$ref": "#/$defs/ModelOutput"
-        },
-        "path": {
-          "maxLength": 1024,
-          "minLength": 1,
-          "title": "Path",
-          "type": "string"
-        },
-        "sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Sha256",
-          "type": "string"
-        },
-        "size_bytes": {
-          "minimum": 0,
-          "title": "Size Bytes",
-          "type": "integer"
-        },
-        "storage": {
-          "$ref": "#/$defs/ArtifactStorage"
-        },
-        "target": {
-          "const": "unity-sentis",
-          "title": "Target",
-          "type": "string"
-        }
-      },
-      "required": [
-        "storage",
-        "bucket",
-        "path",
-        "format",
-        "size_bytes",
-        "sha256",
-        "target",
-        "opset_version",
-        "inputs",
-        "output"
-      ],
-      "title": "SentisModelArtifactLocation",
       "type": "object"
     },
     "TrainingSummary": {
@@ -721,11 +638,6 @@
               "not": {
                 "type": "null"
               }
-            },
-            "sentis_model": {
-              "not": {
-                "type": "null"
-              }
             }
           }
         },
@@ -750,9 +662,6 @@
               "type": "null"
             },
             "replay_bundle": {
-              "type": "null"
-            },
-            "sentis_model": {
               "type": "null"
             }
           }

@@ -21,6 +21,7 @@ trainer = [
     "numpy",
     "torch",
     "onnx",
+    "onnxscript",
     "stable-baselines3",
     "google-cloud-pubsub",
     "google-cloud-firestore",
@@ -45,6 +46,7 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 
@@ -66,7 +68,7 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["D203", "D213"]
+ignore = ["COM812", "D203", "D213"]
 
 fixable = ["ALL"]
 unfixable = []

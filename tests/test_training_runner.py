@@ -144,7 +144,7 @@ def test_build_training_env_uses_subproc_vec_env_automatically_for_multiple_envs
             {
                 "env_kind": "subproc_vec",
                 "n_envs": 2,
-                "start_method": "fork",
+                "start_method": "forkserver",
             },
         )
     finally:

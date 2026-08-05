@@ -26,15 +26,17 @@ EnvForge / another Unity frontend
   実行する。
 - Scenario Bundle を continuous navigation runtime へ変換し、Stable-Baselines3 PPO と
   `NavigationFinalPolicy` で学習する。
-- 通常 ONNX の input 名と shape は Scenario から導出する。canonical fixture では
-  `obs_0` と `obs_1` である。Sentis ONNX は固定長 `observation` を入力とする。
+- ONNX の input 名と shape は Scenario から導出する。canonical fixture では
+  `obs_0` と `obs_1` である。
 - 成果物は `results/<submission_id>/model/` と
   `results/<submission_id>/replay/` に保存する。
 - Replay Bundle は manifest と train / eval の gzip JSONL chunk で構成する。
 - EmbodiedLab の Pydantic model と versioned JSON Schema を wire contract の正本とし、
   SDK の generated DTO、canonical fixture、contract test を同期する。
-- `EmbodiedLab.Unity` には直前の v0 契約と最小チュートリアルを実装済みである。
-  今回厳密化した v0 schema と generated DTO の再同期は次工程で行う。
+- `EmbodiedLab.Unity` は現在の厳密な v0 schema、generated DTO、semantic validator、
+  bounded artifact／Replay reader、段階的チュートリアルへ同期済みである。
+- EnvForge は同じ SDK revision を固定し、cloud job、artifact、Replay、local inference の
+  主導線を SDK 利用へ移行済みである。
 
 現行の Scenario、Result、Replay、ONNX 契約の詳細は `contracts/v0/`、
 `tests/fixtures/envforge/`、`docs/implementation/unity-sdk-roadmap.md` を正本として参照する。
@@ -55,8 +57,7 @@ cancel は永続化された capability と terminal state に基づいて安全
 
 ### 2. Unity 公開 API の整理
 
-公開 API の初期整理は実装済みで、今回の厳密化した Result / artifact contract への
-追従を進める段階である。
+公開 API と厳密な Result / artifact contract への追従は実装済みである。
 
 `EmbodiedLab.Unity` は tutorial 固有の補助クラスへ責務を隠さず、次を小さな公開 API として
 提供する。
@@ -80,9 +81,8 @@ resource、Replay 設定を Scenario Bundle から runtime へ渡し、解決済
 Result Bundle に記録する。ONNX export は保存済み policy と Scenario の observation contract
 が一致しない場合に失敗する。
 
-ONNX、Sentis ONNX、Replay manifest と Replay chunk は `size_bytes` と `sha256` を持つ。
-次は同じ schema、fixture、download 検証を
-`EmbodiedLab.Unity` へ同期する。
+ONNX、Replay manifest と Replay chunk は `size_bytes` と `sha256` を持つ。
+同じ schema、fixture、download 検証を `EmbodiedLab.Unity` と EnvForge へ同期済みである。
 
 実行結果へ影響する既定値をコードの magic number にしない。寸法、goal radius、camera、
 解像度、semantic mode、PPO、environment 数、CPU、PyTorch thread 数など、ユーザーが
@@ -92,16 +92,20 @@ ONNX の入出力 shape と layout は metadata だけでなく実 graph と照�
 
 ### 4. EnvForge の SDK 移行
 
-未着手。`EmbodiedLab.Unity` の同期と human review 完了後に行う第二段階である。
+完了。EnvForge は `EmbodiedLab.Unity` の確定済み SDK revision を固定し、cloud job、
+artifact、Replay、local inference の主導線を SDK 公開 API 利用へ移行した。
 
-公開 API と tutorial の整理後、EnvForge の重複 client / contract / replay / inference
-実装を `EmbodiedLab.Unity` 利用へ置き換える。移行時は以下を横断検証する。
+重複 client、contract DTO、artifact download、Replay parse、ONNX Runtime binary は
+移行後に削除した。以下は移行済み構成を維持するための横断検証項目である。
 
 - canonical Scenario と generated DTO の一致
 - submit から Result の terminal state までの監視
 - model と Replay Bundle の取得、digest 検証、ローカル再生
 - `policy.onnx` を使うローカル推論
 - Unity 2022.3.19f1 と Unity 6.3 LTS の対応範囲
+
+現在は三つのリポジトリと Quickstart を人間が順にレビューし、実 cloud job を使う
+end-to-end 操作と対象 platform の build／inference を確認する段階である。
 
 ### 5. 公開運用の hardening
 
