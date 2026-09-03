@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SCENARIO_SCHEMA_VERSION = "scenario-bundle.v0"
 MAX_REPLAY_CHUNK_STEPS = 100_000
 MAX_CAMERA_DIMENSION_PIXELS = 512
+MAX_FORWARD_STEP_METERS = 10.0
 MAX_TRAINING_TIMESTEPS = 10_000_000
 MAX_PARALLEL_ENVS = 32
 MAX_TRAINING_CPU_COUNT = 32
@@ -299,7 +300,7 @@ class ActionSpace(ContractModel):
         min_length=2,
         max_length=2,
     )
-    forward_step_meters: float = Field(gt=0)
+    forward_step_meters: float = Field(gt=0, le=MAX_FORWARD_STEP_METERS)
     turn_degrees_per_step: float = Field(gt=0)
     step_duration_seconds: float = Field(gt=0)
 

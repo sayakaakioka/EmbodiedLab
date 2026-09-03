@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from embodiedlab.schemas import (
+    MAX_FORWARD_STEP_METERS,
     MAX_PPO_ROLLOUT_STEPS,
     MAX_RANDOM_SEED,
     MAX_TRAINING_TIMESTEPS,
@@ -66,6 +67,16 @@ def test_scenario_bundle_rejects_unknown_nested_fields():
 def test_camera_resolution_has_a_bounded_contract():
     payload = scenario_payload()
     payload["sensors"][0]["width"] = 513
+
+    with pytest.raises(ValidationError):
+        ScenarioBundle.model_validate(payload)
+
+
+def test_scenario_rejects_forward_step_above_service_limit():
+    payload = scenario_payload()
+    payload["robot"]["action_space"]["forward_step_meters"] = (
+        MAX_FORWARD_STEP_METERS + 0.001
+    )
 
     with pytest.raises(ValidationError):
         ScenarioBundle.model_validate(payload)

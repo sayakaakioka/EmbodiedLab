@@ -6,6 +6,7 @@
       "properties": {
         "forward_step_meters": {
           "exclusiveMinimum": 0,
+          "maximum": 10.0,
           "title": "Forward Step Meters",
           "type": "number"
         },

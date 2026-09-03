@@ -60,7 +60,8 @@ request model は `ScenarioBundle` である。現在の canonical request は
 - 座標は `left_handed_y_up_meters`。
 - wall と obstacle は `height` を明示する。
 - robot action は layout に加えて `forward_step_meters`、
-  `turn_degrees_per_step`、Replay 時刻にも使う `step_duration_seconds` を持つ。
+  `turn_degrees_per_step`、Replay 時刻にも使う `step_duration_seconds` を持つ。移動経路の
+  0.005 m間隔の衝突判定を有界に保つため、`forward_step_meters <= 10.0` とする。
 - policy input は forward camera と goal vector を明示する。camera の input 名、解像度、
   semantic mode、画角、clip、mount height は Scenario の値を使う。
 - 固定 tutorial は policy input に使わない distance sensor を持たない。汎用
