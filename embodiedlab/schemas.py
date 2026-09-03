@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SCENARIO_SCHEMA_VERSION = "scenario-bundle.v0"
 MAX_REPLAY_CHUNK_STEPS = 100_000
 MAX_CAMERA_DIMENSION_PIXELS = 512
+MAX_FORWARD_STEP_METERS = 10.0
 MAX_TRAINING_TIMESTEPS = 10_000_000
 MAX_PARALLEL_ENVS = 32
 MAX_TRAINING_CPU_COUNT = 32
@@ -299,7 +300,7 @@ class ActionSpace(ContractModel):
         min_length=2,
         max_length=2,
     )
-    forward_step_meters: float = Field(gt=0)
+    forward_step_meters: float = Field(gt=0, le=MAX_FORWARD_STEP_METERS)
     turn_degrees_per_step: float = Field(gt=0)
     step_duration_seconds: float = Field(gt=0)
 
@@ -505,10 +506,10 @@ class TrainingSpec(ContractModel):
     @model_validator(mode="after")
     def validate_eval_replay_size(self) -> TrainingSpec:
         """Keep one deterministic evaluation chunk within the SDK row budget."""
-        if self.eval_episodes * self.max_episode_steps > MAX_REPLAY_CHUNK_STEPS:
+        if self.eval_episodes * (self.max_episode_steps + 1) > MAX_REPLAY_CHUNK_STEPS:
             msg = (
-                "eval_episodes * max_episode_steps must be less than or equal "
-                f"to {MAX_REPLAY_CHUNK_STEPS}"
+                "eval_episodes * (max_episode_steps + 1) must be less than or "
+                f"equal to {MAX_REPLAY_CHUNK_STEPS}"
             )
             raise ValueError(msg)
         rollout_steps = self.n_steps * self.n_envs

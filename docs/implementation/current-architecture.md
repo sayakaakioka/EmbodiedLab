@@ -108,6 +108,16 @@ semantic camera と、同じく Scenario Bundle で順序を指定した
 `obs_0: 3 x 84 x 112`、`obs_1: 2` だが、runtime や policy network にこの shape を
 重複して直書きしない。
 
+`training.randomize_start` が `true` の Scenario は、submission の永続化と job 起動より
+前に開始可能領域を検証する。world bounds から1.35 m内側の一様抽選矩形を32 x 32の
+固定 grid で評価し、robot radius を含む障害物の衝突領域から0.65 m以上、かつ goal
+領域から0.65 m以上離れた点の割合を開始可能面積率として近似する。8%未満なら
+`422 Unprocessable Entity` とする。
+
+受理済み Scenario の runtime は、同じ点ごとの安全判定を使って最大512回抽選する。
+すべて外れた場合は、受理時の grid で確認した開始可能点のうち抽選矩形の中心に最も近い
+決定的な点を使う。宣言された固定 `start_pose` へ暗黙に戻す旧 fallback は使わない。
+
 ## 現在の成果物
 
 trainer job が完了すると、以下の成果物をアップロードする。
@@ -115,23 +125,27 @@ trainer job が完了すると、以下の成果物をアップロードする�
     results/<submission_id>/
       model/
         policy.onnx
-        policy.sentis.onnx
       replay/
         manifest.json
         train/chunk_<index>.jsonl.gz
         eval/checkpoint_<step>.jsonl.gz
 
 `policy.onnx` は continuous navigation の dict observation を2 input として公開する
-opset 17 の一般 ONNX artifact、`policy.sentis.onnx` は同じ observation を Unity Sentis
-向け固定長 input へまとめた opset 15 の ONNX artifact である。input 名、shape、layout は
-Scenario Bundle から導出し、保存済み policy の observation space と一致しなければ export を
-失敗させる。どちらも output は
+opset 18 の ONNX artifact である。input 名、shape、layout は Scenario Bundle から導出し、
+保存済み policy の observation space と一致しなければ export を失敗させる。output は
 `[forward, turn]` の continuous action である。Replay Bundle は manifest と
 gzip 圧縮した JSON Lines chunk からなり、各行は `scenario_id` と `job_id` を含む
-`ReplayLogStep` として書き込み前に検証される。Result Bundle には両 ONNX の
+`ReplayLogStep` として書き込み前に検証される。Result Bundle には ONNX の
 artifact location、target、opset、全 input/output metadata を含める。
 
-ダウンロード対象の ONNX、Sentis ONNX、Replay manifest はすべて `size_bytes` と
+Replay の各 episode は、reset 直後の姿勢と sensor 値を持つ
+`step_index = 0`、`time_seconds = 0` の初期状態行から始まる。この行の action と
+reward はゼロで、event は空である。最初の action 適用後の状態は `step_index = 1`、
+`time_seconds = step_duration_seconds` とし、以後も同じ間隔で記録する。train と eval は
+同じ時刻・状態の意味を使う。eval chunk の行数上限は、episode ごとの初期状態1行を含む
+`eval_episodes * (max_episode_steps + 1)` で検証する。
+
+ダウンロード対象の ONNX、Replay manifest はすべて `size_bytes` と
 `sha256` を持つ。Replay manifest の各 chunk も圧縮後 bytes の size と digest を持つ。
 trainer は upload 前に実ファイルを検証し、GCS object は generation precondition 付きで
 新規作成する。Replay gzip は同じ入力から同じ digest を得られるよう timestamp を固定する。
@@ -153,20 +167,26 @@ trainer は upload 前に実ファイルを検証し、GCS object は generation
 static obstacles、回転付き box collision、任意の距離センサ range を表現する。
 Replay Bundle は continuous runtime の実座標と実 action から生成する。
 
+現行の `DistanceSensor` は前方1本の range measurement であり、LiDAR のような angular
+scan ではない。runtime はその1本を進行方向に 0.005 m 間隔でサンプルして最初の衝突までの
+距離を求める。この値は角度分解能を表さない。Ray と交差する厚さ 0.005 m 未満の障害物が
+サンプル点の間に完全に収まる場合、現行実装はその衝突を見逃し得る。
+
 Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge からのジョブ投入、
 進捗監視、artifact download、Replay 再生、ONNX Runtime 推論の主導線は実装済みである。
-これは EnvForge 内の既存直接実装を指す。重複実装を `EmbodiedLab.Unity` の公開 API 利用へ
-置き換える SDK 移行は第二段階であり、まだ着手していない。
+`EmbodiedLab.Unity` は contract DTO、server-owned job lifecycle、artifact 検証、
+Replay 読み込みを所有する。EnvForge は同じ SDK revision へ移行済みであり、
+移行前の直接 client、重複 DTO、重複 Replay／artifact 実装は残していない。
 
 次に不足しているものは以下である。
 
-- `EmbodiedLab.Unity` の contract snapshot と generated DTO を、
-  EmbodiedLab の公開 schema 更新に追従させる release 運用が未確定である。
+- `EmbodiedLab.Unity` の contract snapshot と generated DTO は現在の v0 schema に
+  同期済みである。今後の schema 更新を package release へ反映する運用は未確定である。
 - package version と API contract version の compatibility 方針が未確定である。
 - 現在の Scenario Bundle は固定マップを表し、episode ごとの宣言的な環境生成規則を
   表現できない。
 - ONNX export と Result Bundle metadata は continuous 主経路に接続済みであり、
-  SDK は実ファイルの tensor metadata も検証する。Sentis 実行経路は別途検証が必要である。
+  SDK は実ファイルの tensor metadata も検証する。
 - reward weight と発火条件は Scenario Bundle から continuous runtime へ反映する。
   `goal_progress`、wide/rear angle、inactive の判定値も JSON を正本とする。
 - PPO hyperparameter、environment 数、CPU、PyTorch thread、Replay 間隔、start pose

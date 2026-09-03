@@ -25,13 +25,13 @@ from embodiedlab.training.navigation_final_policy import (
 from embodiedlab.training.replay_bundle import ReplayBundleWriter
 
 if TYPE_CHECKING:
-    from embodiedlab.training.training_config import TrainingConfig
+    from embodiedlab.schemas import TrainingSpec
     from embodiedlab.training.training_models import ContinuousNavigationSpec
 
 TrainingProgressCallback = Callable[[int, int], None]
 TrainingDiagnosticCallback = Callable[[str, dict[str, object]], None]
 PROGRESS_LOG_INTERVAL_STEPS = 10_000
-SUBPROC_START_METHOD = "fork"
+SUBPROC_START_METHOD = "forkserver"
 TrainingEnv = ContinuousNavigationEnv | VecEnv
 
 
@@ -46,7 +46,7 @@ class TrainingProgressReporter(BaseCallback):
         interval_steps: int = PROGRESS_LOG_INTERVAL_STEPS,
         diagnostic_callback: TrainingDiagnosticCallback | None = None,
         replay_writer: ReplayBundleWriter | None = None,
-        training: TrainingConfig | None = None,
+        training: TrainingSpec | None = None,
         eval_spec: ContinuousNavigationSpec | None = None,
     ) -> None:
         """Initialize the reporter with progress and replay recording settings."""
@@ -64,6 +64,7 @@ class TrainingProgressReporter(BaseCallback):
         self._reported_first_step = False
         self._episode_indices: list[int] = []
         self._episode_steps: list[int] = []
+        self._pending_initial_infos: list[tuple[int, dict[str, Any]] | None] = []
 
     def _emit_diagnostic(self, event: str, **fields: object) -> None:
         if self._diagnostic_callback is None:
@@ -81,12 +82,28 @@ class TrainingProgressReporter(BaseCallback):
         env_count = max(1, self.training_env.num_envs)
         self._episode_indices = [0 for _ in range(env_count)]
         self._episode_steps = [0 for _ in range(env_count)]
+        self._pending_initial_infos = [
+            (0, self._current_reset_info(env_index))
+            if self._replay_writer is not None
+            else None
+            for env_index in range(env_count)
+        ]
         self._next_eval_step = (
             self._training.replay_eval_interval_steps
             if self._training is not None
             else self._total_steps
         )
         self._emit_diagnostic("sb3_training_started")
+
+    def _current_reset_info(self, env_index: int) -> dict[str, Any]:
+        reset_infos = self.training_env.reset_infos
+        if len(reset_infos) != len(self._episode_indices):
+            msg = (
+                "SB3 reset info count must match the training environment count "
+                f"{len(self._episode_indices)}: reset_infos={len(reset_infos)}"
+            )
+            raise RuntimeError(msg)
+        return dict(reset_infos[env_index])
 
     def _on_rollout_start(self) -> None:
         if self._reported_first_rollout:
@@ -110,26 +127,50 @@ class TrainingProgressReporter(BaseCallback):
     def _record_training_replay(self, current_step: int) -> None:
         if self._replay_writer is None:
             return
-        actions = np.asarray(self.locals.get("actions", []), dtype=np.float32)
-        rewards = np.asarray(self.locals.get("rewards", []), dtype=np.float32)
-        dones = np.asarray(self.locals.get("dones", []), dtype=bool)
-        infos = list(self.locals.get("infos", []))
-        if len(infos) == 0:
-            return
+        if self._eval_spec is None:
+            msg = "Replay recording requires a continuous navigation spec."
+            raise RuntimeError(msg)
+        rewards = np.asarray(self.locals.get("rewards", ()), dtype=np.float32)
+        dones = np.asarray(self.locals.get("dones", ()), dtype=bool)
+        infos = list(self.locals.get("infos", ()))
+        expected_count = len(self._episode_indices)
+        if not (
+            rewards.size == expected_count
+            and dones.size == expected_count
+            and len(infos) == expected_count
+        ):
+            msg = (
+                "SB3 replay transition batch must match the training environment "
+                f"count {expected_count}: rewards={rewards.size}, "
+                f"dones={dones.size}, infos={len(infos)}"
+            )
+            raise RuntimeError(msg)
         for env_index, info in enumerate(infos):
-            if env_index >= len(self._episode_indices):
-                continue
-            action = actions[env_index] if actions.ndim > 1 else actions
-            reward = float(rewards[env_index]) if rewards.size > env_index else 0.0
-            done = bool(dones[env_index]) if dones.size > env_index else False
+            pending_initial = self._pending_initial_infos[env_index]
+            if pending_initial is not None:
+                initial_checkpoint_step, initial_info = pending_initial
+                self._replay_writer.record_train_step(
+                    _build_continuous_replay_initial_step(
+                        goal_id=self._eval_spec.goal.goal_id,
+                        distance_sensor_id=self._eval_spec.distance_sensor_id,
+                        step_duration_seconds=self._eval_spec.step_duration_seconds,
+                        episode_index=self._episode_indices[env_index],
+                        info=initial_info,
+                        phase="train",
+                        checkpoint_step=initial_checkpoint_step,
+                        env_index=env_index,
+                        policy_mode="stochastic",
+                    ),
+                )
+                self._pending_initial_infos[env_index] = None
+            reward = float(rewards[env_index])
+            done = bool(dones[env_index])
             step = build_continuous_replay_step(
                 goal_id=self._eval_spec.goal.goal_id,
                 distance_sensor_id=self._eval_spec.distance_sensor_id,
                 step_duration_seconds=self._eval_spec.step_duration_seconds,
                 episode_index=self._episode_indices[env_index],
-                step_index=self._episode_steps[env_index],
-                action=action,
-                obs={},
+                step_index=self._episode_steps[env_index] + 1,
                 reward=reward,
                 info=info,
                 terminated=done and not bool(info.get("TimeLimit.truncated", False)),
@@ -144,6 +185,10 @@ class TrainingProgressReporter(BaseCallback):
             if done:
                 self._episode_indices[env_index] += 1
                 self._episode_steps[env_index] = 0
+                self._pending_initial_infos[env_index] = (
+                    current_step,
+                    self._current_reset_info(env_index),
+                )
 
     def _record_checkpoint_eval_if_needed(self, current_step: int) -> None:
         if (
@@ -157,7 +202,7 @@ class TrainingProgressReporter(BaseCallback):
             return
         eval_env = ContinuousNavigationEnv(
             spec=self._eval_spec,
-            max_steps=self._training.max_steps,
+            max_episode_steps=self._training.max_episode_steps,
             randomize_start=self._training.randomize_start,
         )
         try:
@@ -208,8 +253,6 @@ def build_continuous_replay_step(  # noqa: PLR0913
     step_duration_seconds: float,
     episode_index: int,
     step_index: int,
-    action: np.ndarray,
-    obs: dict[str, np.ndarray],
     reward: float,
     info: dict[str, Any],
     terminated: bool,
@@ -220,32 +263,16 @@ def build_continuous_replay_step(  # noqa: PLR0913
     policy_mode: str = "deterministic",
 ) -> dict[str, Any]:
     """Build a replay row directly from the continuous runtime."""
-    _ = obs
-    action_array = np.asarray(action, dtype=np.float32)
-    action_values = np.array(
-        [
-            info.get("applied_forward", action_array[0]),
-            info.get("applied_turn", action_array[1]),
-        ],
-        dtype=np.float32,
-    )
     reward_components = [
         {
             "name": str(component["name"]),
             "value": float(component["value"]),
         }
-        for component in info.get("reward_components", [])
+        for component in info["reward_components"]
     ]
-    if not reward_components:
-        reward_components = [
-            {
-                "name": "reward",
-                "value": float(reward),
-            },
-        ]
 
     events = []
-    collision_id = info.get("collision_id")
+    collision_id = info["collision_id"]
     if collision_id is not None:
         events.append(
             {
@@ -254,7 +281,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
                 "message": "Continuous movement was blocked",
             },
         )
-    if terminated and not bool(info.get("collision")):
+    if terminated and not bool(info["collision"]):
         events.append(
             {
                 "type": "goal_reached",
@@ -299,11 +326,11 @@ def build_continuous_replay_step(  # noqa: PLR0913
             "values": [
                 {
                     "name": "forward",
-                    "value": float(action_values[0]),
+                    "value": float(info["applied_forward"]),
                 },
                 {
                     "name": "turn",
-                    "value": float(action_values[1]),
+                    "value": float(info["applied_turn"]),
                 },
             ],
         },
@@ -317,15 +344,49 @@ def build_continuous_replay_step(  # noqa: PLR0913
         "termination_reason": _termination_reason(
             terminated=terminated,
             truncated=truncated,
-            collision=bool(info.get("collision")),
+            collision=bool(info["collision"]),
         ),
     }
+
+
+def _build_continuous_replay_initial_step(  # noqa: PLR0913
+    *,
+    goal_id: str,
+    distance_sensor_id: str | None,
+    step_duration_seconds: float,
+    episode_index: int,
+    info: dict[str, Any],
+    phase: str,
+    checkpoint_step: int,
+    env_index: int,
+    policy_mode: str,
+) -> dict[str, Any]:
+    """Build the zero-time state that begins one replay episode."""
+    return build_continuous_replay_step(
+        goal_id=goal_id,
+        distance_sensor_id=distance_sensor_id,
+        step_duration_seconds=step_duration_seconds,
+        episode_index=episode_index,
+        step_index=0,
+        reward=0.0,
+        info={
+            **info,
+            "applied_forward": 0.0,
+            "applied_turn": 0.0,
+        },
+        terminated=False,
+        truncated=False,
+        phase=phase,
+        checkpoint_step=checkpoint_step,
+        env_index=env_index,
+        policy_mode=policy_mode,
+    )
 
 
 def evaluate_continuous_policy(
     model: PPO,
     env: ContinuousNavigationEnv,
-    training: TrainingConfig,
+    training: TrainingSpec,
     *,
     phase: str = "eval",
     checkpoint_step: int = 0,
@@ -337,12 +398,25 @@ def evaluate_continuous_policy(
     replay_steps: list[dict[str, Any]] = []
 
     for episode_index in range(training.eval_episodes):
-        obs, _info = env.reset(seed=training.seed + episode_index)
+        obs, reset_info = env.reset(seed=training.seed + episode_index)
         done = False
         episode_reward = 0.0
         episode_steps = 0
         terminated = False
         truncated = False
+        replay_steps.append(
+            _build_continuous_replay_initial_step(
+                goal_id=env.spec.goal.goal_id,
+                distance_sensor_id=env.spec.distance_sensor_id,
+                step_duration_seconds=env.spec.step_duration_seconds,
+                episode_index=episode_index,
+                info=reset_info,
+                phase=phase,
+                checkpoint_step=checkpoint_step,
+                env_index=0,
+                policy_mode="deterministic",
+            ),
+        )
 
         while not done:
             action_array = _predict_navigation_final_raw_action(model, obs)
@@ -356,9 +430,7 @@ def evaluate_continuous_policy(
                     distance_sensor_id=env.spec.distance_sensor_id,
                     step_duration_seconds=env.spec.step_duration_seconds,
                     episode_index=episode_index,
-                    step_index=episode_steps - 1,
-                    action=action_array,
-                    obs=obs,
+                    step_index=episode_steps,
                     reward=reward,
                     info=_info,
                     terminated=terminated,
@@ -411,7 +483,7 @@ def _emit_training_diagnostic(
 
 
 def _configure_cpu_count(
-    training: TrainingConfig,
+    training: TrainingSpec,
     diagnostic_callback: TrainingDiagnosticCallback | None,
 ) -> int:
     available_cpus = min(
@@ -455,7 +527,7 @@ def _configure_cpu_count(
 
 
 def _configure_torch_threads(
-    training: TrainingConfig,
+    training: TrainingSpec,
     effective_cpu_count: int,
     diagnostic_callback: TrainingDiagnosticCallback | None,
 ) -> int:
@@ -477,7 +549,7 @@ def _configure_torch_threads(
 def _train_model(  # noqa: PLR0913
     *,
     env: TrainingEnv,
-    training: TrainingConfig,
+    training: TrainingSpec,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
     replay_writer: ReplayBundleWriter | None = None,
@@ -567,7 +639,7 @@ def _train_model(  # noqa: PLR0913
 
 def _build_training_env(
     spec: ContinuousNavigationSpec,
-    training: TrainingConfig,
+    training: TrainingSpec,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
 ) -> TrainingEnv:
     _emit_training_diagnostic(
@@ -575,13 +647,13 @@ def _build_training_env(
         "training_env_build_started",
         n_envs=training.n_envs,
         env_kind=_training_env_kind(training),
-        max_steps=training.max_steps,
+        max_episode_steps=training.max_episode_steps,
         obstacle_count=len(spec.obstacles),
     )
     if training.n_envs == 1:
         env = ContinuousNavigationEnv(
             spec=spec,
-            max_steps=training.max_steps,
+            max_episode_steps=training.max_episode_steps,
             randomize_start=training.randomize_start,
         )
         _emit_training_diagnostic(
@@ -596,7 +668,7 @@ def _build_training_env(
         partial(
             _make_continuous_navigation_env,
             spec,
-            training.max_steps,
+            training.max_episode_steps,
             randomize_start=training.randomize_start,
         )
         for _ in range(training.n_envs)
@@ -612,19 +684,19 @@ def _build_training_env(
     return env
 
 
-def _training_env_kind(training: TrainingConfig) -> str:
+def _training_env_kind(training: TrainingSpec) -> str:
     return "single" if training.n_envs == 1 else "subproc_vec"
 
 
 def _make_continuous_navigation_env(
     spec: ContinuousNavigationSpec,
-    max_steps: int,
+    max_episode_steps: int,
     *,
     randomize_start: bool,
 ) -> ContinuousNavigationEnv:
     return ContinuousNavigationEnv(
         spec=spec,
-        max_steps=max_steps,
+        max_episode_steps=max_episode_steps,
         randomize_start=randomize_start,
     )
 
@@ -640,7 +712,7 @@ def _save_model(model: PPO, model_output_path: str | None) -> None:
 
 def run_continuous_navigation_training(  # noqa: PLR0913
     spec: ContinuousNavigationSpec,
-    training: TrainingConfig,
+    training: TrainingSpec,
     model_output_path: str | None = None,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
@@ -683,7 +755,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
     _emit_training_diagnostic(diagnostic_callback, "eval_env_build_started")
     eval_env = ContinuousNavigationEnv(
         spec=spec,
-        max_steps=training.max_steps,
+        max_episode_steps=training.max_episode_steps,
         randomize_start=training.randomize_start,
     )
     _emit_training_diagnostic(diagnostic_callback, "eval_env_built")
@@ -712,7 +784,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
             avg_reward=evaluation["avg_reward"],
             avg_steps=evaluation["avg_steps"],
         )
-        replay_manifest = replay_writer.finish()
+        replay_writer.finish()
         _emit_training_diagnostic(
             diagnostic_callback,
             "evaluation_finished",
@@ -724,62 +796,46 @@ def run_continuous_navigation_training(  # noqa: PLR0913
         _emit_training_diagnostic(diagnostic_callback, "model_saved")
 
         return {
-            "policy": training.algorithm.value,
-            "runtime": "continuous_navigation",
-            "score": evaluation["avg_reward"],
-            "episodes": evaluation["episodes"],
-            "obstacle_count": len(spec.obstacles),
-            "goal": {
-                "x": spec.goal.x,
-                "z": spec.goal.z,
-                "radius": spec.goal.radius,
-            },
-            "robot_start": {
-                "x": spec.robot_start.x,
-                "z": spec.robot_start.z,
-                "rotation_y_degrees": spec.robot_start.rotation_y_degrees,
-            },
-            "robot_type": spec.robot_type,
-            "robot_radius": spec.robot_radius,
-            "success_rate": evaluation["success_rate"],
-            "avg_reward": evaluation["avg_reward"],
-            "avg_steps": evaluation["avg_steps"],
-            "training_configuration": {
-                "library": "stable-baselines3",
-                "library_version": stable_baselines3.__version__,
-                "algorithm": training.algorithm.value,
-                "device": training.device.value,
-                "timesteps": training.timesteps,
-                "seed": training.seed,
-                "max_episode_steps": training.max_steps,
-                "n_envs": training.n_envs,
-                "requested_cpu_count": training.cpu_count,
-                "cpu_count": effective_cpu_count,
-                "requested_torch_num_threads": training.torch_num_threads,
-                "torch_num_threads": effective_torch_num_threads,
-                "n_steps": training.n_steps,
-                "batch_size": training.batch_size,
-                "n_epochs": training.n_epochs,
-                "gamma": training.gamma,
-                "gae_lambda": training.gae_lambda,
-                "learning_rate": training.learning_rate,
-                "clip_range": training.clip_range,
-                "clip_range_vf": training.clip_range_vf,
-                "normalize_advantage": training.normalize_advantage,
-                "ent_coef": training.ent_coef,
-                "vf_coef": training.vf_coef,
-                "max_grad_norm": training.max_grad_norm,
-                "use_sde": training.use_sde,
-                "sde_sample_freq": training.sde_sample_freq,
-                "target_kl": training.target_kl,
-                "stats_window_size": training.stats_window_size,
-                "eval_episodes": training.eval_episodes,
-                "replay_eval_interval_steps": training.replay_eval_interval_steps,
-                "replay_train_chunk_steps": training.replay_train_chunk_steps,
-                "randomize_start": training.randomize_start,
+            "summary": {
+                "success_rate": evaluation["success_rate"],
+                "average_episode_reward": evaluation["avg_reward"],
+                "average_episode_steps": evaluation["avg_steps"],
+                "configuration": {
+                    "library": "stable-baselines3",
+                    "library_version": stable_baselines3.__version__,
+                    "algorithm": training.algorithm.value,
+                    "device": training.device.value,
+                    "timesteps": training.timesteps,
+                    "seed": training.seed,
+                    "max_episode_steps": training.max_episode_steps,
+                    "n_envs": training.n_envs,
+                    "requested_cpu_count": training.cpu_count,
+                    "cpu_count": effective_cpu_count,
+                    "requested_torch_num_threads": training.torch_num_threads,
+                    "torch_num_threads": effective_torch_num_threads,
+                    "n_steps": training.n_steps,
+                    "batch_size": training.batch_size,
+                    "n_epochs": training.n_epochs,
+                    "gamma": training.gamma,
+                    "gae_lambda": training.gae_lambda,
+                    "learning_rate": training.learning_rate,
+                    "clip_range": training.clip_range,
+                    "clip_range_vf": training.clip_range_vf,
+                    "normalize_advantage": training.normalize_advantage,
+                    "ent_coef": training.ent_coef,
+                    "vf_coef": training.vf_coef,
+                    "max_grad_norm": training.max_grad_norm,
+                    "use_sde": training.use_sde,
+                    "sde_sample_freq": training.sde_sample_freq,
+                    "target_kl": training.target_kl,
+                    "stats_window_size": training.stats_window_size,
+                    "eval_episodes": training.eval_episodes,
+                    "replay_eval_interval_steps": (training.replay_eval_interval_steps),
+                    "replay_train_chunk_steps": training.replay_train_chunk_steps,
+                    "randomize_start": training.randomize_start,
+                },
             },
             "replay_bundle_dir": str(replay_writer.root_dir),
-            "replay_manifest": replay_manifest,
         }
 
     finally:

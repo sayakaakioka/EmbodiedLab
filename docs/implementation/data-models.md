@@ -60,11 +60,14 @@ request model は `ScenarioBundle` である。現在の canonical request は
 - 座標は `left_handed_y_up_meters`。
 - wall と obstacle は `height` を明示する。
 - robot action は layout に加えて `forward_step_meters`、
-  `turn_degrees_per_step`、Replay 時刻にも使う `step_duration_seconds` を持つ。
+  `turn_degrees_per_step`、Replay 時刻にも使う `step_duration_seconds` を持つ。移動経路の
+  0.005 m間隔の衝突判定を有界に保つため、`forward_step_meters <= 10.0` とする。
 - policy input は forward camera と goal vector を明示する。camera の input 名、解像度、
   semantic mode、画角、clip、mount height は Scenario の値を使う。
 - 固定 tutorial は policy input に使わない distance sensor を持たない。汎用
-  `DistanceSensor` 型は contract に残す。
+  `DistanceSensor` 型は contract に残す。現行 contract は `direction: forward` の前方1本だけを
+  表し、runtime の 0.005 m は Ray の進行方向に沿った衝突サンプル間隔であって、角度分解能
+  ではない。
 - reward は7 component で、goal progress、wide/rear angle、inactive の発火条件も JSON に
   明示する。
 - PPO hyperparameter、environment 数、CPU、PyTorch thread、Replay interval、start pose
@@ -83,8 +86,8 @@ request model は `ScenarioBundle` である。現在の canonical request は
 次の二つの header は必須である。
 
 ```http
-Idempotency-Key: <32文字以上のURL-safe random value>
-X-EmbodiedLab-Cancel-Token: <32文字以上のURL-safe cancellation capability>
+Idempotency-Key: <32〜128文字のURL-safe random value>
+X-EmbodiedLab-Cancel-Token: <32〜128文字のURL-safe cancellation capability>
 ```
 
 同じ idempotency key、正規化済み Scenario、cancel token の再試行は同じ submission を
@@ -120,11 +123,10 @@ completed `ResultBundle` は次を必須とする。
 - metrics と、実行時に解決した Stable-Baselines3 version、全 PPO 値、CPU/thread 数、
   Replay 設定を含む training configuration
 - `policy.onnx`
-- `policy.sentis.onnx`
 - Replay Bundle の `manifest.json`
 
-公開する3成果物は `storage`、`bucket`、`path`、`format`、`size_bytes`、`sha256` を持つ。
-両 model artifact は target、opset、input/output metadata も持つ。`policy.zip` と重複した
+公開する2成果物は `storage`、`bucket`、`path`、`format`、`size_bytes`、`sha256` を持つ。
+model artifact は target、opset、input/output metadata も持つ。`policy.zip` と重複した
 `model` field は公開しない。artifact metadata の格納先は
 `result_bundle.artifacts` だけであり、Result Document top-level へ複製しない。
 
@@ -184,10 +186,21 @@ standard Pub/Sub push envelope を検証し、同じ typed message を該当 Web
 
 ## Training Runtime
 
-`TrainingConfig` は `ScenarioBundle.training` の全 field を1対1で受け取る。runtime 内の
-`max_steps` property は保存値を重複させず `max_episode_steps` を参照する。library の
-暗黙既定値へ依存せず、Scenario の PPO 値を `PPO` constructor へ明示的に渡す。
+`ScenarioBundle.training` の `TrainingSpec` を再包装せず、そのまま runtime へ渡す。
+episode 上限も `max_episode_steps` の名前で一貫して参照する。library の暗黙既定値へ
+依存せず、Scenario の PPO 値を `PPO` constructor へ明示的に渡す。
 
 `cpu_count` が指定された Linux job では process affinity を設定する。利用可能数を超える
 CPU、effective CPU を超える `n_envs` または `torch_num_threads` は補正せず失敗させる。
 解決した値は Result Bundle に記録する。
+
+`randomize_start: true` の受理時 semantic validation は、world bounds から1.35 m内側の
+実際の一様抽選矩形を分母とし、32 x 32の固定 grid で開始可能面積率を近似する。
+各 grid 点は、robot radius を反映した各 box collision footprint から0.65 mより遠く、
+goal radius からも0.65 mより遠い場合だけ開始可能とする。推定値が8%未満の Scenario は
+保存や job 起動を行わず `422` とする。この条件は JSON Schema の単一 field 制約では
+表せないため、server と trainer が共有する軽量な座標判定で検証する。
+
+runtime は同じ開始可能判定と seed に基づいて最大512回抽選する。上限まで外れた場合は、
+受理時の grid で確認済みの決定的な安全位置を使うため、確率的失敗を job failure や
+無制限 loop にしない。

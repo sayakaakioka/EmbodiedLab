@@ -106,8 +106,7 @@ cloud/API 系 target は、必要な環境変数が不足している場合、
 trainer job は完了した model artifact を `MODEL_BUCKET` の
 `results/<submission_id>/` に upload する。
 
-- `model/policy.onnx`: Scenario が指定した input 名と shape を持つ opset 17 ONNX
-- `model/policy.sentis.onnx`: 固定長 input を持つ opset 15 Sentis-oriented ONNX
+- `model/policy.onnx`: Scenario が指定した input 名と shape を持つ opset 18 ONNX
 - `replay/manifest.json`: Replay Bundle manifest
 - `replay/train/*.jsonl.gz`: stochastic training chunk
 - `replay/eval/*.jsonl.gz`: deterministic evaluation checkpoint chunk

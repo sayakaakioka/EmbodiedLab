@@ -63,8 +63,6 @@ class ArtifactStorage(StrEnum):
 class ArtifactLocation(ContractModel):
     """Location and format of a result artifact."""
 
-    model_config = ConfigDict(extra="forbid")
-
     storage: ArtifactStorage
     bucket: str = Field(min_length=3, max_length=63)
     path: str = Field(min_length=1, max_length=MAX_ARTIFACT_PATH_LENGTH)
@@ -77,8 +75,6 @@ class ModelInput(ContractModel):
     """Input metadata for a client-loadable model artifact."""
 
     name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
-    model_config = ConfigDict(extra="forbid")
-
     shape: list[int] = Field(min_length=1, max_length=8)
     dtype: str = Field(min_length=1, max_length=32)
     layout: list[str] = Field(max_length=MAX_LAYOUT_ENTRIES)
@@ -87,19 +83,17 @@ class ModelInput(ContractModel):
 class ModelOutput(ContractModel):
     """Output metadata for a client-loadable model artifact."""
 
-    model_config = ConfigDict(extra="forbid")
-
     name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     layout: list[str] = Field(min_length=1, max_length=MAX_LAYOUT_ENTRIES)
     action_mapping: dict[str, str] | None
 
 
-class ModelArtifactLocation(ArtifactLocation):
-    """Model artifact location with Unity compatibility metadata."""
+class OnnxModelArtifactLocation(ArtifactLocation):
+    """Canonical ONNX Runtime artifact metadata."""
 
     format: Literal["onnx"]
-    target: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
-    opset_version: int = Field(ge=1)
+    target: Literal["onnx-runtime"]
+    opset_version: Literal[18]
     inputs: list[ModelInput] = Field(
         min_length=1,
         max_length=MAX_MODEL_IO_ENTRIES,
@@ -107,24 +101,8 @@ class ModelArtifactLocation(ArtifactLocation):
     output: ModelOutput
 
 
-class OnnxModelArtifactLocation(ModelArtifactLocation):
-    """Canonical ONNX Runtime artifact metadata."""
-
-    target: Literal["onnx-runtime"]
-    opset_version: Literal[17]
-
-
-class SentisModelArtifactLocation(ModelArtifactLocation):
-    """Canonical Unity Sentis artifact metadata."""
-
-    target: Literal["unity-sentis"]
-    opset_version: Literal[15]
-
-
 class ResultCompatibility(ContractModel):
     """Compatibility metadata needed by clients when loading a result."""
-
-    model_config = ConfigDict(extra="forbid")
 
     scenario_schema_version: str = Field(
         min_length=1,
@@ -142,8 +120,6 @@ class ResultCompatibility(ContractModel):
 class TrainingSummary(ContractModel):
     """High-level metrics from a completed training run."""
 
-    model_config = ConfigDict(extra="forbid")
-
     success_rate: float | None = Field(ge=0.0, le=1.0)
     average_episode_reward: float | None
     average_episode_steps: float | None = Field(ge=0.0)
@@ -152,8 +128,6 @@ class TrainingSummary(ContractModel):
 
 class ResolvedTrainingConfig(ContractModel):
     """Exact library, hyperparameters, and resources used by a training run."""
-
-    model_config = ConfigDict(extra="forbid")
 
     library: Literal["stable-baselines3"]
     library_version: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
@@ -195,17 +169,12 @@ class ResolvedTrainingConfig(ContractModel):
 class ResultArtifacts(ContractModel):
     """Artifacts produced by a training run."""
 
-    model_config = ConfigDict(extra="forbid")
-
     onnx_model: OnnxModelArtifactLocation | None
-    sentis_model: SentisModelArtifactLocation | None
     replay_bundle: ArtifactLocation | None
 
 
 class ErrorReport(ContractModel):
     """Structured failure details for failed result bundles."""
-
-    model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1, max_length=4_096)
     details: str | None
@@ -215,7 +184,6 @@ class ResultBundle(ContractModel):
     """Client-facing training result bundle."""
 
     model_config = ConfigDict(
-        extra="forbid",
         json_schema_extra={
             "oneOf": [
                 {
@@ -225,7 +193,6 @@ class ResultBundle(ContractModel):
                         "artifacts": {
                             "properties": {
                                 "onnx_model": {"not": {"type": "null"}},
-                                "sentis_model": {"not": {"type": "null"}},
                                 "replay_bundle": {"not": {"type": "null"}},
                             },
                         },
@@ -239,7 +206,6 @@ class ResultBundle(ContractModel):
                         "artifacts": {
                             "properties": {
                                 "onnx_model": {"type": "null"},
-                                "sentis_model": {"type": "null"},
                                 "replay_bundle": {"type": "null"},
                             },
                         },
@@ -268,7 +234,6 @@ class ResultBundle(ContractModel):
                 raise ValueError(msg)
             if (
                 self.artifacts.onnx_model is None
-                or self.artifacts.sentis_model is None
                 or self.artifacts.replay_bundle is None
             ):
                 msg = "completed result bundles require all downloadable artifacts"
@@ -284,7 +249,6 @@ class ResultBundle(ContractModel):
                 artifact is not None
                 for artifact in (
                     self.artifacts.onnx_model,
-                    self.artifacts.sentis_model,
                     self.artifacts.replay_bundle,
                 )
             ):
@@ -296,16 +260,12 @@ class ResultBundle(ContractModel):
 class ReplayPosition(ContractModel):
     """A continuous replay position on the x/z plane."""
 
-    model_config = ConfigDict(extra="forbid")
-
     x: float
     z: float
 
 
 class ReplayRobotState(ContractModel):
     """Robot state emitted in a replay step."""
-
-    model_config = ConfigDict(extra="forbid")
 
     position: ReplayPosition
     rotation_y_degrees: float
@@ -314,16 +274,12 @@ class ReplayRobotState(ContractModel):
 class ReplayNamedValue(ContractModel):
     """A named scalar value in a JsonUtility-friendly replay payload."""
 
-    model_config = ConfigDict(extra="forbid")
-
     name: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     value: float
 
 
 class ReplayForwardActionValue(ContractModel):
     """The forward component of the continuous action."""
-
-    model_config = ConfigDict(extra="forbid")
 
     name: Literal["forward"]
     value: float
@@ -332,8 +288,6 @@ class ReplayForwardActionValue(ContractModel):
 class ReplayTurnActionValue(ContractModel):
     """The turn component of the continuous action."""
 
-    model_config = ConfigDict(extra="forbid")
-
     name: Literal["turn"]
     value: float
 
@@ -341,15 +295,11 @@ class ReplayTurnActionValue(ContractModel):
 class ReplayAction(ContractModel):
     """Action values emitted for a replay step."""
 
-    model_config = ConfigDict(extra="forbid")
-
     values: tuple[ReplayForwardActionValue, ReplayTurnActionValue]
 
 
 class ReplayReward(ContractModel):
     """Reward values emitted for a replay step."""
-
-    model_config = ConfigDict(extra="forbid")
 
     total: float
     components: list[ReplayNamedValue] = Field(
@@ -360,8 +310,6 @@ class ReplayReward(ContractModel):
 class ReplayEvent(ContractModel):
     """A compact event emitted during replay."""
 
-    model_config = ConfigDict(extra="forbid")
-
     type: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     object_id: str | None
     message: str | None
@@ -369,8 +317,6 @@ class ReplayEvent(ContractModel):
 
 class ReplaySensorSummary(ContractModel):
     """A compact sensor summary emitted during replay."""
-
-    model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
     type: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
@@ -381,7 +327,6 @@ class ReplayLogStep(ContractModel):
     """One JSON Lines row in a Replay Log."""
 
     model_config = ConfigDict(
-        extra="forbid",
         json_schema_extra={
             "oneOf": [
                 {
@@ -430,8 +375,6 @@ class ReplayLogStep(ContractModel):
 
 class ReplayBundleChunkBase(ContractModel):
     """Fields shared by every compressed Replay Bundle chunk."""
-
-    model_config = ConfigDict(extra="forbid")
 
     checkpoint_step: int = Field(ge=0)
     path: str = Field(min_length=1, max_length=MAX_REPLAY_CHUNK_PATH_LENGTH)
@@ -497,8 +440,6 @@ ReplayBundleChunk = Annotated[
 
 class ReplayBundleManifest(ContractModel):
     """Manifest describing the chunks in one Replay Bundle."""
-
-    model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[REPLAY_BUNDLE_SCHEMA_VERSION]
     job_id: str = Field(min_length=1, max_length=MAX_IDENTIFIER_LENGTH)
@@ -673,8 +614,6 @@ def _validate_result_state(
 class Progress(ContractModel):
     """Training progress snapshot stored in each result document."""
 
-    model_config = ConfigDict(extra="forbid")
-
     phase: ResultStatus
     current_step: int = Field(ge=0)
     total_steps: int = Field(ge=0)
@@ -685,7 +624,6 @@ class ResultDocument(ContractModel):
     """Full result document written to Firestore."""
 
     model_config = ConfigDict(
-        extra="forbid",
         json_schema_extra=_result_state_schema_conditions(),
     )
 
@@ -713,7 +651,6 @@ class ResultMessage(ContractModel):
     """Pub/Sub message payload emitted after each status transition."""
 
     model_config = ConfigDict(
-        extra="forbid",
         json_schema_extra=_result_state_schema_conditions(),
     )
 
@@ -741,7 +678,6 @@ class ResultUpdate(ContractModel):
     """Partial update applied to an existing result document."""
 
     model_config = ConfigDict(
-        extra="forbid",
         json_schema_extra=_result_state_schema_conditions(),
     )
 
@@ -764,27 +700,6 @@ class ResultUpdate(ContractModel):
         return self
 
 
-def _artifact_from_payload(
-    payload: dict[str, Any] | None,
-) -> ArtifactLocation | None:
-    """Convert an uploaded artifact dict into a ResultBundle location."""
-    if payload is None:
-        return None
-
-    return ArtifactLocation.model_validate(payload)
-
-
-def _model_artifact_from_payload(
-    payload: dict[str, Any] | None,
-    artifact_type: type[OnnxModelArtifactLocation | SentisModelArtifactLocation],
-) -> OnnxModelArtifactLocation | SentisModelArtifactLocation | None:
-    """Convert an uploaded model dict into compatibility-aware metadata."""
-    if payload is None:
-        return None
-
-    return artifact_type.model_validate(payload)
-
-
 def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     """Build client compatibility metadata from the submitted scenario."""
     camera = next(
@@ -802,33 +717,16 @@ def build_result_compatibility(scenario: ScenarioBundle) -> ResultCompatibility:
     )
 
 
-def build_training_summary(summary: dict[str, Any]) -> TrainingSummary:
-    """Normalize the current runner summary into the ResultBundle summary."""
-    return TrainingSummary(
-        success_rate=summary.get("success_rate"),
-        average_episode_reward=summary.get(
-            "average_episode_reward",
-            summary.get("avg_reward"),
-        ),
-        average_episode_steps=summary.get(
-            "average_episode_steps",
-            summary.get("avg_steps"),
-        ),
-        configuration=summary["training_configuration"],
-    )
-
-
 def build_result_bundle(  # noqa: PLR0913
     *,
     scenario: ScenarioBundle,
     job_id: str,
     status: ResultStatus,
-    summary: dict[str, Any] | None = None,
+    summary: TrainingSummary | dict[str, Any] | None = None,
     artifacts: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> ResultBundle:
     """Build the client-facing ResultBundle from trainer outputs."""
-    artifacts = artifacts or {}
     result_error = (
         ErrorReport(message=error, details=None) if error is not None else None
     )
@@ -838,17 +736,16 @@ def build_result_bundle(  # noqa: PLR0913
         job_id=job_id,
         status=status,
         compatibility=build_result_compatibility(scenario),
-        summary=build_training_summary(summary) if summary is not None else None,
-        artifacts=ResultArtifacts(
-            onnx_model=_model_artifact_from_payload(
-                artifacts.get("onnx_model"),
-                OnnxModelArtifactLocation,
-            ),
-            sentis_model=_model_artifact_from_payload(
-                artifacts.get("sentis_model"),
-                SentisModelArtifactLocation,
-            ),
-            replay_bundle=_artifact_from_payload(artifacts.get("replay_bundle")),
+        summary=(
+            TrainingSummary.model_validate(summary) if summary is not None else None
+        ),
+        artifacts=ResultArtifacts.model_validate(
+            artifacts
+            if artifacts is not None
+            else {
+                "onnx_model": None,
+                "replay_bundle": None,
+            },
         ),
         error=result_error,
     )

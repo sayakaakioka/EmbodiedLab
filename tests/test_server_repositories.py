@@ -155,8 +155,8 @@ def test_firestore_submission_dispatch_can_only_be_claimed_once() -> None:
     assert control.dispatch_started_at is not None
 
 
-@pytest.mark.parametrize("execution_name", [None, "legacy-execution"])
-def test_firestore_submission_does_not_claim_legacy_control(
+@pytest.mark.parametrize("execution_name", [None, "existing-execution"])
+def test_firestore_submission_does_not_claim_control_without_dispatch_state(
     execution_name: str | None,
 ) -> None:
     db = FakeDb()

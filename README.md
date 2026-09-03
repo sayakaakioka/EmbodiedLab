@@ -2,14 +2,16 @@
 
 EmbodiedLab is the cloud training backend and wire-contract source of truth for
 the EmbodiedLab ecosystem. It owns the versioned Scenario Bundle, Result Bundle,
-and Replay Bundle schemas. The separate EmbodiedLab.Unity package provides Unity
-DTOs, transport, artifact validation, replay, and inference APIs over those
-contracts. EnvForge remains responsible for authoring scenarios and presenting
-results through that SDK.
+and Replay Bundle schemas. The separate
+[`EmbodiedLab.Unity`](https://github.com/sayakaakioka/EmbodiedLab.Unity) package
+provides Unity DTOs, transport, artifact validation, replay, and inference APIs
+over those contracts. Its importable Quickstart is the starting point for Unity
+clients. [`EnvForge`](https://github.com/sayakaakioka/EnvForge) remains responsible
+for authoring scenarios and presenting results through that SDK.
 
 The current prototype accepts complete Scenario Bundle submissions through a
 Cloud Run API, starts a Cloud Run Job to train a reinforcement learning policy,
-stores ONNX, Sentis-oriented ONNX, and Replay Bundle artifacts in GCS, and streams
+stores ONNX and Replay Bundle artifacts in GCS, and streams
 status updates to clients over WebSockets.
 
 The project is intentionally small right now: it focuses on a minimal
@@ -191,14 +193,13 @@ Result documents include:
 A `completed` result always contains a non-null `result_bundle`. A `failed`
 result always contains a non-empty top-level `error`; it also contains a failed
 `result_bundle` when the trainer had a validated Scenario Bundle from which it
-could build compatibility and configuration metadata. Earlier submission or
-scenario failures leave `result_bundle` as `null`.
+could build compatibility metadata. Earlier submission or scenario failures
+leave `result_bundle` as `null`.
 
 Canonical artifacts exist only under `result_bundle.artifacts`:
 
-- `onnx_model`: opset 17 model whose input names and shapes come from the
+- `onnx_model`: opset 18 model whose input names and shapes come from the
   submitted Scenario Bundle
-- `sentis_model`: opset 15 model with one fixed-length observation input
 - `replay_bundle`: manifest location for gzip JSONL train and evaluation chunks
 
 See the complete canonical result at
@@ -283,6 +284,9 @@ Run the API locally:
 make server_local
 ```
 
+This starts the API process locally, but it still uses the configured Firestore,
+Cloud Run Job, and Pub/Sub resources. It is not an offline end-to-end backend.
+
 Run tests:
 
 ```bash
@@ -331,6 +335,12 @@ make logs_notification
 ```
 
 ## Manual Flow
+
+The following commands target the deployed `API_URL`. `make submit` creates a
+real server-owned training submission and may start billable Cloud Run work.
+Confirm the target project, API URL, resource limits, and expected cost before
+running it. The command also writes local recovery files for the idempotency key,
+cancel capability, response, and submission ID; these files are gitignored.
 
 Submit the sample payload:
 

@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from embodiedlab.schemas import (
+    MAX_FORWARD_STEP_METERS,
     MAX_PPO_ROLLOUT_STEPS,
     MAX_RANDOM_SEED,
     MAX_TRAINING_TIMESTEPS,
@@ -45,7 +46,6 @@ def test_canonical_scenario_bundle_is_valid():
         "front_camera",
         "goal_vector",
     ]
-    assert "envforge_min_version" not in payload["compatibility"]
     assert payload["world"]["coordinate_system"] == "left_handed_y_up_meters"
     assert scenario.training.algorithm == "ppo"
     assert scenario.training.max_episode_steps == 512
@@ -56,9 +56,9 @@ def test_scenario_bundle_requires_all_wire_fields():
         ScenarioBundle.model_validate({})
 
 
-def test_scenario_bundle_rejects_deleted_nested_compatibility_field():
+def test_scenario_bundle_rejects_unknown_nested_fields():
     payload = scenario_payload()
-    payload["compatibility"]["envforge_min_version"] = "0.1.0"
+    payload["compatibility"]["unexpected"] = True
 
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ScenarioBundle.model_validate(payload)
@@ -67,6 +67,16 @@ def test_scenario_bundle_rejects_deleted_nested_compatibility_field():
 def test_camera_resolution_has_a_bounded_contract():
     payload = scenario_payload()
     payload["sensors"][0]["width"] = 513
+
+    with pytest.raises(ValidationError):
+        ScenarioBundle.model_validate(payload)
+
+
+def test_scenario_rejects_forward_step_above_service_limit():
+    payload = scenario_payload()
+    payload["robot"]["action_space"]["forward_step_meters"] = (
+        MAX_FORWARD_STEP_METERS + 0.001
+    )
 
     with pytest.raises(ValidationError):
         ScenarioBundle.model_validate(payload)
@@ -428,11 +438,11 @@ def test_reward_angle_thresholds_must_be_strictly_ordered():
 
 def test_training_rejects_eval_replay_over_sdk_row_limit():
     payload = scenario_payload()
-    payload["training"]["max_episode_steps"] = 1001
+    payload["training"]["max_episode_steps"] = 1000
     payload["training"]["eval_episodes"] = 100
     with pytest.raises(
         ValidationError,
-        match=r"eval_episodes \* max_episode_steps",
+        match=r"eval_episodes \* \(max_episode_steps \+ 1\)",
     ):
         ScenarioBundle.model_validate(payload)
 

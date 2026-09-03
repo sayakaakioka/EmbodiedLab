@@ -20,9 +20,9 @@ from embodiedlab.schemas import (
     DispatchState,
     ScenarioBundle,
     SubmissionControl,
+    TrainingSpec,
     build_submission_document,
 )
-from embodiedlab.training.training_config import TrainingConfig
 
 TEST_SHA256 = "0" * 64
 SCENARIO_FIXTURE_PATH = (
@@ -93,11 +93,11 @@ def scenario_bundle(**overrides: object) -> ScenarioBundle:
     return ScenarioBundle.model_validate(payload)
 
 
-def training_config(**overrides: object) -> TrainingConfig:
-    """Build the runtime config from the explicit canonical Scenario values."""
+def training_spec(**overrides: object) -> TrainingSpec:
+    """Build training settings from the explicit canonical Scenario values."""
     payload = scenario_bundle().training.model_dump(mode="python")
     payload.update(overrides)
-    return TrainingConfig.model_validate(payload)
+    return TrainingSpec.model_validate(payload)
 
 
 def resolved_training_configuration() -> dict:
@@ -138,6 +138,16 @@ def resolved_training_configuration() -> dict:
     }
 
 
+def resolved_training_summary() -> dict:
+    """Return a complete canonical training summary for test doubles."""
+    return {
+        "success_rate": None,
+        "average_episode_reward": None,
+        "average_episode_steps": None,
+        "configuration": resolved_training_configuration(),
+    }
+
+
 def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
     """Return all downloadable artifacts required by a completed result."""
     integrity = {"size_bytes": 1, "sha256": TEST_SHA256}
@@ -154,7 +164,7 @@ def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
             "format": "onnx",
             **integrity,
             "target": "onnx-runtime",
-            "opset_version": 17,
+            "opset_version": 18,
             "inputs": [
                 {
                     "name": "obs_0",
@@ -167,24 +177,6 @@ def completed_artifacts(bucket_name: str, submission_id: str) -> dict:
                     "shape": [-1, 2],
                     "dtype": "float32",
                     "layout": ["batch", "goal_vector"],
-                },
-            ],
-            "output": output,
-        },
-        "sentis_model": {
-            "storage": "gcs",
-            "bucket": bucket_name,
-            "path": f"results/{submission_id}/model/policy.sentis.onnx",
-            "format": "onnx",
-            **integrity,
-            "target": "unity-sentis",
-            "opset_version": 15,
-            "inputs": [
-                {
-                    "name": "observation",
-                    "shape": [1, 28226],
-                    "dtype": "float32",
-                    "layout": ["batch", "flattened_observation"],
                 },
             ],
             "output": output,
@@ -225,9 +217,7 @@ def result_document(
             scenario=scenario_bundle(),
             job_id=submission_id,
             status=status,
-            summary={
-                "training_configuration": resolved_training_configuration(),
-            },
+            summary=resolved_training_summary(),
             artifacts=completed_artifacts("model-bucket", submission_id),
         )
     elif status is ResultStatus.FAILED:

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import gzip
+import logging
+import re
+import warnings
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
@@ -36,6 +39,20 @@ if TYPE_CHECKING:
     from stable_baselines3.common.policies import BasePolicy
 
 
+_PYTORCH_LEAFSPEC_WARNING = (
+    "`isinstance(treespec, LeafSpec)` is deprecated, use "
+    "`isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead."
+)
+_PYTORCH_LEAFSPEC_WARNING_PATTERN = rf"^{re.escape(_PYTORCH_LEAFSPEC_WARNING)}$"
+
+
+def _keep_relevant_onnx_registration_logs(record: logging.LogRecord) -> bool:
+    """Hide only unavailable optional torchvision operator registrations."""
+    return not record.getMessage().startswith(
+        "torchvision is not installed. Skipping torchvision::",
+    )
+
+
 class OnnxableContinuousNavigationPolicy(torch.nn.Module):
     """Wrapper exposing the continuous policy as ONNX-friendly inputs."""
 
@@ -65,42 +82,6 @@ class OnnxableContinuousNavigationPolicy(torch.nn.Module):
                 self.goal_vector_observation_name: goal_vector_observation,
             },
         )
-
-
-class SentisContinuousNavigationPolicy(torch.nn.Module):
-    """Wrapper exposing a fixed continuous observation tensor for Sentis."""
-
-    def __init__(
-        self,
-        policy: BasePolicy,
-        *,
-        image_observation_name: str,
-        goal_vector_observation_name: str,
-        image_shape: tuple[int, int, int],
-        goal_vector_size: int,
-    ) -> None:
-        """Store the trained Stable-Baselines3 policy."""
-        super().__init__()
-        self.policy = OnnxableContinuousNavigationPolicy(
-            policy,
-            image_observation_name=image_observation_name,
-            goal_vector_observation_name=goal_vector_observation_name,
-        )
-        self.image_shape = image_shape
-        self.image_size = image_shape[0] * image_shape[1] * image_shape[2]
-        self.observation_size = self.image_size + goal_vector_size
-
-    def forward(self, observation: torch.Tensor) -> torch.Tensor:
-        """Return [forward, turn] actions for a compact observation tensor."""
-        image_observation = observation[:, 0 : self.image_size].reshape(
-            -1,
-            *self.image_shape,
-        )
-        goal_vector_observation = observation[
-            :,
-            self.image_size : self.observation_size,
-        ]
-        return self.policy(image_observation, goal_vector_observation)
 
 
 def _observation_contract(
@@ -224,77 +205,58 @@ def export_model_to_onnx(
         image_observation_name=camera.observation_name,
         goal_vector_observation_name=goal_vector.observation_name,
     )
+    onnxable_policy.eval()
     dummy_obs_0 = torch.zeros(
         (1, *image_shape),
         dtype=torch.float32,
     )
     dummy_obs_1 = torch.zeros((1, len(goal_vector.values)), dtype=torch.float32)
-    torch.onnx.export(
-        onnxable_policy,
-        (dummy_obs_0, dummy_obs_1),
-        onnx_path,
-        input_names=[camera.observation_name, goal_vector.observation_name],
-        output_names=["action"],
-        dynamic_axes={
-            camera.observation_name: {0: "batch"},
-            goal_vector.observation_name: {0: "batch"},
-            "action": {0: "batch"},
-        },
-        opset_version=17,
-        dynamo=False,
+    registration_logger = logging.getLogger(
+        "torch.onnx._internal.exporter._registration",
     )
+    registration_logger.addFilter(_keep_relevant_onnx_registration_logs)
+    try:
+        with warnings.catch_warnings():
+            # PyTorch 2.13.0 deep-copies LeafSpec during Dynamo export. Remove
+            # this workaround after https://github.com/pytorch/pytorch/pull/191416.
+            warnings.filterwarnings(
+                "ignore",
+                message=_PYTORCH_LEAFSPEC_WARNING_PATTERN,
+                category=FutureWarning,
+            )
+            warnings.filterwarnings(
+                "ignore",
+                message=(
+                    r"^Anomaly Detection has been enabled\. This mode will increase "
+                    r"the runtime and should only be enabled for debugging\.$"
+                ),
+                category=UserWarning,
+            )
+            torch.onnx.export(
+                onnxable_policy,
+                (dummy_obs_0, dummy_obs_1),
+                onnx_path,
+                input_names=[camera.observation_name, goal_vector.observation_name],
+                output_names=["action"],
+                dynamic_shapes=(
+                    {0: torch.export.Dim.AUTO},
+                    {0: torch.export.Dim.AUTO},
+                ),
+                opset_version=18,
+                dynamo=True,
+                external_data=False,
+                verbose=False,
+            )
+    finally:
+        registration_logger.removeFilter(_keep_relevant_onnx_registration_logs)
     _validate_exported_onnx(
         onnx_path,
-        expected_opset=17,
+        expected_opset=18,
         expected_inputs={
             camera.observation_name: [-1, *image_shape],
             goal_vector.observation_name: [-1, len(goal_vector.values)],
         },
         expected_output_shape=[-1, 2],
-    )
-    return onnx_path
-
-
-def export_model_to_sentis_onnx(
-    local_model_base_path: str,
-    scenario: ScenarioBundle,
-) -> str:
-    """Convert the saved continuous policy zip to a Sentis-compatible ONNX file."""
-    model = PPO.load(local_model_base_path)
-    _validate_policy_observation_contract(model.policy, scenario)
-    camera, goal_vector = _observation_contract(scenario)
-    image_shape = (
-        len(semantic_channel_layout(camera.semantic_mode)),
-        camera.height,
-        camera.width,
-    )
-    observation_size = image_shape[0] * image_shape[1] * image_shape[2] + len(
-        goal_vector.values,
-    )
-    onnx_path = f"{local_model_base_path}.sentis.onnx"
-    sentis_policy = SentisContinuousNavigationPolicy(
-        model.policy,
-        image_observation_name=camera.observation_name,
-        goal_vector_observation_name=goal_vector.observation_name,
-        image_shape=image_shape,
-        goal_vector_size=len(goal_vector.values),
-    )
-    dummy_observation = torch.zeros((1, observation_size), dtype=torch.float32)
-
-    torch.onnx.export(
-        sentis_policy,
-        dummy_observation,
-        onnx_path,
-        input_names=["observation"],
-        output_names=["action"],
-        opset_version=15,
-        dynamo=False,
-    )
-    _validate_exported_onnx(
-        onnx_path,
-        expected_opset=15,
-        expected_inputs={"observation": [1, observation_size]},
-        expected_output_shape=[1, 2],
     )
     return onnx_path
 
@@ -551,7 +513,7 @@ def _onnx_metadata(
         "path": path,
         "format": "onnx",
         "target": "onnx-runtime",
-        "opset_version": 17,
+        "opset_version": 18,
         **integrity.as_dict(),
         "inputs": [
             {
@@ -576,48 +538,6 @@ def _onnx_metadata(
     }
 
 
-def _sentis_metadata(
-    *,
-    bucket_name: str,
-    path: str,
-    scenario: ScenarioBundle,
-    integrity: FileIntegrity,
-) -> dict:
-    camera, goal_vector = _observation_contract(scenario)
-    channel_layout = semantic_channel_layout(camera.semantic_mode)
-    image_size = len(channel_layout) * camera.height * camera.width
-    observation_size = image_size + len(goal_vector.values)
-    return {
-        "storage": "gcs",
-        "bucket": bucket_name,
-        "path": path,
-        "format": "onnx",
-        "target": "unity-sentis",
-        "opset_version": 15,
-        **integrity.as_dict(),
-        "inputs": [
-            {
-                "name": "observation",
-                "shape": [1, observation_size],
-                "dtype": "float32",
-                "layout": [
-                    (
-                        f"{camera.observation_name}_chw_"
-                        f"{len(channel_layout)}x"
-                        f"{camera.height}x"
-                        f"{camera.width}"
-                    ),
-                    *(
-                        f"{goal_vector.observation_name}_{value}"
-                        for value in goal_vector.values
-                    ),
-                ],
-            },
-        ],
-        "output": _action_output_metadata(),
-    }
-
-
 def upload_model_to_gcs(
     *,
     local_model_base_path: str,
@@ -626,13 +546,10 @@ def upload_model_to_gcs(
     scenario: ScenarioBundle,
     replay_bundle_dir: str,
 ) -> dict:
-    """Upload ONNX exports and a Replay Bundle to GCS."""
+    """Upload the ONNX policy and a Replay Bundle to GCS."""
     local_onnx_path = export_model_to_onnx(local_model_base_path, scenario)
-    local_sentis_path = export_model_to_sentis_onnx(local_model_base_path, scenario)
     onnx_blob_path = f"results/{submission_id}/model/policy.onnx"
-    sentis_blob_path = f"results/{submission_id}/model/policy.sentis.onnx"
     onnx_integrity = compute_file_integrity(local_onnx_path)
-    sentis_integrity = compute_file_integrity(local_sentis_path)
     manifest_path, replay_files = _prepare_replay_bundle(
         submission_id=submission_id,
         scenario_id=scenario.scenario_id,
@@ -647,13 +564,6 @@ def upload_model_to_gcs(
         blob_path=onnx_blob_path,
         content_type="application/octet-stream",
     )
-    upload_file(
-        bucket=bucket,
-        local_path=local_sentis_path,
-        blob_path=sentis_blob_path,
-        content_type="application/octet-stream",
-    )
-
     replay_artifact = _upload_prepared_replay_bundle(
         bucket=bucket,
         bucket_name=bucket_name,
@@ -667,12 +577,6 @@ def upload_model_to_gcs(
             path=onnx_blob_path,
             scenario=scenario,
             integrity=onnx_integrity,
-        ),
-        "sentis_model": _sentis_metadata(
-            bucket_name=bucket_name,
-            path=sentis_blob_path,
-            scenario=scenario,
-            integrity=sentis_integrity,
         ),
         **replay_artifact,
     }

@@ -26,6 +26,7 @@ from tests.fakes import (
     FakeSubmissionRepository,
     completed_artifacts,
     resolved_training_configuration,
+    resolved_training_summary,
     result_document,
     scenario_payload,
 )
@@ -98,7 +99,6 @@ def test_create_app_registers_routes():
     paths = {route.path for route in app.routes}
 
     assert "/submissions" in paths
-    assert "/submissions/{submission_id}/train" not in paths
     assert "/submissions/{submission_id}/cancel" in paths
     assert "/results/{submission_id}" in paths
 
@@ -129,6 +129,38 @@ def test_create_submission_persists_default_payload():
     assert scenario["robot"]["type"] == "simple_robot"
     assert scenario["robot"]["action_space"]["layout"] == ["forward", "turn"]
     assert scenario["training"]["algorithm"] == "ppo"
+
+
+def test_create_submission_rejects_insufficient_random_start_area():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    dispatches = []
+    client = TestClient(
+        build_test_app(
+            submission_repository,
+            result_repository,
+            run_training=lambda *_args: dispatches.append(object()),
+        ),
+    )
+    payload = scenario_payload()
+    payload["world"]["static_obstacles"][0]["size"] = {"x": 7.0, "z": 7.0}
+
+    response = client.post(
+        "/submissions",
+        json=payload,
+        headers=IDEMPOTENCY_HEADERS,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "randomized start valid area must be at least 8% of the sampling area; "
+        "estimated=0.00%"
+    )
+    assert submission_repository.submissions == {}
+    assert result_repository.results == {}
+    assert dispatches == []
 
 
 def test_create_submission_replays_same_response_for_same_recovery_headers():
@@ -242,23 +274,26 @@ def test_create_submission_requires_both_recovery_headers():
     assert only_token.status_code == 422
 
 
-def test_create_submission_rejects_short_recovery_headers():
+def test_create_submission_rejects_invalid_recovery_headers():
     from fastapi.testclient import TestClient
 
     submission_repository = FakeSubmissionRepository()
     result_repository = FakeResultRepository()
     client = TestClient(build_test_app(submission_repository, result_repository))
 
-    response = client.post(
-        "/submissions",
-        json=scenario_payload(),
-        headers={
-            "Idempotency-Key": "too-short",
-            "X-EmbodiedLab-Cancel-Token": "also-too-short",
-        },
-    )
+    invalid_values = ["too-short", "a" * 129, f"{'a' * 31}!"]
+    for header_name in IDEMPOTENCY_HEADERS:
+        for invalid_value in invalid_values:
+            response = client.post(
+                "/submissions",
+                json=scenario_payload(),
+                headers={
+                    **IDEMPOTENCY_HEADERS,
+                    header_name: invalid_value,
+                },
+            )
 
-    assert response.status_code == 422
+            assert response.status_code == 422
     assert submission_repository.submissions == {}
 
 
@@ -1375,10 +1410,8 @@ def test_submission_and_result_flow_integrates_with_trainer():
             create_submission_repository=lambda db: submission_repository,
             create_result_repository=lambda db: result_repository,
             train_model=lambda **kwargs: {
-                "score": 1.0,
-                "training_configuration": resolved_training_configuration(),
+                "summary": resolved_training_summary(),
                 "replay_bundle_dir": "replay_bundle",
-                "replay_manifest": {"schema_version": "replay-bundle.v0"},
             },
             upload_model=lambda **kwargs: completed_artifacts(
                 "model-bucket",
@@ -1408,14 +1441,16 @@ def test_submission_and_result_flow_integrates_with_trainer():
     assert create_response.status_code == 200
     assert result_response.status_code == 200
     assert result_response.json()["status"] == "completed"
-    assert "summary" not in result_response.json()
     assert result_response.json()["result_bundle"]["summary"] == {
         "success_rate": None,
         "average_episode_reward": None,
         "average_episode_steps": None,
         "configuration": resolved_training_configuration(),
     }
-    assert "artifacts" not in result_response.json()
+    assert set(result_response.json()["result_bundle"]["artifacts"]) == {
+        "onnx_model",
+        "replay_bundle",
+    }
     assert (
         result_response.json()["result_bundle"]["artifacts"]["onnx_model"]["bucket"]
         == "model-bucket"

@@ -11,21 +11,22 @@ from typing import TYPE_CHECKING, Any
 from embodiedlab.result_models import (
     ResultBundle,
     ResultStatus,
+    TrainingSummary,
     build_result_bundle,
 )
-from embodiedlab.training.training_config import TrainingConfig
+from embodiedlab.schemas import ScenarioBundle, TrainingSpec
 from embodiedlab.training.training_converter import (
     ScenarioRuntimeConversion,
-    convert_submission_to_spec,
+    convert_scenario_to_spec,
     describe_runtime_conversion,
-    parse_scenario_bundle,
 )
+
+if TYPE_CHECKING:
+    from embodiedlab.training.training_models import ContinuousNavigationSpec
 
 TrainModel = Callable[..., dict[str, Any]]
 TrainingProgressCallback = Callable[[int, int], None]
 TrainingDiagnosticCallback = Callable[[str, dict[str, object]], None]
-if TYPE_CHECKING:
-    from embodiedlab.schemas import ScenarioBundle
 
 
 UploadModel = Callable[..., dict[str, Any]]
@@ -36,8 +37,8 @@ class TrainingInputs:
     """Validated runtime inputs required to execute training."""
 
     scenario: ScenarioBundle
-    training: TrainingConfig
-    spec: object
+    training: TrainingSpec
+    spec: ContinuousNavigationSpec
     conversion: ScenarioRuntimeConversion
 
 
@@ -52,13 +53,12 @@ def parse_training_submission(
     submission: dict[str, Any],
 ) -> TrainingInputs:
     """Validate a submission payload and convert it into runtime training inputs."""
-    scenario = parse_scenario_bundle(submission)
-    training = TrainingConfig.model_validate(scenario.training.model_dump(mode="json"))
-    spec = convert_submission_to_spec(scenario)
+    scenario = ScenarioBundle.model_validate(submission["scenario"])
+    spec = convert_scenario_to_spec(scenario)
     conversion = describe_runtime_conversion(scenario)
     return TrainingInputs(
         scenario=scenario,
-        training=training,
+        training=scenario.training,
         spec=spec,
         conversion=conversion,
     )
@@ -89,15 +89,14 @@ def execute_training_run(  # noqa: PLR0913
         if diagnostic_callback is not None:
             train_kwargs["diagnostic_callback"] = diagnostic_callback
 
-        summary = train_model(**train_kwargs)
-        replay_bundle_dir = summary.pop("replay_bundle_dir")
-        summary.pop("replay_manifest")
+        training_output = train_model(**train_kwargs)
+        summary = TrainingSummary.model_validate(training_output["summary"])
         artifacts = upload_model(
             local_model_base_path=model_base_path,
             bucket_name=model_bucket,
             submission_id=submission_id,
             scenario=inputs.scenario,
-            replay_bundle_dir=replay_bundle_dir,
+            replay_bundle_dir=training_output["replay_bundle_dir"],
         )
 
     result_bundle = build_result_bundle(

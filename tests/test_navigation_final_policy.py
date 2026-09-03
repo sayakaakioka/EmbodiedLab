@@ -15,7 +15,7 @@ from embodiedlab.training.navigation_final_policy import (
     NavigationFinalPolicy,
     navigation_final_contract_action,
 )
-from embodiedlab.training.training_converter import convert_submission_to_spec
+from embodiedlab.training.training_converter import convert_scenario_to_spec
 from tests.fakes import scenario_bundle
 
 
@@ -32,8 +32,8 @@ def _policy_kwargs(spec):
 
 
 def test_navigation_final_policy_bounds_gaussian_std_before_action_mapping():
-    spec = convert_submission_to_spec(scenario_bundle())
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
     model = PPO(
         policy=NavigationFinalPolicy,
         env=env,
@@ -68,8 +68,8 @@ def test_navigation_final_policy_bounds_gaussian_std_before_action_mapping():
 
 
 def test_navigation_final_policy_uses_ml_agents_strict_initial_raw_action_std():
-    spec = convert_submission_to_spec(scenario_bundle())
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
     model = PPO(
         policy=NavigationFinalPolicy,
         env=env,
@@ -89,8 +89,8 @@ def test_navigation_final_policy_uses_scenario_camera_resolution():
     payload = scenario_bundle().model_dump(mode="json")
     payload["sensors"][0]["width"] = 96
     payload["sensors"][0]["height"] = 72
-    spec = convert_submission_to_spec(ScenarioBundle.model_validate(payload))
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(ScenarioBundle.model_validate(payload))
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
 
     model = PPO(
         policy=NavigationFinalPolicy,

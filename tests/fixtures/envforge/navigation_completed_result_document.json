@@ -68,7 +68,7 @@
         "size_bytes": 12345,
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
         "target": "onnx-runtime",
-        "opset_version": 17,
+        "opset_version": 18,
         "inputs": [
           {
             "name": "obs_0",
@@ -85,36 +85,6 @@
             "shape": [-1, 2],
             "dtype": "float32",
             "layout": ["goal_angle_degrees", "goal_distance_meters"]
-          }
-        ],
-        "output": {
-          "name": "action",
-          "layout": ["forward", "turn"],
-          "action_mapping": {
-            "forward": "sigmoid(policy_forward)",
-            "turn": "clip(policy_turn, -3, 3) / 3"
-          }
-        }
-      },
-      "sentis_model": {
-        "storage": "gcs",
-        "bucket": "embodiedlab-models",
-        "path": "results/submission-1/model/policy.sentis.onnx",
-        "format": "onnx",
-        "size_bytes": 12345,
-        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-        "target": "unity-sentis",
-        "opset_version": 15,
-        "inputs": [
-          {
-            "name": "observation",
-            "shape": [1, 28226],
-            "dtype": "float32",
-            "layout": [
-              "obs_0_chw_3x84x112",
-              "obs_1_goal_angle_degrees",
-              "obs_1_goal_distance_meters"
-            ]
           }
         ],
         "output": {

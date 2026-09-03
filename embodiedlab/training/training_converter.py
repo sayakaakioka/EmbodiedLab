@@ -40,22 +40,10 @@ class ScenarioRuntimeConversion:
     notes: tuple[str, ...]
 
 
-def parse_scenario_bundle(
-    submission: dict[str, object] | ScenarioBundle,
-) -> ScenarioBundle:
-    """Parse a Firestore submission document or scenario payload."""
-    if isinstance(submission, ScenarioBundle):
-        return submission
-
-    payload = submission.get("scenario", submission)
-    return ScenarioBundle.model_validate(payload)
-
-
 def describe_runtime_conversion(
-    submission: dict[str, object] | ScenarioBundle,
+    scenario: ScenarioBundle,
 ) -> ScenarioRuntimeConversion:
     """Describe the scenario runtime mapping."""
-    scenario = parse_scenario_bundle(submission)
     return ScenarioRuntimeConversion(
         source_coordinate_system=scenario.world.coordinate_system.value,
         runtime_coordinate_system=scenario.world.coordinate_system.value,
@@ -178,11 +166,8 @@ def _box_to_obstacle(obstacle: StaticObstacle) -> ContinuousBoxObstacle:
     )
 
 
-def convert_submission_to_spec(
-    submission: dict[str, object] | ScenarioBundle,
-) -> ContinuousNavigationSpec:
+def convert_scenario_to_spec(scenario: ScenarioBundle) -> ContinuousNavigationSpec:
     """Convert a ScenarioBundle into the continuous navigation runtime spec."""
-    scenario = parse_scenario_bundle(submission)
     bounds = scenario.world.bounds
     goal = scenario.world.goal
     start_pose = scenario.robot.start_pose

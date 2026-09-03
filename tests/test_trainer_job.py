@@ -8,6 +8,7 @@ from tests.fakes import (
     FakeSubmissionRepository,
     completed_artifacts,
     resolved_training_configuration,
+    resolved_training_summary,
     scenario_bundle,
 )
 from trainer.config import TrainerConfig
@@ -24,12 +25,10 @@ _CONFIG = TrainerConfig(
 _NO_PUBLISH = lambda **kwargs: None  # noqa: E731
 
 
-def _training_summary():
+def _training_output():
     return {
-        "score": 1.0,
-        "training_configuration": resolved_training_configuration(),
+        "summary": resolved_training_summary(),
         "replay_bundle_dir": "replay_bundle",
-        "replay_manifest": {"schema_version": "replay-bundle.v0"},
     }
 
 
@@ -65,7 +64,7 @@ def test_run_training_job_updates_result_to_completed():
         assert progress_callback is not None
         calls.append(("train", spec, training, model_output_path, scenario_id, job_id))
         return {
-            **_training_summary(),
+            **_training_output(),
             "replay_bundle_dir": str(model_output_path) + "_replay",
         }
 
@@ -102,8 +101,6 @@ def test_run_training_job_updates_result_to_completed():
     payloads = result_repository.payloads_for("submission-1")
     statuses = [payload["data"]["status"] for payload in payloads]
     assert statuses == ["starting", "running", "completed"]
-    assert "summary" not in payloads[-1]["data"]
-    assert "artifacts" not in payloads[-1]["data"]
     assert payloads[-1]["data"]["result_bundle"]["schema_version"] == (
         "result-bundle.v0"
     )
@@ -113,14 +110,13 @@ def test_run_training_job_updates_result_to_completed():
         "average_episode_steps": None,
         "configuration": resolved_training_configuration(),
     }
-    assert "model" not in payloads[-1]["data"]["result_bundle"]["artifacts"]
+    assert set(payloads[-1]["data"]["result_bundle"]["artifacts"]) == {
+        "onnx_model",
+        "replay_bundle",
+    }
     assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["onnx_model"]["path"]
         == "results/submission-1/model/policy.onnx"
-    )
-    assert (
-        payloads[-1]["data"]["result_bundle"]["artifacts"]["sentis_model"]["path"]
-        == "results/submission-1/model/policy.sentis.onnx"
     )
     assert (
         payloads[-1]["data"]["result_bundle"]["artifacts"]["replay_bundle"]["path"]
@@ -152,7 +148,7 @@ def test_run_training_job_writes_training_progress_updates():
     ):
         progress_callback(10000, training.timesteps)
         progress_callback(20000, training.timesteps)
-        return _training_summary()
+        return _training_output()
 
     run_training_job(
         _CONFIG,
@@ -213,8 +209,11 @@ def test_run_training_job_marks_invalid_submission_failed():
             create_db=lambda db_id: object(),
             create_submission_repository=lambda db: submission_repository,
             create_result_repository=lambda db: result_repository,
-            train_model=lambda **kwargs: {"score": 1.0},
-            upload_model=lambda **kwargs: {"model": {}},
+            train_model=lambda **kwargs: _training_output(),
+            upload_model=lambda **kwargs: completed_artifacts(
+                "model-bucket",
+                "submission-1",
+            ),
             publish_event=_NO_PUBLISH,
         )
 
@@ -320,7 +319,7 @@ def test_run_training_job_recovers_ambiguous_execution_before_training():
         create_db=lambda db_id: object(),
         create_submission_repository=lambda db: submission_repository,
         create_result_repository=lambda db: result_repository,
-        train_model=lambda **kwargs: _training_summary(),
+        train_model=lambda **kwargs: _training_output(),
         upload_model=lambda **kwargs: completed_artifacts(
             kwargs["bucket_name"],
             kwargs["submission_id"],
@@ -359,7 +358,7 @@ def test_run_training_job_preserves_completion_while_cancellation_is_pending():
         create_db=lambda db_id: object(),
         create_submission_repository=lambda db: submission_repository,
         create_result_repository=lambda db: result_repository,
-        train_model=lambda **kwargs: _training_summary(),
+        train_model=lambda **kwargs: _training_output(),
         upload_model=lambda **kwargs: completed_artifacts(
             kwargs["bucket_name"],
             kwargs["submission_id"],

@@ -3,7 +3,9 @@
   "description": "Response returned after accepting a new submission.",
   "properties": {
     "cancel_token": {
+      "maxLength": 128,
       "minLength": 32,
+      "pattern": "^[A-Za-z0-9_-]+$",
       "title": "Cancel Token",
       "type": "string"
     },
