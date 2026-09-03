@@ -31,6 +31,8 @@ EnvForge / another Unity frontend
 - 成果物は `results/<submission_id>/model/` と
   `results/<submission_id>/replay/` に保存する。
 - Replay Bundle は manifest と train / eval の gzip JSONL chunk で構成する。
+- `randomize_start` の開始可能面積を submission 受理前に近似検証し、受理後は有限回抽選と
+  検証済みの決定的な安全位置で reset を完了する。
 - EmbodiedLab の Pydantic model と versioned JSON Schema を wire contract の正本とし、
   SDK の generated DTO、canonical fixture、contract test を同期する。
 - `EmbodiedLab.Unity` は現在の厳密な v0 schema、generated DTO、semantic validator、
@@ -124,6 +126,12 @@ cloud resource を削除する前に、EnvForge 側の
 - versioned な宣言的規則と seed を持つ generated environment mode
 - Replay Bundle の streaming load と部分取得
 - 複数 robot / sensor 構成
+- `DistanceSensor` の LiDAR 的な angular scan。現行は前方1本だけである。versioned contract
+  として水平視野角（180度／360度など）、Ray 数または角度分解能、最小／最大距離、出力順、
+  必要なら mount height と垂直 layer を定義し、EmbodiedLab runtime、Replay、
+  `EmbodiedLab.Unity`、EnvForge を同時に更新する。また、現行の Ray 進行方向 0.005 m
+  point sampling は、その間に収まる薄い障害物を見逃し得る。角度分解能とは別の課題として、
+  解析的な ray-object intersection など、薄い形状を落とさない距離判定へ置き換える。
 - CPU 別 Cloud Run Job 選択または安全な job definition 更新
 - SDK の release、tag、UPM package distribution
 

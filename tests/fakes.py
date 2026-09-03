@@ -20,9 +20,9 @@ from embodiedlab.schemas import (
     DispatchState,
     ScenarioBundle,
     SubmissionControl,
+    TrainingSpec,
     build_submission_document,
 )
-from embodiedlab.training.training_config import TrainingConfig
 
 TEST_SHA256 = "0" * 64
 SCENARIO_FIXTURE_PATH = (
@@ -93,11 +93,11 @@ def scenario_bundle(**overrides: object) -> ScenarioBundle:
     return ScenarioBundle.model_validate(payload)
 
 
-def training_config(**overrides: object) -> TrainingConfig:
-    """Build the runtime config from the explicit canonical Scenario values."""
+def training_spec(**overrides: object) -> TrainingSpec:
+    """Build training settings from the explicit canonical Scenario values."""
     payload = scenario_bundle().training.model_dump(mode="python")
     payload.update(overrides)
-    return TrainingConfig.model_validate(payload)
+    return TrainingSpec.model_validate(payload)
 
 
 def resolved_training_configuration() -> dict:

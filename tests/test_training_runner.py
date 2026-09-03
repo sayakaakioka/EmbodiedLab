@@ -10,8 +10,8 @@ from embodiedlab.training.runner import (
     build_continuous_replay_step,
     evaluate_continuous_policy,
 )
-from embodiedlab.training.training_converter import convert_submission_to_spec
-from tests.fakes import scenario_bundle, training_config
+from embodiedlab.training.training_converter import convert_scenario_to_spec
+from tests.fakes import scenario_bundle, training_spec
 
 
 def test_training_configures_torch_threads(monkeypatch):
@@ -28,7 +28,7 @@ def test_training_configures_torch_threads(monkeypatch):
     events = []
 
     _configure_torch_threads(
-        training_config(torch_num_threads=1),
+        training_spec(torch_num_threads=1),
         1,
         lambda event, fields: events.append((event, fields)),
     )
@@ -56,7 +56,7 @@ def test_unspecified_torch_threads_resolve_to_effective_cpu_count(monkeypatch):
     from embodiedlab.training.runner import _configure_torch_threads
 
     effective = _configure_torch_threads(
-        training_config(torch_num_threads=None),
+        training_spec(torch_num_threads=None),
         2,
         None,
     )
@@ -86,7 +86,7 @@ def test_training_applies_requested_cpu_affinity(monkeypatch):
     events = []
 
     effective = _configure_cpu_count(
-        training_config(cpu_count=2, n_envs=2, torch_num_threads=1),
+        training_spec(cpu_count=2, n_envs=2, torch_num_threads=1),
         lambda event, fields: events.append((event, fields)),
     )
 
@@ -112,13 +112,13 @@ def test_training_rejects_requested_cpu_count_above_available(monkeypatch):
     )
 
     with pytest.raises(ValueError, match="exceeds available CPU count"):
-        _configure_cpu_count(training_config(cpu_count=3), None)
+        _configure_cpu_count(training_spec(cpu_count=3), None)
 
 
 def test_build_training_env_randomizes_start_for_single_env():
     scenario = scenario_bundle()
-    spec = convert_submission_to_spec(scenario)
-    training = training_config(n_envs=1)
+    spec = convert_scenario_to_spec(scenario)
+    training = training_spec(n_envs=1)
 
     env = _build_training_env(spec=spec, training=training)
 
@@ -127,8 +127,8 @@ def test_build_training_env_randomizes_start_for_single_env():
 
 def test_build_training_env_uses_subproc_vec_env_automatically_for_multiple_envs():
     scenario = scenario_bundle()
-    spec = convert_submission_to_spec(scenario)
-    training = training_config(n_envs=2)
+    spec = convert_scenario_to_spec(scenario)
+    training = training_spec(n_envs=2)
     events = []
 
     env = _build_training_env(
@@ -153,9 +153,9 @@ def test_build_training_env_uses_subproc_vec_env_automatically_for_multiple_envs
 
 def test_navigation_final_raw_prediction_matches_sb3_deterministic_action():
     scenario = scenario_bundle()
-    spec = convert_submission_to_spec(scenario)
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
-    training = training_config(timesteps=1, n_steps=8, batch_size=4, seed=10)
+    spec = convert_scenario_to_spec(scenario)
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
+    training = training_spec(timesteps=1, n_steps=8, batch_size=4, seed=10)
     model = _train_model(env=env, training=training)
     obs, _info = env.reset(seed=10)
 
@@ -167,9 +167,9 @@ def test_navigation_final_raw_prediction_matches_sb3_deterministic_action():
 
 def test_train_model_passes_declared_ppo_configuration(monkeypatch):
     scenario = scenario_bundle()
-    spec = convert_submission_to_spec(scenario)
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
-    training = training_config(
+    spec = convert_scenario_to_spec(scenario)
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
+    training = training_spec(
         timesteps=1,
         n_steps=8,
         batch_size=4,
@@ -331,7 +331,7 @@ def test_build_continuous_replay_step_returns_contract_replay_shape():
 def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     class FakeEnv:
         def __init__(self):
-            self.spec = convert_submission_to_spec(scenario_bundle())
+            self.spec = convert_scenario_to_spec(scenario_bundle())
             self.episode_index = -1
             self.step_index = 0
 
@@ -375,7 +375,7 @@ def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     result = evaluate_continuous_policy(
         model=object(),
         env=FakeEnv(),
-        training=training_config(eval_episodes=3),
+        training=training_spec(eval_episodes=3),
     )
 
     assert result["episodes"] == 3

@@ -10,6 +10,11 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
+from embodiedlab.random_start import (
+    MAX_RANDOM_START_ATTEMPTS,
+    RandomStartArea,
+    build_random_start_area,
+)
 from embodiedlab.training.navigation_final_policy import (
     POLICY_FORWARD_ACTION_HIGH,
     POLICY_FORWARD_ACTION_LOW,
@@ -26,7 +31,9 @@ ACTION_SIZE = 2
 FORWARD_ACTION_INDEX = 0
 TURN_ACTION_INDEX = 1
 MOVEMENT_COLLISION_STEP_METERS = 0.005
-RAY_STEP_METERS = MOVEMENT_COLLISION_STEP_METERS
+# The current DistanceSensor is one forward ray; this is its longitudinal
+# collision-sampling interval, not an angular resolution.
+DISTANCE_RAY_SAMPLE_STEP_METERS = 0.005
 RAY_EPSILON = 1e-6
 
 
@@ -43,12 +50,6 @@ class CameraBox:
     rotation_sin: float = 0.0
 
 
-MAX_RANDOM_START_ATTEMPTS = 256
-RANDOM_START_CLEARANCE_RADIUS_METERS = 0.65
-RANDOM_START_CLEARANCE_PROBE_COUNT = 16
-RANDOM_START_BOUNDARY_INSET_METERS = 1.35
-
-
 class ContinuousNavigationEnv(gym.Env):
     """Continuous x/z navigation runtime for scenario bundles."""
 
@@ -57,15 +58,18 @@ class ContinuousNavigationEnv(gym.Env):
     def __init__(
         self,
         spec: ContinuousNavigationSpec,
-        max_steps: int = 512,
+        max_episode_steps: int,
         *,
         randomize_start: bool = False,
     ) -> None:
         """Initialise observation/action spaces and reset robot state."""
         super().__init__()
         self.spec = spec
-        self.max_steps = max_steps
+        self.max_episode_steps = max_episode_steps
         self.randomize_start = randomize_start
+        self._random_start_area: RandomStartArea | None = (
+            build_random_start_area(spec) if randomize_start else None
+        )
         self.action_space = spaces.Box(
             low=np.array(
                 [POLICY_FORWARD_ACTION_LOW, POLICY_TURN_ACTION_LOW],
@@ -173,44 +177,17 @@ class ContinuousNavigationEnv(gym.Env):
     def _signed_angle_to_goal_degrees(self) -> float:
         delta = self._goal_pos() - self.robot_pos
         target_degrees = degrees(atan2(float(delta[0]), float(delta[1])))
-        return self._normalise_angle(target_degrees - self.robot_rotation_y_degrees)
+        return self._normalise_degrees(target_degrees - self.robot_rotation_y_degrees)
 
     @staticmethod
-    def _normalise_rotation(rotation_y_degrees: float) -> float:
-        return ((rotation_y_degrees + 180.0) % 360.0) - 180.0
-
-    @staticmethod
-    def _normalise_angle(angle_degrees: float) -> float:
-        return ((angle_degrees + 180.0) % 360.0) - 180.0
-
-    def _inside_bounds(self, position: np.ndarray) -> bool:
-        return bool(
-            self.spec.bounds.min_x + self._robot_radius
-            <= position[0]
-            <= self.spec.bounds.max_x - self._robot_radius
-            and self.spec.bounds.min_z + self._robot_radius
-            <= position[1]
-            <= self.spec.bounds.max_z - self._robot_radius,
-        )
+    def _normalise_degrees(value: float) -> float:
+        return ((value + 180.0) % 360.0) - 180.0
 
     def _collision_id(self, position: np.ndarray) -> str | None:
-        if not self._inside_bounds(position):
-            return "world_bounds"
-        if len(self._obstacle_ids) == 0:
-            return None
-        x = float(position[0])
-        z = float(position[1])
-        translated_x = x - self._obstacle_center_x
-        translated_z = z - self._obstacle_center_z
-        local_x = translated_x * self._obstacle_cos - translated_z * self._obstacle_sin
-        local_z = translated_x * self._obstacle_sin + translated_z * self._obstacle_cos
-        hits = np.nonzero(
-            (np.abs(local_x) <= self._obstacle_collision_half_x)
-            & (np.abs(local_z) <= self._obstacle_collision_half_z),
-        )[0]
-        if len(hits) > 0:
-            return self._obstacle_ids[int(hits[0])]
-        return None
+        return self._first_collision_id_for_points(
+            np.asarray([position[0]], dtype=np.float32),
+            np.asarray([position[1]], dtype=np.float32),
+        )
 
     def _segment_collision_id(
         self,
@@ -232,9 +209,10 @@ class ContinuousNavigationEnv(gym.Env):
         if max_range is None:
             msg = "distance sensor range is unavailable"
             raise RuntimeError(msg)
-        sample_count = max(1, ceil(max_range / RAY_STEP_METERS))
+        sample_count = max(1, ceil(max_range / DISTANCE_RAY_SAMPLE_STEP_METERS))
         distances = np.minimum(
-            np.arange(1, sample_count + 1, dtype=np.float32) * RAY_STEP_METERS,
+            np.arange(1, sample_count + 1, dtype=np.float32)
+            * DISTANCE_RAY_SAMPLE_STEP_METERS,
             max_range,
         )
         ray_radians = np.deg2rad(ray_degrees.astype(np.float32))
@@ -348,8 +326,18 @@ class ContinuousNavigationEnv(gym.Env):
         distances = np.full(dy.shape, np.inf, dtype=np.float32)
         downward = dy < -RAY_EPSILON
         floor_distances = -self._camera_mount_height_meters / dy[downward]
-        valid = (floor_distances >= camera.near_clip_meters) & (
-            floor_distances <= camera.far_clip_meters
+        floor_x = self.robot_pos[0] + directions[:, :, 0][downward] * floor_distances
+        floor_z = self.robot_pos[1] + directions[:, :, 2][downward] * floor_distances
+        inside_bounds = (
+            (floor_x >= self.spec.bounds.min_x)
+            & (floor_x <= self.spec.bounds.max_x)
+            & (floor_z >= self.spec.bounds.min_z)
+            & (floor_z <= self.spec.bounds.max_z)
+        )
+        valid = (
+            (floor_distances >= camera.near_clip_meters)
+            & (floor_distances <= camera.far_clip_meters)
+            & inside_bounds
         )
         downward_indices = np.nonzero(downward)
         distances[downward_indices[0][valid], downward_indices[1][valid]] = (
@@ -450,50 +438,25 @@ class ContinuousNavigationEnv(gym.Env):
         return t_min, t_max, valid
 
     def _valid_random_start_position(self, position: np.ndarray) -> bool:
-        return (
-            self._clearance_collision_id(
-                position,
-                RANDOM_START_CLEARANCE_RADIUS_METERS,
-            )
-            is None
-            and float(np.linalg.norm(position - self._goal_pos()))
-            > self.spec.goal.radius + RANDOM_START_CLEARANCE_RADIUS_METERS
+        if self._random_start_area is None:
+            message = "random start area is unavailable"
+            raise RuntimeError(message)
+        return self._random_start_area.contains(
+            float(position[0]),
+            float(position[1]),
         )
-
-    def _clearance_collision_id(
-        self,
-        position: np.ndarray,
-        clearance_radius: float,
-    ) -> str | None:
-        angles = np.linspace(
-            0.0,
-            2.0 * np.pi,
-            RANDOM_START_CLEARANCE_PROBE_COUNT,
-            endpoint=False,
-            dtype=np.float32,
-        )
-        probe_x = position[0] + np.cos(angles) * clearance_radius
-        probe_z = position[1] + np.sin(angles) * clearance_radius
-        probe_x = np.concatenate([np.asarray([position[0]], dtype=np.float32), probe_x])
-        probe_z = np.concatenate([np.asarray([position[1]], dtype=np.float32), probe_z])
-        return self._first_collision_id_for_points(probe_x, probe_z)
 
     def _sample_random_start(self) -> tuple[np.ndarray, float]:
-        min_x = self.spec.bounds.min_x + RANDOM_START_BOUNDARY_INSET_METERS
-        max_x = self.spec.bounds.max_x - RANDOM_START_BOUNDARY_INSET_METERS
-        min_z = self.spec.bounds.min_z + RANDOM_START_BOUNDARY_INSET_METERS
-        max_z = self.spec.bounds.max_z - RANDOM_START_BOUNDARY_INSET_METERS
-        if min_x >= max_x or min_z >= max_z:
-            min_x = self.spec.bounds.min_x
-            max_x = self.spec.bounds.max_x
-            min_z = self.spec.bounds.min_z
-            max_z = self.spec.bounds.max_z
+        area = self._random_start_area
+        if area is None:
+            message = "random start area is unavailable"
+            raise RuntimeError(message)
 
         for _attempt in range(MAX_RANDOM_START_ATTEMPTS):
             position = np.array(
                 [
-                    self.np_random.uniform(min_x, max_x),
-                    self.np_random.uniform(min_z, max_z),
+                    self.np_random.uniform(area.min_x, area.max_x),
+                    self.np_random.uniform(area.min_z, area.max_z),
                 ],
                 dtype=np.float32,
             )
@@ -502,11 +465,8 @@ class ContinuousNavigationEnv(gym.Env):
                 return position, rotation_y_degrees
 
         return (
-            np.array(
-                [self.spec.robot_start.x, self.spec.robot_start.z],
-                dtype=np.float32,
-            ),
-            self.spec.robot_start.rotation_y_degrees,
+            np.array(area.safe_position, dtype=np.float32),
+            float(self.np_random.uniform(-180.0, 180.0)),
         )
 
     def _collision_mask(
@@ -663,7 +623,7 @@ class ContinuousNavigationEnv(gym.Env):
         if self.randomize_start:
             position, rotation_y_degrees = self._sample_random_start()
             self.robot_pos = position
-            self.robot_rotation_y_degrees = self._normalise_rotation(
+            self.robot_rotation_y_degrees = self._normalise_degrees(
                 rotation_y_degrees,
             )
         else:
@@ -671,7 +631,7 @@ class ContinuousNavigationEnv(gym.Env):
                 [self.spec.robot_start.x, self.spec.robot_start.z],
                 dtype=np.float32,
             )
-            self.robot_rotation_y_degrees = self._normalise_rotation(
+            self.robot_rotation_y_degrees = self._normalise_degrees(
                 self.spec.robot_start.rotation_y_degrees,
             )
         self.steps = 0
@@ -685,7 +645,7 @@ class ContinuousNavigationEnv(gym.Env):
         previous_distance = self._distance_to_goal()
         raw_action, applied_action = self._map_raw_action(action)
         self.steps += 1
-        self.robot_rotation_y_degrees = self._normalise_rotation(
+        self.robot_rotation_y_degrees = self._normalise_degrees(
             self.robot_rotation_y_degrees
             + float(applied_action[TURN_ACTION_INDEX])
             * self.spec.turn_degrees_per_step,
@@ -703,7 +663,7 @@ class ContinuousNavigationEnv(gym.Env):
         distance_delta = previous_distance - distance
         goal_reached = distance <= self.spec.goal.radius
         terminated = goal_reached or collision_id is not None
-        truncated = self.steps >= self.max_steps
+        truncated = self.steps >= self.max_episode_steps
         reward_components = self._reward_components(
             distance_delta=distance_delta,
             applied_forward=float(applied_action[FORWARD_ACTION_INDEX]),

@@ -8,8 +8,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from embodiedlab.random_start import build_random_start_area
 from embodiedlab.result_models import failed_progress
 from embodiedlab.schemas import DispatchState
+from embodiedlab.training.training_converter import convert_scenario_to_spec
 from server.config import ServerConfig
 from server.services.jobs import TrainingDispatchRejectedError
 
@@ -47,6 +49,8 @@ class SubmissionWorkflow:
         idempotency_key: str,
     ) -> str:
         """Atomically accept a submission and claim its only dispatch attempt."""
+        if scenario.training.randomize_start:
+            build_random_start_area(convert_scenario_to_spec(scenario))
         submission_id = self.submission_repository.accept(
             scenario,
             cancel_token_hash=cancel_token_hash,

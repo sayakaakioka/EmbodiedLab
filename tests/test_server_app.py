@@ -131,6 +131,38 @@ def test_create_submission_persists_default_payload():
     assert scenario["training"]["algorithm"] == "ppo"
 
 
+def test_create_submission_rejects_insufficient_random_start_area():
+    from fastapi.testclient import TestClient
+
+    submission_repository = FakeSubmissionRepository()
+    result_repository = FakeResultRepository()
+    dispatches = []
+    client = TestClient(
+        build_test_app(
+            submission_repository,
+            result_repository,
+            run_training=lambda *_args: dispatches.append(object()),
+        ),
+    )
+    payload = scenario_payload()
+    payload["world"]["static_obstacles"][0]["size"] = {"x": 7.0, "z": 7.0}
+
+    response = client.post(
+        "/submissions",
+        json=payload,
+        headers=IDEMPOTENCY_HEADERS,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "randomized start valid area must be at least 8% of the sampling area; "
+        "estimated=0.00%"
+    )
+    assert submission_repository.submissions == {}
+    assert result_repository.results == {}
+    assert dispatches == []
+
+
 def test_create_submission_replays_same_response_for_same_recovery_headers():
     from fastapi.testclient import TestClient
 
@@ -242,23 +274,26 @@ def test_create_submission_requires_both_recovery_headers():
     assert only_token.status_code == 422
 
 
-def test_create_submission_rejects_short_recovery_headers():
+def test_create_submission_rejects_invalid_recovery_headers():
     from fastapi.testclient import TestClient
 
     submission_repository = FakeSubmissionRepository()
     result_repository = FakeResultRepository()
     client = TestClient(build_test_app(submission_repository, result_repository))
 
-    response = client.post(
-        "/submissions",
-        json=scenario_payload(),
-        headers={
-            "Idempotency-Key": "too-short",
-            "X-EmbodiedLab-Cancel-Token": "also-too-short",
-        },
-    )
+    invalid_values = ["too-short", "a" * 129, f"{'a' * 31}!"]
+    for header_name in IDEMPOTENCY_HEADERS:
+        for invalid_value in invalid_values:
+            response = client.post(
+                "/submissions",
+                json=scenario_payload(),
+                headers={
+                    **IDEMPOTENCY_HEADERS,
+                    header_name: invalid_value,
+                },
+            )
 
-    assert response.status_code == 422
+            assert response.status_code == 422
     assert submission_repository.submissions == {}
 
 

@@ -110,3 +110,11 @@ def test_parse_training_submission_uses_continuous_runtime_spec():
     assert inputs.training.n_envs == 4
     assert inputs.training.cpu_count == 4
     assert inputs.training.torch_num_threads == 1
+    assert inputs.training is inputs.scenario.training
+
+
+def test_parse_training_submission_requires_firestore_document_shape():
+    scenario = scenario_bundle()
+
+    with pytest.raises(KeyError, match="scenario"):
+        parse_training_submission(scenario.model_dump(mode="json"))

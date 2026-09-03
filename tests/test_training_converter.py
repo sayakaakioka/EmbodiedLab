@@ -1,33 +1,10 @@
 import pytest
-from pydantic import ValidationError
 
 from embodiedlab.training.training_converter import (
-    convert_submission_to_spec,
+    convert_scenario_to_spec,
     describe_runtime_conversion,
-    parse_scenario_bundle,
 )
 from tests.fakes import scenario_bundle
-
-
-def test_parse_scenario_bundle_from_model():
-    scenario = scenario_bundle()
-
-    parsed = parse_scenario_bundle(scenario)
-
-    assert parsed is scenario
-
-
-def test_parse_scenario_bundle_from_firestore_document():
-    scenario = scenario_bundle().model_dump(mode="json")
-    submission = {
-        "submission_id": "submission-1",
-        "created_at": "2026-04-17T00:00:00+00:00",
-        "scenario": scenario,
-    }
-
-    parsed = parse_scenario_bundle(submission)
-
-    assert parsed.scenario_id == "scenario_demo_001"
 
 
 def test_convert_scenario_to_continuous_runtime_spec():
@@ -128,7 +105,7 @@ def test_convert_scenario_to_continuous_runtime_spec():
     )
 
     conversion = describe_runtime_conversion(scenario)
-    spec = convert_submission_to_spec(scenario)
+    spec = convert_scenario_to_spec(scenario)
 
     assert conversion.runtime_coordinate_system == "left_handed_y_up_meters"
     assert conversion.coordinate_mapping == "direct_left_handed_y_up_meters"
@@ -198,24 +175,7 @@ def test_camera_far_clip_uses_declared_value():
         ],
     )
 
-    spec = convert_submission_to_spec(scenario)
+    spec = convert_scenario_to_spec(scenario)
 
     assert spec.distance_sensor_range_meters == 7.5
     assert spec.camera.far_clip_meters == pytest.approx(100.0)
-
-
-def test_parse_scenario_bundle_rejects_invalid_dict():
-    with pytest.raises(ValidationError):
-        parse_scenario_bundle(
-            {
-                "scenario": {
-                    "schema_version": "scenario-bundle.v0",
-                    "robot": {
-                        "start_pose": {
-                            "position": {"x": 99.0, "z": 1.0},
-                            "rotation_y_degrees": 0.0,
-                        }
-                    },
-                }
-            }
-        )

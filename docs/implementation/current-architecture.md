@@ -108,6 +108,16 @@ semantic camera と、同じく Scenario Bundle で順序を指定した
 `obs_0: 3 x 84 x 112`、`obs_1: 2` だが、runtime や policy network にこの shape を
 重複して直書きしない。
 
+`training.randomize_start` が `true` の Scenario は、submission の永続化と job 起動より
+前に開始可能領域を検証する。world bounds から1.35 m内側の一様抽選矩形を32 x 32の
+固定 grid で評価し、robot radius を含む障害物の衝突領域から0.65 m以上、かつ goal
+領域から0.65 m以上離れた点の割合を開始可能面積率として近似する。8%未満なら
+`422 Unprocessable Entity` とする。
+
+受理済み Scenario の runtime は、同じ点ごとの安全判定を使って最大512回抽選する。
+すべて外れた場合は、受理時の grid で確認した開始可能点のうち抽選矩形の中心に最も近い
+決定的な点を使う。宣言された固定 `start_pose` へ暗黙に戻す旧 fallback は使わない。
+
 ## 現在の成果物
 
 trainer job が完了すると、以下の成果物をアップロードする。
@@ -149,6 +159,11 @@ trainer は upload 前に実ファイルを検証し、GCS object は generation
 座標、Y 回転、連続 action forward/turn、goal radius、static walls、
 static obstacles、回転付き box collision、任意の距離センサ range を表現する。
 Replay Bundle は continuous runtime の実座標と実 action から生成する。
+
+現行の `DistanceSensor` は前方1本の range measurement であり、LiDAR のような angular
+scan ではない。runtime はその1本を進行方向に 0.005 m 間隔でサンプルして最初の衝突までの
+距離を求める。この値は角度分解能を表さない。Ray と交差する厚さ 0.005 m 未満の障害物が
+サンプル点の間に完全に収まる場合、現行実装はその衝突を見逃し得る。
 
 Scenario Bundle、Result Bundle、Replay Bundle の契約と、EnvForge からのジョブ投入、
 進捗監視、artifact download、Replay 再生、ONNX Runtime 推論の主導線は実装済みである。

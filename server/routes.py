@@ -7,7 +7,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from embodiedlab.api_models import SubmissionResponse
+from embodiedlab.api_models import (
+    RECOVERY_VALUE_MAX_LENGTH,
+    RECOVERY_VALUE_MIN_LENGTH,
+    RECOVERY_VALUE_PATTERN,
+    SubmissionResponse,
+)
+from embodiedlab.random_start import RandomStartValidationError
 from embodiedlab.repositories import (
     ApiResultStore,
     SubmissionConflictError,
@@ -49,7 +55,6 @@ from server.services.submission_workflow import (
 
 router = APIRouter()
 cancel_token_scheme = HTTPBearer(auto_error=False)
-RECOVERY_HEADER_PATTERN = r"^[A-Za-z0-9_-]{32,128}$"
 
 
 @router.post("/submissions")
@@ -61,13 +66,20 @@ def create_submission(
     ],
     idempotency_key: Annotated[
         str,
-        Header(alias="Idempotency-Key", pattern=RECOVERY_HEADER_PATTERN),
+        Header(
+            alias="Idempotency-Key",
+            min_length=RECOVERY_VALUE_MIN_LENGTH,
+            max_length=RECOVERY_VALUE_MAX_LENGTH,
+            pattern=RECOVERY_VALUE_PATTERN,
+        ),
     ],
     client_cancel_token: Annotated[
         str,
         Header(
             alias="X-EmbodiedLab-Cancel-Token",
-            pattern=RECOVERY_HEADER_PATTERN,
+            min_length=RECOVERY_VALUE_MIN_LENGTH,
+            max_length=RECOVERY_VALUE_MAX_LENGTH,
+            pattern=RECOVERY_VALUE_PATTERN,
         ),
     ],
 ) -> SubmissionResponse:
@@ -78,6 +90,8 @@ def create_submission(
             cancel_token_hash=hash_cancel_token(client_cancel_token),
             idempotency_key=idempotency_key,
         )
+    except RandomStartValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except SubmissionConflictError as exc:
         raise HTTPException(
             status_code=409,

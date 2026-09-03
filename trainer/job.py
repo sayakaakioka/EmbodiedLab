@@ -124,7 +124,7 @@ def run_training_job(  # noqa: PLR0913
             torch_num_threads=inputs.training.torch_num_threads,
             n_steps=inputs.training.n_steps,
             batch_size=inputs.training.batch_size,
-            max_steps=inputs.training.max_steps,
+            max_episode_steps=inputs.training.max_episode_steps,
         )
 
         if (

@@ -25,7 +25,7 @@ from embodiedlab.training.navigation_final_policy import (
 from embodiedlab.training.replay_bundle import ReplayBundleWriter
 
 if TYPE_CHECKING:
-    from embodiedlab.training.training_config import TrainingConfig
+    from embodiedlab.schemas import TrainingSpec
     from embodiedlab.training.training_models import ContinuousNavigationSpec
 
 TrainingProgressCallback = Callable[[int, int], None]
@@ -46,7 +46,7 @@ class TrainingProgressReporter(BaseCallback):
         interval_steps: int = PROGRESS_LOG_INTERVAL_STEPS,
         diagnostic_callback: TrainingDiagnosticCallback | None = None,
         replay_writer: ReplayBundleWriter | None = None,
-        training: TrainingConfig | None = None,
+        training: TrainingSpec | None = None,
         eval_spec: ContinuousNavigationSpec | None = None,
     ) -> None:
         """Initialize the reporter with progress and replay recording settings."""
@@ -157,7 +157,7 @@ class TrainingProgressReporter(BaseCallback):
             return
         eval_env = ContinuousNavigationEnv(
             spec=self._eval_spec,
-            max_steps=self._training.max_steps,
+            max_episode_steps=self._training.max_episode_steps,
             randomize_start=self._training.randomize_start,
         )
         try:
@@ -325,7 +325,7 @@ def build_continuous_replay_step(  # noqa: PLR0913
 def evaluate_continuous_policy(
     model: PPO,
     env: ContinuousNavigationEnv,
-    training: TrainingConfig,
+    training: TrainingSpec,
     *,
     phase: str = "eval",
     checkpoint_step: int = 0,
@@ -411,7 +411,7 @@ def _emit_training_diagnostic(
 
 
 def _configure_cpu_count(
-    training: TrainingConfig,
+    training: TrainingSpec,
     diagnostic_callback: TrainingDiagnosticCallback | None,
 ) -> int:
     available_cpus = min(
@@ -455,7 +455,7 @@ def _configure_cpu_count(
 
 
 def _configure_torch_threads(
-    training: TrainingConfig,
+    training: TrainingSpec,
     effective_cpu_count: int,
     diagnostic_callback: TrainingDiagnosticCallback | None,
 ) -> int:
@@ -477,7 +477,7 @@ def _configure_torch_threads(
 def _train_model(  # noqa: PLR0913
     *,
     env: TrainingEnv,
-    training: TrainingConfig,
+    training: TrainingSpec,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
     replay_writer: ReplayBundleWriter | None = None,
@@ -567,7 +567,7 @@ def _train_model(  # noqa: PLR0913
 
 def _build_training_env(
     spec: ContinuousNavigationSpec,
-    training: TrainingConfig,
+    training: TrainingSpec,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
 ) -> TrainingEnv:
     _emit_training_diagnostic(
@@ -575,13 +575,13 @@ def _build_training_env(
         "training_env_build_started",
         n_envs=training.n_envs,
         env_kind=_training_env_kind(training),
-        max_steps=training.max_steps,
+        max_episode_steps=training.max_episode_steps,
         obstacle_count=len(spec.obstacles),
     )
     if training.n_envs == 1:
         env = ContinuousNavigationEnv(
             spec=spec,
-            max_steps=training.max_steps,
+            max_episode_steps=training.max_episode_steps,
             randomize_start=training.randomize_start,
         )
         _emit_training_diagnostic(
@@ -596,7 +596,7 @@ def _build_training_env(
         partial(
             _make_continuous_navigation_env,
             spec,
-            training.max_steps,
+            training.max_episode_steps,
             randomize_start=training.randomize_start,
         )
         for _ in range(training.n_envs)
@@ -612,19 +612,19 @@ def _build_training_env(
     return env
 
 
-def _training_env_kind(training: TrainingConfig) -> str:
+def _training_env_kind(training: TrainingSpec) -> str:
     return "single" if training.n_envs == 1 else "subproc_vec"
 
 
 def _make_continuous_navigation_env(
     spec: ContinuousNavigationSpec,
-    max_steps: int,
+    max_episode_steps: int,
     *,
     randomize_start: bool,
 ) -> ContinuousNavigationEnv:
     return ContinuousNavigationEnv(
         spec=spec,
-        max_steps=max_steps,
+        max_episode_steps=max_episode_steps,
         randomize_start=randomize_start,
     )
 
@@ -640,7 +640,7 @@ def _save_model(model: PPO, model_output_path: str | None) -> None:
 
 def run_continuous_navigation_training(  # noqa: PLR0913
     spec: ContinuousNavigationSpec,
-    training: TrainingConfig,
+    training: TrainingSpec,
     model_output_path: str | None = None,
     progress_callback: TrainingProgressCallback | None = None,
     diagnostic_callback: TrainingDiagnosticCallback | None = None,
@@ -683,7 +683,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
     _emit_training_diagnostic(diagnostic_callback, "eval_env_build_started")
     eval_env = ContinuousNavigationEnv(
         spec=spec,
-        max_steps=training.max_steps,
+        max_episode_steps=training.max_episode_steps,
         randomize_start=training.randomize_start,
     )
     _emit_training_diagnostic(diagnostic_callback, "eval_env_built")
@@ -735,7 +735,7 @@ def run_continuous_navigation_training(  # noqa: PLR0913
                     "device": training.device.value,
                     "timesteps": training.timesteps,
                     "seed": training.seed,
-                    "max_episode_steps": training.max_steps,
+                    "max_episode_steps": training.max_episode_steps,
                     "n_envs": training.n_envs,
                     "requested_cpu_count": training.cpu_count,
                     "cpu_count": effective_cpu_count,

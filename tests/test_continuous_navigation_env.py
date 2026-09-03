@@ -2,13 +2,14 @@ import numpy as np
 import pytest
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
+from embodiedlab.random_start import MAX_RANDOM_START_ATTEMPTS
 from embodiedlab.schemas import ScenarioBundle
 from embodiedlab.training.navigation_final_policy import (
     POLICY_FORWARD_ACTION_HIGH,
     POLICY_FORWARD_ACTION_LOW,
 )
 from embodiedlab.training.training_converter import (
-    convert_submission_to_spec,
+    convert_scenario_to_spec,
     describe_runtime_conversion,
 )
 from tests.fakes import scenario_bundle
@@ -76,7 +77,7 @@ def test_continuous_runtime_conversion_preserves_left_handed_coordinates():
     )
 
     conversion = describe_runtime_conversion(scenario)
-    spec = convert_submission_to_spec(scenario)
+    spec = convert_scenario_to_spec(scenario)
 
     assert conversion.runtime_coordinate_system == "left_handed_y_up_meters"
     assert conversion.coordinate_mapping == "direct_left_handed_y_up_meters"
@@ -99,8 +100,8 @@ def test_continuous_runtime_conversion_preserves_left_handed_coordinates():
 
 
 def test_continuous_env_moves_forward_in_left_handed_xz_space():
-    spec = convert_submission_to_spec(scenario_bundle())
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
 
     obs, info = env.reset()
     _next_obs, reward, terminated, truncated, next_info = env.step(
@@ -124,8 +125,8 @@ def test_continuous_env_ignores_tiny_goal_progress_below_physics_resolution():
         step_penalty=0.0,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
 
     reward_components = env._reward_components(  # noqa: SLF001
@@ -150,8 +151,8 @@ def test_continuous_env_uses_declared_goal_progress_threshold():
     )
     component["minimum_delta_meters"] = 0.02
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(ScenarioBundle.model_validate(payload)),
-        max_steps=10,
+        spec=convert_scenario_to_spec(ScenarioBundle.model_validate(payload)),
+        max_episode_steps=10,
     )
 
     reward_components = env._reward_components(  # noqa: SLF001
@@ -170,8 +171,8 @@ def test_continuous_env_rewards_goal_progress_fixed_when_distance_decreases():
         step_penalty=0.0,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, info = env.reset()
 
@@ -190,8 +191,8 @@ def test_continuous_env_uses_declared_reward_weights():
         inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -209,8 +210,8 @@ def test_continuous_env_penalizes_min_forward_even_when_turning_fast():
         inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -230,8 +231,8 @@ def test_continuous_env_penalizes_zero_forward_as_inactive():
         inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -250,8 +251,8 @@ def test_continuous_env_does_not_penalize_forward_without_turning_as_inactive():
         inactive_penalty=-0.4,
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -261,6 +262,62 @@ def test_continuous_env_does_not_penalize_forward_without_turning_as_inactive():
 
     assert _next_info["applied_forward"] > 0.99
     assert reward == pytest.approx(0.0)
+
+
+@pytest.mark.parametrize(
+    ("rotation_y_degrees", "goal_reached", "expected_components"),
+    [
+        (
+            -45.0,
+            False,
+            [
+                {"name": "step_penalty", "value": -0.01},
+                {"name": "wide_angle_penalty", "value": -0.4},
+            ],
+        ),
+        (
+            -105.0,
+            False,
+            [
+                {"name": "step_penalty", "value": -0.01},
+                {"name": "rear_angle_penalty", "value": -0.8},
+            ],
+        ),
+        (
+            45.0,
+            True,
+            [
+                {"name": "step_penalty", "value": -0.01},
+                {"name": "goal_reached", "value": 2.0},
+            ],
+        ),
+    ],
+)
+def test_continuous_env_emits_angle_and_goal_reward_components(
+    rotation_y_degrees,
+    goal_reached,
+    expected_components,
+):
+    scenario = _scenario_with_reward_weights(
+        wide_angle_penalty=-0.4,
+        rear_angle_penalty=-0.8,
+        goal_reached=2.0,
+    )
+    env = ContinuousNavigationEnv(
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
+    )
+    env.reset()
+    env.robot_rotation_y_degrees = rotation_y_degrees
+
+    reward_components = env._reward_components(  # noqa: SLF001
+        distance_delta=0.0,
+        applied_forward=1.0,
+        collision_id=None,
+        goal_reached=goal_reached,
+    )
+
+    assert reward_components == expected_components
 
 
 def test_continuous_env_blocks_rotated_obstacle_collision():
@@ -278,8 +335,8 @@ def test_continuous_env_blocks_rotated_obstacle_collision():
         },
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -293,7 +350,11 @@ def test_continuous_env_blocks_rotated_obstacle_collision():
     assert next_info["robot_z"] == pytest.approx(_info["robot_z"])
     assert next_info["collision"] is True
     assert next_info["collision_id"] == "box_001"
-    assert reward < -1.0
+    assert next_info["reward_components"] == [
+        {"name": "step_penalty", "value": -0.01},
+        {"name": "collision_penalty", "value": -5.0},
+    ]
+    assert reward == pytest.approx(-5.01)
 
 
 def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
@@ -331,8 +392,8 @@ def test_robot_radius_expands_movement_collision_but_not_sensor_geometry():
         ],
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, info = env.reset()
 
@@ -357,8 +418,8 @@ def test_continuous_env_blocks_thin_obstacle_between_movement_endpoints():
         },
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, _info = env.reset()
 
@@ -420,8 +481,8 @@ def test_segmentation_observation_renders_near_wall_as_large_blocked_surface():
         ],
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
 
     obs, _info = env.reset()
@@ -480,7 +541,10 @@ def test_segmentation_observation_uses_object_height_in_camera_projection():
             },
         ],
     )
-    env = ContinuousNavigationEnv(spec=convert_submission_to_spec(scenario))
+    env = ContinuousNavigationEnv(
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=512,
+    )
 
     obs, _info = env.reset()
 
@@ -526,7 +590,10 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
             },
         ],
     )
-    env = ContinuousNavigationEnv(spec=convert_submission_to_spec(scenario))
+    env = ContinuousNavigationEnv(
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=512,
+    )
 
     obs, _info = env.reset()
 
@@ -536,6 +603,56 @@ def test_segmentation_observation_renders_floor_and_background_without_hits():
     assert obs["obs_0"][1, -1, center_column] == 1.0
     assert obs["obs_0"][2].mean() > 0.4
     assert obs["obs_0"][1].mean() > 0.3
+
+
+def test_segmentation_observation_marks_floor_beyond_world_bounds_as_blocked():
+    scenario = scenario_bundle(
+        world={
+            "bounds": {
+                "min": {"x": -1.0, "z": -1.0},
+                "max": {"x": 1.0, "z": 1.0},
+            },
+            "static_walls": [],
+            "static_obstacles": [],
+            "goal": {
+                "id": "goal_001",
+                "position": {"x": 0.0, "z": 0.8},
+                "radius": 0.1,
+            },
+        },
+        robot={
+            "start_pose": {
+                "position": {"x": 0.0, "z": 0.0},
+                "rotation_y_degrees": 0.0,
+            },
+        },
+        sensors=[
+            {
+                "id": "front_camera",
+                "type": "forward_camera",
+                "width": 20,
+                "height": 20,
+                "vertical_fov_degrees": 90.0,
+                "far_clip_meters": 10.0,
+            },
+            {
+                "id": "goal_vector",
+                "type": "goal_vector",
+                "target": "goal_001",
+            },
+        ],
+    )
+    env = ContinuousNavigationEnv(
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
+    )
+
+    obs, _info = env.reset()
+
+    center_column = env.spec.camera.width // 2
+    assert obs["obs_0"][1, -1, center_column] == 1.0
+    assert obs["obs_0"][1, 12, center_column] == 0.0
+    assert obs["obs_0"][2, 12, center_column] == 1.0
 
 
 def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
@@ -582,8 +699,8 @@ def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
         ],
     )
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(scenario),
-        max_steps=10,
+        spec=convert_scenario_to_spec(scenario),
+        max_episode_steps=10,
     )
     _obs, info = env.reset()
 
@@ -591,8 +708,8 @@ def test_front_distance_detects_thin_obstacle_between_coarse_sensor_samples():
 
 
 def test_continuous_env_maps_raw_action_to_navigation_final_contract():
-    spec = convert_submission_to_spec(scenario_bundle())
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
 
     _obs, _info = env.reset()
     _next_obs, _reward, _terminated, _truncated, _next_info = env.step(
@@ -613,8 +730,8 @@ def test_continuous_env_uses_declared_action_steps():
     payload["robot"]["action_space"]["forward_step_meters"] = 0.4
     payload["robot"]["action_space"]["turn_degrees_per_step"] = 30.0
     env = ContinuousNavigationEnv(
-        spec=convert_submission_to_spec(ScenarioBundle.model_validate(payload)),
-        max_steps=10,
+        spec=convert_scenario_to_spec(ScenarioBundle.model_validate(payload)),
+        max_episode_steps=10,
     )
 
     _obs, info = env.reset()
@@ -658,22 +775,26 @@ def test_continuous_env_randomizes_start_pose_when_enabled():
             },
         },
     )
-    spec = convert_submission_to_spec(scenario)
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10, randomize_start=True)
+    spec = convert_scenario_to_spec(scenario)
+    env = ContinuousNavigationEnv(
+        spec=spec,
+        max_episode_steps=10,
+        randomize_start=True,
+    )
 
     _obs, info = env.reset(seed=123)
 
     assert spec.bounds.min_x <= info["robot_x"] <= spec.bounds.max_x
     assert spec.bounds.min_z <= info["robot_z"] <= spec.bounds.max_z
     assert env._collision_id(env.robot_pos) is None  # noqa: SLF001
-    assert env._clearance_collision_id(env.robot_pos, 0.65) is None  # noqa: SLF001
+    assert env._valid_random_start_position(env.robot_pos) is True  # noqa: SLF001
     assert info["distance"] > spec.goal.radius + 0.65
     assert -180.0 <= info["robot_rotation_y_degrees"] <= 180.0
     assert (info["robot_x"], info["robot_z"]) != (-3.0, -3.0)
 
     second_env = ContinuousNavigationEnv(
         spec=spec,
-        max_steps=10,
+        max_episode_steps=10,
         randomize_start=True,
     )
     _second_obs, second_info = second_env.reset(seed=123)
@@ -683,6 +804,42 @@ def test_continuous_env_randomizes_start_pose_when_enabled():
     assert second_info["robot_rotation_y_degrees"] == pytest.approx(
         info["robot_rotation_y_degrees"],
     )
+
+
+def test_continuous_env_uses_validated_safe_start_after_random_attempt_limit(
+    monkeypatch,
+):
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(
+        spec=spec,
+        max_episode_steps=10,
+        randomize_start=True,
+    )
+    validated_area = env._random_start_area  # noqa: SLF001
+    assert validated_area is not None
+    attempts = 0
+
+    class RejectingArea:
+        min_x = validated_area.min_x
+        min_z = validated_area.min_z
+        max_x = validated_area.max_x
+        max_z = validated_area.max_z
+        safe_position = validated_area.safe_position
+
+        @staticmethod
+        def contains(_x, _z):
+            nonlocal attempts
+            attempts += 1
+            return False
+
+    monkeypatch.setattr(env, "_random_start_area", RejectingArea())
+
+    position, rotation_y_degrees = env._sample_random_start()  # noqa: SLF001
+
+    assert attempts == MAX_RANDOM_START_ATTEMPTS
+    assert tuple(position) == pytest.approx(validated_area.safe_position)
+    assert validated_area.contains(float(position[0]), float(position[1]))
+    assert -180.0 <= rotation_y_degrees <= 180.0
 
 
 def test_continuous_env_randomizes_camera_mount_height_per_episode():
@@ -702,8 +859,8 @@ def test_continuous_env_randomizes_camera_mount_height_per_episode():
             },
         ],
     )
-    spec = convert_submission_to_spec(scenario)
-    env = ContinuousNavigationEnv(spec=spec, max_steps=10)
+    spec = convert_scenario_to_spec(scenario)
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=10)
 
     _obs, first_info = env.reset(seed=123)
     _obs, second_info = env.reset()

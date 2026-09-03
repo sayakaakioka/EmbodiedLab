@@ -100,9 +100,16 @@ def test_replay_manifest_schema_rejects_phase_contract_violations():
 def test_openapi_exposes_typed_sdk_responses():
     openapi = create_app().openapi()
 
+    submission_parameters = {
+        parameter["name"]: parameter["schema"]
+        for parameter in openapi["paths"]["/submissions"]["post"]["parameters"]
+    }
     submission_response = openapi["paths"]["/submissions"]["post"]["responses"]["200"][
         "content"
     ]["application/json"]["schema"]
+    cancel_token_response = openapi["components"]["schemas"]["SubmissionResponse"][
+        "properties"
+    ]["cancel_token"]
     cancellation_response = openapi["paths"]["/submissions/{submission_id}/cancel"][
         "post"
     ]["responses"]["200"]["content"]["application/json"]["schema"]
@@ -110,6 +117,18 @@ def test_openapi_exposes_typed_sdk_responses():
         "200"
     ]["content"]["application/json"]["schema"]
 
+    expected_recovery_value_schema = {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9_-]+$",
+    }
+    for header_name in ("Idempotency-Key", "X-EmbodiedLab-Cancel-Token"):
+        assert (
+            expected_recovery_value_schema.items()
+            <= submission_parameters[header_name].items()
+        )
     assert submission_response == {"$ref": "#/components/schemas/SubmissionResponse"}
+    assert expected_recovery_value_schema.items() <= cancel_token_response.items()
     assert cancellation_response == {"$ref": "#/components/schemas/ResultDocument"}
     assert result_response == {"$ref": "#/components/schemas/ResultDocument"}
