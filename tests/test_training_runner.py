@@ -3,6 +3,7 @@ import pytest
 
 from embodiedlab.continuous_navigation_env import ContinuousNavigationEnv
 from embodiedlab.training.runner import (
+    TrainingProgressReporter,
     _build_training_env,
     _configure_cpu_count,
     _predict_navigation_final_raw_action,
@@ -263,11 +264,8 @@ def test_build_continuous_replay_step_returns_contract_replay_shape():
         step_duration_seconds=0.1,
         episode_index=0,
         step_index=2,
-        action=np.array([0.7, -0.2], dtype=np.float32),
-        obs={"obs_1": np.array([30.0, 5.0], dtype=np.float32)},
         reward=0.3,
         info={
-            "distance_delta": 1.0,
             "collision": True,
             "collision_id": "box_001",
             "front_distance": 1.25,
@@ -296,8 +294,8 @@ def test_build_continuous_replay_step_returns_contract_replay_shape():
     assert step["robot"]["position"] == {"x": 3.0, "z": 4.0}
     assert step["robot"]["rotation_y_degrees"] == 45.0
     assert step["action"]["values"] == [
-        {"name": "forward", "value": 0.6000000238418579},
-        {"name": "turn", "value": -0.10000000149011612},
+        {"name": "forward", "value": 0.6},
+        {"name": "turn", "value": -0.1},
     ]
     assert step["reward"]["components"] == [
         {"name": "step_penalty", "value": -0.01},
@@ -328,6 +326,62 @@ def test_build_continuous_replay_step_returns_contract_replay_shape():
     ]
 
 
+def test_training_replay_rejects_inconsistent_sb3_transition_batch():
+    reporter = TrainingProgressReporter(
+        total_steps=1,
+        progress_callback=None,
+        replay_writer=object(),
+        eval_spec=convert_scenario_to_spec(scenario_bundle()),
+    )
+    reporter._episode_indices = [0]  # noqa: SLF001
+    reporter._episode_steps = [0]  # noqa: SLF001
+    reporter.locals = {
+        "rewards": np.array([], dtype=np.float32),
+        "dones": np.array([], dtype=bool),
+        "infos": [{}],
+    }
+
+    with pytest.raises(RuntimeError, match="SB3 replay transition batch"):
+        reporter._record_training_replay(1)  # noqa: SLF001
+
+
+def test_training_replay_records_initial_state_for_one_step_episodes():
+    class RecordingWriter:
+        def __init__(self):
+            self.steps = []
+
+        def record_train_step(self, step):
+            self.steps.append(step)
+
+    spec = convert_scenario_to_spec(scenario_bundle())
+    env = ContinuousNavigationEnv(spec=spec, max_episode_steps=1)
+    writer = RecordingWriter()
+    _train_model(
+        env=env,
+        training=training_spec(
+            timesteps=8,
+            n_steps=8,
+            batch_size=4,
+            max_episode_steps=1,
+        ),
+        replay_writer=writer,
+        eval_spec=spec,
+    )
+
+    assert [step["step_index"] for step in writer.steps] == [0, 1] * 8
+    assert [step["time_seconds"] for step in writer.steps] == [0.0, 0.1] * 8
+    assert [step["episode_id"] for step in writer.steps] == [
+        f"train_env_00_episode_{episode:06d}"
+        for episode in range(1, 9)
+        for _step in range(2)
+    ]
+    assert writer.steps[0]["action"]["values"] == [
+        {"name": "forward", "value": 0.0},
+        {"name": "turn", "value": 0.0},
+    ]
+    assert writer.steps[0]["reward"] == {"total": 0.0, "components": []}
+
+
 def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
     class FakeEnv:
         def __init__(self):
@@ -342,7 +396,16 @@ def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
                 "obs_0": np.zeros((1,), dtype=np.float32),
                 "obs_1": np.zeros((2,), dtype=np.float32),
             }
-            return obs, {}
+            return obs, {
+                "front_distance": 5.0,
+                "camera_mount_height_meters": 0.6,
+                "robot_x": float(self.episode_index),
+                "robot_z": 0.0,
+                "robot_rotation_y_degrees": 0.0,
+                "collision": False,
+                "collision_id": None,
+                "reward_components": [],
+            }
 
         def step(self, action):
             self.step_index += 1
@@ -354,6 +417,9 @@ def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
                 "robot_z": float(self.step_index),
                 "robot_rotation_y_degrees": 0.0,
                 "collision": False,
+                "collision_id": None,
+                "applied_forward": float(action[0]),
+                "applied_turn": float(action[1]),
                 "reward_components": [{"name": "step_penalty", "value": -0.01}],
             }
             return (
@@ -380,14 +446,18 @@ def test_evaluate_continuous_policy_records_all_eval_episodes(monkeypatch):
 
     assert result["episodes"] == 3
     assert result["success_rate"] == 1.0
-    assert [step["episode_id"] for step in result["replay_steps"]] == [
-        "eval_env_00_episode_000001",
-        "eval_env_00_episode_000001",
-        "eval_env_00_episode_000002",
-        "eval_env_00_episode_000002",
-        "eval_env_00_episode_000003",
-        "eval_env_00_episode_000003",
+    assert [
+        (step["episode_id"], step["step_index"]) for step in result["replay_steps"]
+    ] == [
+        (f"eval_env_00_episode_{episode:06d}", step_index)
+        for episode in range(1, 4)
+        for step_index in range(3)
     ]
+    assert [step["robot"]["position"]["z"] for step in result["replay_steps"]] == [
+        0.0,
+        1.0,
+        2.0,
+    ] * 3
     assert {step["phase"] for step in result["replay_steps"]} == {"eval"}
     assert {step["policy_mode"] for step in result["replay_steps"]} == {
         "deterministic",

@@ -536,6 +536,8 @@ def test_envforge_navigation_replay_fixture_matches_contract():
     assert len(steps) == 2
     assert steps[0].scenario_id == "navigation_default"
     assert steps[0].action.values[0].name == "forward"
+    assert steps[0].reward.total == 0.0
+    assert steps[0].reward.components == []
     assert steps[1].reward.components[0].name == "goal_progress"
     assert steps[1].sensors == []
 

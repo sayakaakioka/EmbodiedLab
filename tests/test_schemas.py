@@ -438,11 +438,11 @@ def test_reward_angle_thresholds_must_be_strictly_ordered():
 
 def test_training_rejects_eval_replay_over_sdk_row_limit():
     payload = scenario_payload()
-    payload["training"]["max_episode_steps"] = 1001
+    payload["training"]["max_episode_steps"] = 1000
     payload["training"]["eval_episodes"] = 100
     with pytest.raises(
         ValidationError,
-        match=r"eval_episodes \* max_episode_steps",
+        match=r"eval_episodes \* \(max_episode_steps \+ 1\)",
     ):
         ScenarioBundle.model_validate(payload)
 

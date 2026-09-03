@@ -138,6 +138,13 @@ gzip 圧縮した JSON Lines chunk からなり、各行は `scenario_id` と `j
 `ReplayLogStep` として書き込み前に検証される。Result Bundle には ONNX の
 artifact location、target、opset、全 input/output metadata を含める。
 
+Replay の各 episode は、reset 直後の姿勢と sensor 値を持つ
+`step_index = 0`、`time_seconds = 0` の初期状態行から始まる。この行の action と
+reward はゼロで、event は空である。最初の action 適用後の状態は `step_index = 1`、
+`time_seconds = step_duration_seconds` とし、以後も同じ間隔で記録する。train と eval は
+同じ時刻・状態の意味を使う。eval chunk の行数上限は、episode ごとの初期状態1行を含む
+`eval_episodes * (max_episode_steps + 1)` で検証する。
+
 ダウンロード対象の ONNX、Replay manifest はすべて `size_bytes` と
 `sha256` を持つ。Replay manifest の各 chunk も圧縮後 bytes の size と digest を持つ。
 trainer は upload 前に実ファイルを検証し、GCS object は generation precondition 付きで

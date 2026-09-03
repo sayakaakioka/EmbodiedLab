@@ -506,10 +506,10 @@ class TrainingSpec(ContractModel):
     @model_validator(mode="after")
     def validate_eval_replay_size(self) -> TrainingSpec:
         """Keep one deterministic evaluation chunk within the SDK row budget."""
-        if self.eval_episodes * self.max_episode_steps > MAX_REPLAY_CHUNK_STEPS:
+        if self.eval_episodes * (self.max_episode_steps + 1) > MAX_REPLAY_CHUNK_STEPS:
             msg = (
-                "eval_episodes * max_episode_steps must be less than or equal "
-                f"to {MAX_REPLAY_CHUNK_STEPS}"
+                "eval_episodes * (max_episode_steps + 1) must be less than or "
+                f"equal to {MAX_REPLAY_CHUNK_STEPS}"
             )
             raise ValueError(msg)
         rollout_steps = self.n_steps * self.n_envs
